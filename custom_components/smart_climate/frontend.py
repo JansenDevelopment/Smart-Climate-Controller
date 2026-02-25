@@ -1,12 +1,10 @@
 """Register Smart Climate Lovelace card."""
 
 import hashlib
-import json
 import logging
 import shutil
 from pathlib import Path
 
-from homeassistant.components.http import StaticPathConfig
 from homeassistant.components.lovelace import MODE_STORAGE
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.event import async_call_later
@@ -15,7 +13,8 @@ _LOGGER = logging.getLogger(__name__)
 
 DOMAIN = "smart_climate"
 CARD_NAME = "smart-climate-card"
-CARD_PATH = "/smart_climate"
+HACS_PATH = "www/community/smart-climate-card"
+RESOURCE_URL = "/hacsfiles/smart-climate-card/smart-climate-card.js"
 
 
 class SmartClimateCardRegistration:
@@ -37,21 +36,18 @@ class SmartClimateCardRegistration:
 
     async def async_register(self) -> None:
         """Register card."""
-        # Copy card to www directory
-        await self._async_copy_card_to_www()
-        
-        # Register path
-        await self._async_register_path()
+        # Copy card to HACS community directory
+        await self._async_copy_card_to_hacs()
 
         if self.lovelace and self.lovelace.resource_mode == MODE_STORAGE:
             await self._async_wait_for_lovelace_resources()
 
-    async def _async_copy_card_to_www(self) -> None:
-        """Copy card JS file to www directory."""
+    async def _async_copy_card_to_hacs(self) -> None:
+        """Copy card JS file to HACS community directory."""
         source = Path(__file__).parent / f"{CARD_NAME}.js"
-        dest = Path(self.hass.config.path("www")) / f"{CARD_NAME}.js"
+        dest = Path(self.hass.config.path(HACS_PATH)) / f"{CARD_NAME}.js"
         
-        # Create www directory if it doesn't exist
+        # Create directory if it doesn't exist
         dest.parent.mkdir(parents=True, exist_ok=True)
         
         try:
@@ -61,22 +57,6 @@ class SmartClimateCardRegistration:
             _LOGGER.debug(f"Copied {CARD_NAME}.js to {dest}")
         except Exception as e:
             _LOGGER.error(f"Failed to copy card: {e}")
-
-    async def _async_register_path(self) -> None:
-        """Register resource path."""
-        try:
-            await self.hass.http.async_register_static_paths(
-                [
-                    StaticPathConfig(
-                        CARD_PATH,
-                        Path(__file__).parent,
-                        False,
-                    )
-                ]
-            )
-            _LOGGER.debug("Registered Smart Climate card path")
-        except RuntimeError:
-            _LOGGER.debug("Smart Climate card path already registered")
 
     async def _async_wait_for_lovelace_resources(self) -> None:
         """Wait for lovelace resources to load."""
@@ -96,7 +76,7 @@ class SmartClimateCardRegistration:
 
         # Get card hash for cache busting
         card_hash = await self.hass.async_add_executor_job(self._get_card_hash)
-        url = f"/local/{CARD_NAME}.js?v={card_hash}"
+        url = f"{RESOURCE_URL}?hacstag={card_hash}"
 
         # Check if already registered
         resources = [
@@ -108,7 +88,7 @@ class SmartClimateCardRegistration:
         if resources:
             # Update if hash changed
             existing = resources[0]
-            if existing["url"] != url:
+            if existing["url"].split("?")[0] == RESOURCE_URL:
                 _LOGGER.debug(f"Updating {CARD_NAME} resource")
                 await self.lovelace.resources.async_update_item(
                     existing["id"],
@@ -123,5 +103,6 @@ class SmartClimateCardRegistration:
         await self.lovelace.resources.async_create_item(
             {"res_type": "module", "url": url}
         )
+
 
 
