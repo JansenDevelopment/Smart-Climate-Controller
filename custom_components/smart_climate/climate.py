@@ -273,6 +273,12 @@ class SmartClimateEntity(ClimateEntity):
         self._interruptible = interruptible
         self.async_write_ha_state()
 
+    async def async_set_temperature(self, **kwargs):
+        """Set temperature - activate timer override."""
+        temperature = kwargs.get("temperature", 22)
+        # Auto-set 2 hour timer when user sets temperature
+        await self.async_set_override_timer(120, temperature)
+
     @property
     def hvac_modes(self):
         return [HVACMode.HEAT, HVACMode.OFF]
