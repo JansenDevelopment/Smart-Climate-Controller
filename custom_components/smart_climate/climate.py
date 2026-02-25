@@ -17,6 +17,8 @@ from .const import (
     CONF_AWAY_TEMPERATURE,
     CONF_AWAY_DELAY_MINUTES,
     CONF_INTERRUPTIBLE,
+    CONF_DEFAULT_OVERRIDE_MODE,
+    CONF_DEFAULT_OVERRIDE_DURATION,
     ATTR_MODE,
     ATTR_PRESENCE,
     ATTR_REMAINING_MINUTES,
@@ -45,6 +47,8 @@ async def async_setup_entry(
     away_temp = entry.data.get(CONF_AWAY_TEMPERATURE, 14)
     away_delay = entry.data.get(CONF_AWAY_DELAY_MINUTES, 5)
     interruptible = entry.data.get(CONF_INTERRUPTIBLE, True)
+    default_override_mode = entry.data.get(CONF_DEFAULT_OVERRIDE_MODE, "timer")
+    default_override_duration = entry.data.get(CONF_DEFAULT_OVERRIDE_DURATION, 30)
 
     entity = SmartClimateEntity(
         hass,
@@ -55,6 +59,8 @@ async def async_setup_entry(
         away_temp,
         away_delay,
         interruptible,
+        default_override_mode,
+        default_override_duration,
     )
     async_add_entities([entity], True)
 
@@ -101,6 +107,8 @@ class SmartClimateEntity(ClimateEntity):
         away_temp: float,
         away_delay_minutes: int,
         interruptible: bool,
+        default_override_mode: str,
+        default_override_duration: int,
     ):
         self.hass = hass
         self.entry = entry
@@ -116,6 +124,8 @@ class SmartClimateEntity(ClimateEntity):
         self._zone_home = zone_home
         self._away_temperature = away_temp
         self._away_delay_minutes = away_delay_minutes
+        self._default_override_mode = default_override_mode
+        self._default_override_duration = default_override_duration
 
         # State
         self._mode = MODE_AUTO
@@ -274,10 +284,14 @@ class SmartClimateEntity(ClimateEntity):
         self.async_write_ha_state()
 
     async def async_set_temperature(self, **kwargs):
-        """Set temperature - activate timer override."""
+        """Set temperature - activate override based on DEFAULT_OVERRIDE setting."""
         temperature = kwargs.get("temperature", 22)
-        # Auto-set 2 hour timer when user sets temperature
-        await self.async_set_override_timer(120, temperature)
+        
+        if self._default_override_mode == "infinity":
+            await self.async_set_override_infinity(temperature)
+        else:
+            # timer mode (default)
+            await self.async_set_override_timer(self._default_override_duration, temperature)
 
     @property
     def hvac_modes(self):

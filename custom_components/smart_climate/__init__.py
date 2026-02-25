@@ -10,6 +10,8 @@ from .const import (
     CONF_AWAY_TEMPERATURE,
     CONF_AWAY_DELAY_MINUTES,
     CONF_INTERRUPTIBLE,
+    CONF_DEFAULT_OVERRIDE_MODE,
+    CONF_DEFAULT_OVERRIDE_DURATION,
 )
 from .frontend import SmartClimateCardRegistration
 import voluptuous as vol
@@ -27,6 +29,8 @@ CONFIG_SCHEMA = vol.Schema(
                         vol.Optional(CONF_AWAY_TEMPERATURE, default=14): vol.Coerce(float),
                         vol.Optional(CONF_AWAY_DELAY_MINUTES, default=5): vol.Coerce(int),
                         vol.Optional(CONF_INTERRUPTIBLE, default=True): cv.boolean,
+                        vol.Optional(CONF_DEFAULT_OVERRIDE_MODE, default="timer"): vol.In(["timer", "infinity"]),
+                        vol.Optional(CONF_DEFAULT_OVERRIDE_DURATION, default=30): vol.Coerce(int),
                     }
                 )
             ],

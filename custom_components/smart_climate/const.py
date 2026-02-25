@@ -11,7 +11,8 @@ CONF_WRAPPED_CLIMATE = "wrapped_climate"
 CONF_ZONE_HOME = "zone_home"
 CONF_AWAY_TEMPERATURE = "away_temperature"
 CONF_AWAY_DELAY_MINUTES = "away_delay_minutes"
-CONF_INTERRUPTIBLE = "interruptible"
+CONF_DEFAULT_OVERRIDE_MODE = "default_override_mode"
+CONF_DEFAULT_OVERRIDE_DURATION = "default_override_duration"
 
 # Attributes
 ATTR_MODE = "mode"
