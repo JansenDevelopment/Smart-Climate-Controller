@@ -25,6 +25,9 @@ class SmartClimateCard extends LitElement {
       `;
     }
 
+    const zone = this.hass.states["zone.home"];
+    const isHome = zone?.state === "home";
+
     const attrs = entity.attributes;
     const currentTemp = attrs.current_temperature ?? "—";
     const targetTemp = attrs.temperature ?? 21;
@@ -38,7 +41,12 @@ class SmartClimateCard extends LitElement {
     return html`
       <ha-card>
         <div class="content">
-          <div class="title">SmartClimate</div>
+          <div class="header">
+            <div class="title">SmartClimate</div>
+            <div class="presence" ?away=${!isHome}>
+              ${isHome ? "🏠 Home" : "📍 Away"}
+            </div>
+          </div>
 
           <div class="temps">
             ${currentTemp}° → ${targetTemp}°
@@ -49,7 +57,7 @@ class SmartClimateCard extends LitElement {
           <div class="panel">
             <div class="state">
               ${isTimer
-                ? html`Remaining: <strong>${this.formatTime(remaining)}</strong>`
+                ? html`<span class="countdown">Remaining: <strong>${this.formatTime(remaining)}</strong></span>`
                 : isInfinity
                 ? html`<strong>♾ Infinity</strong>`
                 : html`Auto`}
@@ -61,6 +69,7 @@ class SmartClimateCard extends LitElement {
               max="480"
               step="15"
               .value=${sliderValue}
+              @input=${this.onSliderInput}
               @change=${this.onSliderChange}
             />
 
@@ -99,6 +108,12 @@ class SmartClimateCard extends LitElement {
     }
   }
 
+  onSliderInput(e) {
+    const value = Number(e.target.value);
+    const slider = e.target;
+    slider.style.setProperty("--slider-value", `${(value / 480) * 100}%`);
+  }
+
   formatTime(minutes) {
     if (minutes < 60) return `${minutes}m`;
     const h = Math.floor(minutes / 60);
@@ -116,9 +131,30 @@ class SmartClimateCard extends LitElement {
       padding: 16px;
     }
 
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 4px;
+    }
+
     .title {
       font-size: 20px;
       font-weight: 600;
+    }
+
+    .presence {
+      font-size: 12px;
+      padding: 4px 8px;
+      border-radius: 6px;
+      background: rgba(76, 175, 80, 0.15);
+      color: #4caf50;
+      transition: all 0.3s ease;
+    }
+
+    .presence[away] {
+      background: rgba(244, 67, 54, 0.15);
+      color: #f44336;
     }
 
     .temps {
@@ -143,11 +179,30 @@ class SmartClimateCard extends LitElement {
     .state {
       font-size: 12px;
       margin-bottom: 6px;
+      min-height: 20px;
+    }
+
+    .countdown {
+      animation: pulse 1s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.7; }
     }
 
     input[type="range"] {
       width: 100%;
       accent-color: var(--accent-color);
+      transition: all 0.1s ease;
+    }
+
+    input[type="range"]::-webkit-slider-thumb {
+      transition: transform 0.1s ease;
+    }
+
+    input[type="range"]:hover::-webkit-slider-thumb {
+      transform: scale(1.2);
     }
 
     .scale {
