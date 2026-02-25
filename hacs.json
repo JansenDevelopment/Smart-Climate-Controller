@@ -1,0 +1,7 @@
+{
+  "name": "Smart Climate Controller",
+  "content_in_root": false,
+  "domains": ["climate"],
+  "homeassistant": "2026.1.0",
+  "render_readme": true
+}
