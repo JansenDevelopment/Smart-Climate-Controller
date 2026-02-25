@@ -1,0 +1,17 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Smart Climate Setup",
+        "description": "Configure Smart Climate Controller",
+        "data": {
+          "name": "Name"
+        }
+      }
+    },
+    "error": {},
+    "abort": {
+      "already_configured": "Device is already configured"
+    }
+  }
+}

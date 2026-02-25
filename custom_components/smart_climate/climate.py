@@ -1,21 +1,34 @@
-from homeassistant.components.climate import ClimateEntity
+from homeassistant.components.climate import ClimateEntity, HVACMode
 from homeassistant.const import UnitOfTemperature
+from homeassistant.core import HomeAssistant
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 
-async def async_setup_entry(hass, entry, async_add_entities):
-    async_add_entities([SmartClimateDummy(entry.data.get("name", "Smart Climate"))])
+async def async_setup_entry(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    async_add_entities: AddEntitiesCallback,
+) -> None:
+    """Set up Smart Climate platform."""
+    name = entry.data.get("name", "Smart Climate")
+    async_add_entities([SmartClimateEntity(entry, name)])
 
 
-class SmartClimateDummy(ClimateEntity):
-    def __init__(self, name):
+class SmartClimateEntity(ClimateEntity):
+    """Smart Climate controller entity."""
+
+    def __init__(self, entry: ConfigEntry, name: str):
+        self.entry = entry
         self._attr_name = name
-        self._attr_unique_id = f"smart_climate_{name.lower().replace(' ', '_')}"
+        self._attr_unique_id = f"smart_climate_{entry.entry_id}"
         self._attr_temperature_unit = UnitOfTemperature.CELSIUS
-        self._attr_hvac_mode = "heat"
+        self._attr_hvac_mode = HVACMode.HEAT
         self._attr_target_temperature = 21
         self._attr_min_temp = 5
         self._attr_max_temp = 25
+        self._attr_should_poll = False
 
     @property
     def hvac_modes(self):
-        return ["heat", "off"]
+        return [HVACMode.HEAT, HVACMode.OFF]

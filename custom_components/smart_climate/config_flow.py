@@ -1,7 +1,6 @@
 from homeassistant import config_entries
 import voluptuous as vol
-
-DOMAIN = "smart_climate"
+from .const import DOMAIN
 
 
 class SmartClimateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
