@@ -1,13 +1,12 @@
-from homeassistant import config_entries
+from homeassistant.config_entries import ConfigFlow
 import voluptuous as vol
 from .const import DOMAIN
 
 
-class SmartClimateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
+class SmartClimateConfigFlow(ConfigFlow, domain=DOMAIN):
     """Config flow for Smart Climate."""
     
     VERSION = 1
-    MINOR_VERSION = 1
 
     async def async_step_user(self, user_input=None):
         """Handle user step."""
@@ -24,5 +23,4 @@ class SmartClimateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return self.async_show_form(
             step_id="user",
             data_schema=schema,
-            description_placeholders={},
         )

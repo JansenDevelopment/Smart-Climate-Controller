@@ -1,6 +1,7 @@
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from .const import DOMAIN
+from .config_flow import SmartClimateConfigFlow  # Zorg dat config_flow wordt geladen
 
 PLATFORMS = ["climate"]
 
