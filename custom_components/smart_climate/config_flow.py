@@ -4,17 +4,25 @@ from .const import DOMAIN
 
 
 class SmartClimateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
+    """Config flow for Smart Climate."""
+    
     VERSION = 1
+    MINOR_VERSION = 1
 
     async def async_step_user(self, user_input=None):
+        """Handle user step."""
         if user_input is not None:
             return self.async_create_entry(
-                title="Smart Climate",
+                title=user_input.get("name", "Smart Climate"),
                 data=user_input,
             )
 
         schema = vol.Schema({
-            vol.Optional("name", default="Smart Climate"): str,
+            vol.Required("name", default="Smart Climate"): str,
         })
 
-        return self.async_show_form(step_id="user", data_schema=schema)
+        return self.async_show_form(
+            step_id="user",
+            data_schema=schema,
+            description_placeholders={},
+        )
