@@ -1,6 +1,7 @@
 """Register Smart Climate Lovelace card."""
 
 import logging
+import shutil
 from pathlib import Path
 
 from homeassistant.components.http import StaticPathConfig
@@ -25,10 +26,30 @@ class SmartClimateCardRegistration:
 
     async def async_register(self) -> None:
         """Register card."""
+        # Copy card to www directory
+        await self._async_copy_card_to_www()
+        
+        # Register path
         await self._async_register_path()
 
         if self.lovelace and self.lovelace.resource_mode == MODE_STORAGE:
             await self._async_wait_for_lovelace_resources()
+
+    async def _async_copy_card_to_www(self) -> None:
+        """Copy card JS file to www directory."""
+        source = Path(__file__).parent / f"{CARD_NAME}.js"
+        dest = Path(self.hass.config.path("www")) / f"{CARD_NAME}.js"
+        
+        # Create www directory if it doesn't exist
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        
+        try:
+            await self.hass.async_add_executor_job(
+                shutil.copy2, source, dest
+            )
+            _LOGGER.debug(f"Copied {CARD_NAME}.js to {dest}")
+        except Exception as e:
+            _LOGGER.error(f"Failed to copy card: {e}")
 
     async def _async_register_path(self) -> None:
         """Register resource path."""
@@ -62,13 +83,13 @@ class SmartClimateCardRegistration:
         """Register card in Lovelace resources."""
         _LOGGER.debug("Registering Smart Climate card")
 
-        url = f"{CARD_PATH}/{CARD_NAME}.js"
+        url = f"/local/{CARD_NAME}.js"
 
         # Check if already registered
         resources = [
             r
             for r in self.lovelace.resources.async_items()
-            if CARD_PATH in r["url"]
+            if CARD_NAME in r["url"]
         ]
 
         if resources:
@@ -80,3 +101,4 @@ class SmartClimateCardRegistration:
         await self.lovelace.resources.async_create_item(
             {"res_type": "module", "url": url}
         )
+
