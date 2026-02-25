@@ -44,10 +44,14 @@ async def async_setup(hass: HomeAssistant, config: dict):
     frontend_path = os.path.join(
         os.path.dirname(__file__), "smart-climate-card.js"
     )
-    hass.http.register_static_path(
-        "/local/smart-climate-card.js",
-        frontend_path,
-        cache_headers=False,
+    await hass.http.async_register_static_paths(
+        [
+            (
+                "/local/smart-climate-card.js",
+                frontend_path,
+                False,
+            )
+        ]
     )
 
     if DOMAIN not in config:
