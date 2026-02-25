@@ -6,5 +6,8 @@
   "dependencies": [],
   "codeowners": ["@JansenDevelopment"],
   "requirements": [],
-  "iot_class": "local_push"
+  "iot_class": "local_push",
+  "resources": [
+    "/local/smart-climate-card.js"
+  ]
 }
