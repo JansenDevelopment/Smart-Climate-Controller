@@ -12,7 +12,6 @@ from .const import (
     CONF_INTERRUPTIBLE,
 )
 import voluptuous as vol
-import os
 
 CONFIG_SCHEMA = vol.Schema(
     {
@@ -39,20 +38,6 @@ CONFIG_SCHEMA = vol.Schema(
 async def async_setup(hass: HomeAssistant, config: dict):
     """Set up the Smart Climate integration from YAML."""
     hass.data.setdefault(DOMAIN, {})
-
-    # Register frontend resources
-    frontend_path = os.path.join(
-        os.path.dirname(__file__), "smart-climate-card.js"
-    )
-    await hass.http.async_register_static_paths(
-        [
-            (
-                "/local/smart-climate-card.js",
-                frontend_path,
-                False,
-            )
-        ]
-    )
 
     if DOMAIN not in config:
         return True
