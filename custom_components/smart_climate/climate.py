@@ -1,5 +1,5 @@
 from homeassistant.components.climate import ClimateEntity, HVACMode
-from homeassistant.const import UnitOfTemperature
+from homeassistant.const import UnitOfTemperature, CONF_NAME
 from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -11,8 +11,8 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up Smart Climate platform."""
-    name = entry.data.get("name", "Smart Climate")
-    async_add_entities([SmartClimateEntity(entry, name)])
+    name = entry.data.get(CONF_NAME, "Smart Climate")
+    async_add_entities([SmartClimateEntity(entry, name)], True)
 
 
 class SmartClimateEntity(ClimateEntity):
