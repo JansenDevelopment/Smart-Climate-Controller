@@ -1,5 +1,7 @@
 """Register Smart Climate Lovelace card."""
 
+import hashlib
+import json
 import logging
 import shutil
 from pathlib import Path
@@ -23,6 +25,15 @@ class SmartClimateCardRegistration:
         """Initialize."""
         self.hass = hass
         self.lovelace = self.hass.data.get("lovelace")
+
+    def _get_card_hash(self) -> str:
+        """Get hash of card file for cache busting."""
+        card_file = Path(__file__).parent / f"{CARD_NAME}.js"
+        if not card_file.exists():
+            return "0"
+        
+        with open(card_file, "rb") as f:
+            return hashlib.md5(f.read()).hexdigest()[:10]
 
     async def async_register(self) -> None:
         """Register card."""
@@ -83,7 +94,9 @@ class SmartClimateCardRegistration:
         """Register card in Lovelace resources."""
         _LOGGER.debug("Registering Smart Climate card")
 
-        url = f"/local/{CARD_NAME}.js"
+        # Get card hash for cache busting
+        card_hash = await self.hass.async_add_executor_job(self._get_card_hash)
+        url = f"/local/{CARD_NAME}.js?v={card_hash}"
 
         # Check if already registered
         resources = [
@@ -93,7 +106,16 @@ class SmartClimateCardRegistration:
         ]
 
         if resources:
-            _LOGGER.debug("Smart Climate card already registered")
+            # Update if hash changed
+            existing = resources[0]
+            if existing["url"] != url:
+                _LOGGER.debug(f"Updating {CARD_NAME} resource")
+                await self.lovelace.resources.async_update_item(
+                    existing["id"],
+                    {"res_type": "module", "url": url}
+                )
+            else:
+                _LOGGER.debug("Smart Climate card already registered")
             return
 
         # Register new resource
@@ -101,4 +123,5 @@ class SmartClimateCardRegistration:
         await self.lovelace.resources.async_create_item(
             {"res_type": "module", "url": url}
         )
+
 
