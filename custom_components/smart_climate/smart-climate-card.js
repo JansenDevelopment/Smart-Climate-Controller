@@ -13,9 +13,17 @@ class SmartClimateCard extends HTMLElement {
   }
 
   render() {
-    if (!this.hass) return;
+    if (!this.hass || !this.config) {
+      this.innerHTML = `<ha-card><div style="padding: 16px;">Loading...</div></ha-card>`;
+      return;
+    }
 
     const entityId = this.config.entity;
+    if (!entityId) {
+      this.innerHTML = `<ha-card><div style="padding: 16px;">Please set entity in card config</div></ha-card>`;
+      return;
+    }
+
     const state = this.hass.states[entityId];
 
     if (!state) {
