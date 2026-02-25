@@ -28,7 +28,7 @@ class SmartClimateCard extends HTMLElement {
     const isInfinity = mode === "override_infinity";
     const isOverride = isTimer || isInfinity;
 
-    const sliderValue = isTimer ? remainingMinutes : isInfinity ? 121 : 0;
+    const sliderValue = isTimer ? remainingMinutes : isInfinity ? 481 : 0;
 
     this.innerHTML = `
       <ha-card>
@@ -39,17 +39,17 @@ class SmartClimateCard extends HTMLElement {
 
           ${isOverride ? `
             <div style="background:#FFF3E0;padding:12px;border-radius:8px;margin-top:12px">
-              <div style="font-size:12px;margin-bottom:8px">${isTimer ? `Remaining: <strong>${remainingMinutes}m</strong>` : `<strong>♾️ Infinity</strong>`}</div>
-              <input type="range" id="slider" min="0" max="121" value="${sliderValue}" style="width:100%;margin-bottom:8px">
+              <div style="font-size:12px;margin-bottom:8px">${isTimer ? `Remaining: <strong>${this.formatTime(remainingMinutes)}</strong>` : `<strong>♾️ Infinity</strong>`}</div>
+              <input type="range" id="slider" min="0" max="480" step="15" value="${sliderValue}" style="width:100%;margin-bottom:8px">
               <div style="display:flex;gap:8px;font-size:10px;justify-content:space-between">
-                <span>Auto</span><span>60m</span><span>120m</span><span>∞</span>
+                <span>Auto</span><span>2h</span><span>4h</span><span>8h</span><span>∞</span>
               </div>
             </div>
           ` : `
             <div style="margin-top:12px">
-              <input type="range" id="slider" min="0" max="121" value="0" style="width:100%;margin-bottom:8px">
+              <input type="range" id="slider" min="0" max="480" step="15" value="0" style="width:100%;margin-bottom:8px">
               <div style="display:flex;gap:8px;font-size:10px;justify-content:space-between">
-                <span>Auto</span><span>60m</span><span>120m</span><span>∞</span>
+                <span>Auto</span><span>2h</span><span>4h</span><span>8h</span><span>∞</span>
               </div>
             </div>
           `}
@@ -63,13 +63,23 @@ class SmartClimateCard extends HTMLElement {
         const value = parseInt(e.target.value);
         if (value === 0) {
           hass.callService("smart_climate", "clear_override", { entity_id: entityId });
-        } else if (value === 121) {
+        } else if (value >= 481) {
           hass.callService("smart_climate", "set_override_infinity", { entity_id: entityId, temperature: 22 });
         } else {
           hass.callService("smart_climate", "set_override_timer", { entity_id: entityId, minutes: value, temperature: 22 });
         }
       });
     }
+  }
+
+  formatTime(minutes) {
+    if (minutes === 0) return "0m";
+    if (minutes >= 60) {
+      const h = Math.floor(minutes / 60);
+      const m = minutes % 60;
+      return m > 0 ? `${h}h ${m}m` : `${h}h`;
+    }
+    return `${minutes}m`;
   }
 }
 
