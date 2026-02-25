@@ -4,6 +4,7 @@ class SmartClimateCard extends LitElement {
   static properties = {
     hass: {},
     config: {},
+    _overrideTemp: { state: true },
   };
 
   setConfig(config) {
@@ -11,6 +12,7 @@ class SmartClimateCard extends LitElement {
       throw new Error("Entity required");
     }
     this.config = config;
+    this._overrideTemp = 21;
   }
 
   render() {
@@ -31,8 +33,13 @@ class SmartClimateCard extends LitElement {
     const attrs = entity.attributes;
     const currentTemp = attrs.current_temperature ?? "—";
     const targetTemp = attrs.temperature ?? 21;
+    const overrideTemp = attrs.override_temperature ?? this._overrideTemp;
     const mode = attrs.mode ?? "auto";
     const remaining = attrs.remaining_minutes ?? 0;
+
+    if (overrideTemp !== this._overrideTemp) {
+      this._overrideTemp = overrideTemp;
+    }
 
     const isTimer = mode === "override_timer";
     const isInfinity = mode === "override_infinity";
@@ -81,6 +88,25 @@ class SmartClimateCard extends LitElement {
               <span>∞</span>
             </div>
           </div>
+
+          <div class="temp-slider-panel">
+            <div class="temp-label">Override: <strong>${this._overrideTemp}°</strong></div>
+            <input
+              type="range"
+              min="5"
+              max="25"
+              step="0.5"
+              .value=${this._overrideTemp}
+              @input=${this.onTempInput}
+              @change=${this.onTempChange}
+              class="temp-slider"
+            />
+            <div class="temp-scale">
+              <span>5°</span>
+              <span>15°</span>
+              <span>25°</span>
+            </div>
+          </div>
         </div>
       </ha-card>
     `;
@@ -97,13 +123,13 @@ class SmartClimateCard extends LitElement {
     } else if (value === 480) {
       this.hass.callService("smart_climate", "set_override_infinity", {
         entity_id: entityId,
-        temperature: 22,
+        temperature: this._overrideTemp,
       });
     } else {
       this.hass.callService("smart_climate", "set_override_timer", {
         entity_id: entityId,
         minutes: value,
-        temperature: 22,
+        temperature: this._overrideTemp,
       });
     }
   }
@@ -112,6 +138,14 @@ class SmartClimateCard extends LitElement {
     const value = Number(e.target.value);
     const slider = e.target;
     slider.style.setProperty("--slider-value", `${(value / 480) * 100}%`);
+  }
+
+  onTempInput(e) {
+    this._overrideTemp = Number(e.target.value);
+  }
+
+  onTempChange(e) {
+    this._overrideTemp = Number(e.target.value);
   }
 
   formatTime(minutes) {
@@ -211,6 +245,33 @@ class SmartClimateCard extends LitElement {
       font-size: 10px;
       color: var(--secondary-text-color);
       margin-top: 4px;
+    }
+
+    .temp-slider-panel {
+      margin-top: 12px;
+      padding: 12px;
+      border-radius: 10px;
+      background: var(--secondary-background-color);
+      border: 1px solid var(--divider-color);
+    }
+
+    .temp-label {
+      font-size: 12px;
+      margin-bottom: 8px;
+      color: var(--secondary-text-color);
+    }
+
+    .temp-slider {
+      width: 100%;
+      accent-color: var(--accent-color);
+      margin-bottom: 8px;
+    }
+
+    .temp-scale {
+      display: flex;
+      justify-content: space-between;
+      font-size: 10px;
+      color: var(--secondary-text-color);
     }
   `;
 }
