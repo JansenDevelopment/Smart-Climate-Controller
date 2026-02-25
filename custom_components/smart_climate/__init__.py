@@ -11,6 +11,7 @@ from .const import (
     CONF_AWAY_DELAY_MINUTES,
     CONF_INTERRUPTIBLE,
 )
+from .frontend import SmartClimateCardRegistration
 import voluptuous as vol
 
 CONFIG_SCHEMA = vol.Schema(
@@ -38,6 +39,10 @@ CONFIG_SCHEMA = vol.Schema(
 async def async_setup(hass: HomeAssistant, config: dict):
     """Set up the Smart Climate integration from YAML."""
     hass.data.setdefault(DOMAIN, {})
+
+    # Register Lovelace card
+    card_registration = SmartClimateCardRegistration(hass)
+    await card_registration.async_register()
 
     if DOMAIN not in config:
         return True
