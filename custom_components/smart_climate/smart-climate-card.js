@@ -28,7 +28,10 @@ class SmartClimateCard extends LitElement {
     }
 
     const attrs = entity.attributes;
-    const isHome = attrs.presence === "home";
+    const presence = attrs.presence ?? "away";
+    const isHome = presence === "home";
+    const awayDelayRemaining = attrs.away_delay_seconds_remaining ?? 0;
+    const isLeaving = !isHome && awayDelayRemaining > 0;
     const currentTemp = attrs.current_temperature ?? "—";
     const targetTemp = attrs.temperature ?? 21;
     const overrideTemp = attrs.override_temperature ?? this._overrideTemp;
@@ -48,8 +51,8 @@ class SmartClimateCard extends LitElement {
         <div class="content">
           <div class="header">
             <div class="title">SmartClimate</div>
-            <div class="presence" ?away=${!isHome}>
-              ${isHome ? "🏠 Aanwezig" : "📍 Afwezig"}
+            <div class="presence" ?away=${!isHome} ?leaving=${isLeaving}>
+              ${isHome ? "🏠 Home" : isLeaving ? `🚶 Leaving (${Math.ceil(awayDelayRemaining / 60)}m)` : "📍 Away"}
             </div>
           </div>
 
@@ -195,6 +198,11 @@ class SmartClimateCard extends LitElement {
     .presence[away] {
       background: rgba(244, 67, 54, 0.15);
       color: #f44336;
+    }
+
+    .presence[leaving] {
+      background: rgba(255, 152, 0, 0.15);
+      color: #ff9800;
     }
 
     .temps {

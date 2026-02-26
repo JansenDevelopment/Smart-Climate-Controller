@@ -5,7 +5,19 @@
         "title": "Smart Climate Setup",
         "description": "Configure Smart Climate Controller",
         "data": {
-          "name": "Name"
+          "name": "Name",
+          "wrapped_climate": "Wrapped Climate Entity",
+          "zone_home": "Home Zone",
+          "away_temperature": "Away Temperature",
+          "away_delay_minutes": "Away Delay (minutes)",
+          "interruptible": "Override is interruptible"
+        },
+        "data_description": {
+          "wrapped_climate": "The climate entity to wrap and control",
+          "zone_home": "The zone entity used for presence detection",
+          "away_temperature": "Target temperature when nobody is home",
+          "away_delay_minutes": "Minutes to wait before applying the away temperature",
+          "interruptible": "Whether a presence change can interrupt an active override"
         }
       }
     },
