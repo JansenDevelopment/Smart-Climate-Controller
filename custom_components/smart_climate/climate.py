@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from homeassistant.components.climate import ClimateEntity, HVACMode
+from homeassistant.components.climate import ClimateEntity, ClimateEntityFeature, HVACMode
 from homeassistant.const import UnitOfTemperature, CONF_NAME, STATE_HOME, STATE_NOT_HOME
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.config_entries import ConfigEntry
@@ -117,6 +117,8 @@ class SmartClimateEntity(ClimateEntity):
         self._attr_temperature_unit = UnitOfTemperature.CELSIUS
         self._attr_min_temp = 5
         self._attr_max_temp = 25
+        self._attr_target_temperature_step = 0.5
+        self._attr_supported_features = ClimateEntityFeature.TARGET_TEMPERATURE
         self._attr_should_poll = False
 
         # Config
@@ -313,10 +315,11 @@ class SmartClimateEntity(ClimateEntity):
 
     @property
     def target_temperature(self):
-        wrapped = self.hass.states.get(self._wrapped_climate)
-        if wrapped:
-            return wrapped.attributes.get("temperature")
-        return 21
+        if self._mode in (MODE_OVERRIDE_TIMER, MODE_OVERRIDE_INFINITY):
+            return self._override_temperature
+        if self._presence == "home":
+            return 21
+        return self._away_temperature
 
     @property
     def extra_state_attributes(self):
