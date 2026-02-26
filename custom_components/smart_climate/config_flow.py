@@ -62,3 +62,31 @@ class SmartClimateConfigFlow(ConfigFlow, domain=DOMAIN):
             step_id="user",
             data_schema=schema,
         )
+
+    async def async_step_reconfigure(self, user_input=None):
+        """Handle reconfiguration — allow changing wrapped_climate and zone_home."""
+        entry = self._get_reconfigure_entry()
+
+        if user_input is not None:
+            return self.async_update_reload_and_abort(
+                entry,
+                data={**entry.data, **user_input},
+            )
+
+        schema = vol.Schema(
+            {
+                vol.Required(
+                    CONF_WRAPPED_CLIMATE,
+                    default=entry.data.get(CONF_WRAPPED_CLIMATE, ""),
+                ): cv.entity_id,
+                vol.Required(
+                    CONF_ZONE_HOME,
+                    default=entry.data.get(CONF_ZONE_HOME, ""),
+                ): cv.entity_id,
+            }
+        )
+
+        return self.async_show_form(
+            step_id="reconfigure",
+            data_schema=schema,
+        )

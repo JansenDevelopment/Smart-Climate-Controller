@@ -17,6 +17,8 @@ CONF_DEFAULT_OVERRIDE_MODE = "default_override_mode"
 CONF_DEFAULT_OVERRIDE_DURATION = "default_override_duration"
 
 # Attributes
+ATTR_WRAPPED_CLIMATE = "wrapped_climate"
+ATTR_ZONE_HOME = "zone_home"
 ATTR_MODE = "mode"
 ATTR_PRESENCE = "presence"
 ATTR_REMAINING_MINUTES = "remaining_minutes"

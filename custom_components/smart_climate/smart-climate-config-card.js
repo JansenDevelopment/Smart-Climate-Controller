@@ -56,12 +56,32 @@ class SmartClimateConfigCard extends LitElement {
     const overrideMode = this._overrideMode ?? entity.attributes.default_override_mode ?? "timer";
     const overrideDuration = this._overrideDuration ?? entity.attributes.default_override_duration ?? 30;
     const interruptible = this._interruptible ?? entity.attributes.interruptible ?? true;
+    const wrappedClimate = entity.attributes.wrapped_climate ?? "—";
+    const zoneHome = entity.attributes.zone_home ?? "—";
 
     return html`
       <ha-card>
         <div class="content">
           <div class="header">
             <div class="title">⚙️ SmartClimate Config</div>
+          </div>
+
+          <div class="section">
+            <div class="section-title">🔗 Integration</div>
+
+            <div class="row">
+              <label>Wrapped climate</label>
+              <span class="info-value">${wrappedClimate}</span>
+            </div>
+
+            <div class="row">
+              <label>Zone home</label>
+              <span class="info-value">${zoneHome}</span>
+            </div>
+
+            <div class="row">
+              <span class="info-hint">To change these, use Settings → Integrations → Smart Climate → Configure</span>
+            </div>
           </div>
 
           <div class="section">
@@ -322,6 +342,19 @@ class SmartClimateConfigCard extends LitElement {
 
     .save-btn:hover {
       opacity: 0.85;
+    }
+
+    .info-value {
+      font-size: 13px;
+      color: var(--secondary-text-color);
+      text-align: right;
+      word-break: break-all;
+    }
+
+    .info-hint {
+      font-size: 11px;
+      color: var(--secondary-text-color);
+      font-style: italic;
     }
   `;
 }
