@@ -211,19 +211,19 @@ class SmartClimateCard extends LitElement {
       font-size: 11px;
       padding: 3px 6px;
       border-radius: 6px;
-      background: rgba(76, 175, 80, 0.15);
-      color: #4caf50;
+      background: rgba(var(--rgb-success-color, 76, 175, 80), 0.15);
+      color: var(--success-color);
       transition: all 0.3s ease;
     }
 
     .presence[away] {
-      background: rgba(244, 67, 54, 0.15);
-      color: #f44336;
+      background: rgba(var(--rgb-error-color, 244, 67, 54), 0.15);
+      color: var(--error-color);
     }
 
     .presence[leaving] {
-      background: rgba(255, 152, 0, 0.15);
-      color: #ff9800;
+      background: rgba(var(--rgb-warning-color, 255, 152, 0), 0.15);
+      color: var(--warning-color);
     }
 
     .temps {
@@ -244,8 +244,8 @@ class SmartClimateCard extends LitElement {
       margin-top: 10px;
       padding: 8px 12px;
       border-radius: 8px;
-      background: rgba(33, 150, 243, 0.12);
-      border: 1px solid rgba(33, 150, 243, 0.3);
+      background: rgba(var(--rgb-info-color, 33, 150, 243), 0.12);
+      border: 1px solid rgba(var(--rgb-info-color, 33, 150, 243), 0.3);
     }
 
     .away-delay-icon {
@@ -255,7 +255,7 @@ class SmartClimateCard extends LitElement {
     .away-delay-value {
       font-size: 18px;
       font-weight: 700;
-      color: #2196f3;
+      color: var(--info-color);
     }
 
     .away-delay-label {
@@ -270,8 +270,8 @@ class SmartClimateCard extends LitElement {
       margin-top: 6px;
       padding: 6px 10px;
       border-radius: 8px;
-      background: rgba(255, 152, 0, 0.12);
-      border: 1px solid rgba(255, 152, 0, 0.3);
+      background: rgba(var(--rgb-warning-color, 255, 152, 0), 0.12);
+      border: 1px solid rgba(var(--rgb-warning-color, 255, 152, 0), 0.3);
     }
 
     .timer-icon {
@@ -281,7 +281,7 @@ class SmartClimateCard extends LitElement {
     .timer-value {
       font-size: 15px;
       font-weight: 700;
-      color: #ff9800;
+      color: var(--warning-color);
     }
 
     .timer-label {

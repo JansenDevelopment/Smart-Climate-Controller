@@ -1,11 +1,5 @@
 {
-  "domain": "smart_climate",
   "name": "Smart Climate Controller",
-  "version": "0.2.0",
-  "documentation": "https://github.com/JansenDevelopment/ha-smart-climate",
-  "dependencies": [],
-  "codeowners": ["@JansenDevelopment"],
-  "requirements": [],
-  "iot_class": "local_push",
-  "config_flow": true
+  "render_readme": true,
+  "homeassistant": "2023.1.0"
 }
