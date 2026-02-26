@@ -95,6 +95,7 @@ class SmartClimateCard extends LitElement {
             </div>
           </div>
 
+          ${isTimer || isInfinity ? html`
           <div class="temp-slider-panel">
             <div class="temp-label">Override: <strong>${this._overrideTemp}°</strong></div>
             <input
@@ -113,6 +114,7 @@ class SmartClimateCard extends LitElement {
               <span>25°</span>
             </div>
           </div>
+          ` : ""}
         </div>
       </ha-card>
     `;
