@@ -1,57 +1,41 @@
-# Smart Climate Controller
+# HA Smart Climate
 
-Custom Home Assistant climate wrapper with:
-
-- Presence aware control
-- Manual override timers
-- Infinity override
-- Custom Lovelace card with slider control
-- Config card to manage all settings from the UI
+## Features
+- Comprehensive control of indoor climate
+- Smart presence indicators for optimized energy use
+- Easy configuration options
+- Timer management for different modes
 
 ## Installation
-
-Install via [HACS](https://hacs.xyz/) or copy the `custom_components/smart_climate` folder into your Home Assistant `custom_components` directory.
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/JansenDevelopment/ha-smart-climate.git
+   ```
+2. Navigate to the project directory:
+   ```bash
+   cd ha-smart-climate
+   ```
+3. Follow the installation instructions specific to your platform.
 
 ## Configuration
+Details about how to configure the smart climate settings will be provided here, including parameters to optimize your climate settings.
 
-Add Smart Climate through the Home Assistant **Integrations** page (Settings → Devices & Services → Add Integration), or add a minimal YAML entry to bootstrap the setup:
+## Smart Climate Card with Presence Indicators
+- **Home**: Activates the climate control for comfortable settings.
+- **Leaving**: Prepares the system to save energy when no one is home.
+- **Away**: Adjusts settings to maintain the home environment efficiently.
 
-```yaml
-smart_climate:
-  - name: "Smart Climate Woonkamer"
-```
+## Temperature Control
+Describes the methods to control the temperature through the application and any automatic settings available.
 
-After adding via YAML, complete the configuration through the Home Assistant UI where you will be prompted to fill in the remaining required settings.
+## Away Delay Countdown
+A feature that allows delayed activation of the Away mode to ensure all residents have left.
 
-## Config Card
-
-Use the Smart Climate Config Card in your Lovelace dashboard to manage settings at any time:
-
-```yaml
-type: custom:smart-climate-config-card
-entity: climate.smart_climate_woonkamer
-```
-
-### Settings
-
-| Setting | Description | Default |
-|---|---|---|
-| **Home Temperature** | Target temperature when presence is detected | 21 °C |
-| **Away Temperature** | Target temperature when nobody is home | 14 °C |
-| **Away Delay** | Minutes to wait before applying away temperature | 5 min |
-| **Default Override Mode** | `timer` or `infinity` when adjusting temperature | timer |
-| **Default Override Duration** | Duration for timer override mode | 30 min |
-| **Interruptible** | Whether presence changes can interrupt an active override | Yes |
+## Timer Management
+Information on managing timers for different climate settings based on daily or weekly schedules.
 
 ## Services
+Details on all the services offered by the smart climate application.
 
-| Service | Description |
-|---|---|
-| `smart_climate.set_override_timer` | Set manual override for a fixed duration |
-| `smart_climate.set_override_infinity` | Set manual override with no time limit |
-| `smart_climate.clear_override` | Return to auto mode |
-| `smart_climate.set_auto_temperature` | Set home temperature |
-| `smart_climate.set_away_temperature` | Set away temperature |
-| `smart_climate.set_away_delay` | Set delay before away mode |
-| `smart_climate.set_default_override_mode` | Set default override mode and duration |
-| `smart_climate.set_interruptible` | Enable/disable presence interrupting override |
+## Examples
+- Simple usage example to illustrate how to set up your Smart Climate system effectively.
