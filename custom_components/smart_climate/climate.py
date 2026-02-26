@@ -20,6 +20,8 @@ from .const import (
     CONF_INTERRUPTIBLE,
     CONF_DEFAULT_OVERRIDE_MODE,
     CONF_DEFAULT_OVERRIDE_DURATION,
+    ATTR_WRAPPED_CLIMATE,
+    ATTR_ZONE_HOME,
     ATTR_MODE,
     ATTR_PRESENCE,
     ATTR_REMAINING_MINUTES,
@@ -394,6 +396,8 @@ class SmartClimateEntity(ClimateEntity):
             remaining_minutes = max(0, self._override_duration_minutes - elapsed)
 
         return {
+            ATTR_WRAPPED_CLIMATE: self._wrapped_climate,
+            ATTR_ZONE_HOME: self._zone_home,
             ATTR_MODE: self._mode,
             ATTR_PRESENCE: self._presence,
             ATTR_REMAINING_MINUTES: int(remaining_minutes),
