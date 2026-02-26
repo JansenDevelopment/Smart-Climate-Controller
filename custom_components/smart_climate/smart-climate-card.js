@@ -27,15 +27,15 @@ class SmartClimateCard extends LitElement {
       `;
     }
 
-    const zone = this.hass.states["zone.home"];
-    const isHome = zone?.state === "home";
-
     const attrs = entity.attributes;
     const currentTemp = attrs.current_temperature ?? "—";
     const targetTemp = attrs.temperature ?? 21;
     const overrideTemp = attrs.override_temperature ?? this._overrideTemp;
     const mode = attrs.mode ?? "auto";
     const remaining = attrs.remaining_minutes ?? 0;
+    const presence = attrs.presence ?? "away";
+    const awayDelayRemaining = attrs.away_delay_seconds_remaining ?? 0;
+    const isHome = presence === "home";
 
     if (overrideTemp !== this._overrideTemp) {
       this._overrideTemp = overrideTemp;
@@ -64,11 +64,15 @@ class SmartClimateCard extends LitElement {
           <div class="panel">
             <div class="state">
               ${isTimer
-                ? html`<span class="countdown">Remaining: <strong>${this.formatTime(remaining)}</strong></span>`
+                ? html`<span class="countdown" aria-label="Timer remaining: ${this.formatTime(remaining)}">⏱ Remaining: <strong>${this.formatTime(remaining)}</strong></span>`
                 : isInfinity
                 ? html`<strong>♾ Infinity</strong>`
                 : html`Auto`}
             </div>
+
+            ${awayDelayRemaining > 0
+              ? html`<div class="away-delay" aria-label="Away delay: ${this.formatSeconds(awayDelayRemaining)} remaining">🕐 Away in: <strong>${this.formatSeconds(awayDelayRemaining)}</strong></div>`
+              : ""}
 
             <input
               type="range"
@@ -155,6 +159,13 @@ class SmartClimateCard extends LitElement {
     return m ? `${h}h ${m}m` : `${h}h`;
   }
 
+  formatSeconds(seconds) {
+    if (seconds < 60) return `${seconds}s`;
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return s ? `${m}m ${s}s` : `${m}m`;
+  }
+
   static styles = css`
     ha-card {
       background: var(--ha-card-background);
@@ -217,6 +228,16 @@ class SmartClimateCard extends LitElement {
     }
 
     .countdown {
+      animation: pulse 1s infinite;
+    }
+
+    .away-delay {
+      font-size: 12px;
+      margin-top: 6px;
+      padding: 4px 8px;
+      border-radius: 6px;
+      background: rgba(255, 152, 0, 0.15);
+      color: #ff9800;
       animation: pulse 1s infinite;
     }
 
