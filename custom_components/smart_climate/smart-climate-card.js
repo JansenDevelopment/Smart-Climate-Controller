@@ -88,6 +88,14 @@ class SmartClimateCard extends LitElement {
           </div>
           ` : ""}
 
+          ${isInfinity ? html`
+          <div class="timer-row">
+            <span class="timer-icon">♾</span>
+            <span class="timer-label">Infinity actief</span>
+            <button class="restore-btn" @click=${() => this.clearOverride()}>Herstel schema</button>
+          </div>
+          ` : ""}
+
           <div class="panel">
             <div class="state">
               ${isTimer
