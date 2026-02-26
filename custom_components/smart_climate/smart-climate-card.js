@@ -106,27 +106,6 @@ class SmartClimateCard extends LitElement {
               <span>∞</span>
             </div>
           </div>
-
-          ${isTimer || isInfinity ? html`
-          <div class="temp-slider-panel">
-            <div class="temp-label">Override: <strong>${this._overrideTemp}°</strong></div>
-            <input
-              type="range"
-              min="5"
-              max="25"
-              step="0.5"
-              .value=${this._overrideTemp}
-              @input=${this.onTempInput}
-              @change=${this.onTempChange}
-              class="temp-slider"
-            />
-            <div class="temp-scale">
-              <span>5°</span>
-              <span>15°</span>
-              <span>25°</span>
-            </div>
-          </div>
-          ` : ""}
         </div>
       </ha-card>
     `;
@@ -158,18 +137,6 @@ class SmartClimateCard extends LitElement {
     const value = Number(e.target.value);
     const slider = e.target;
     slider.style.setProperty("--slider-value", `${(value / 480) * 100}%`);
-  }
-
-  onTempInput(e) {
-    this._overrideTemp = Number(e.target.value);
-  }
-
-  onTempChange(e) {
-    this._overrideTemp = Number(e.target.value);
-    this.hass.callService("climate", "set_temperature", {
-      entity_id: this.config.entity,
-      temperature: this._overrideTemp,
-    });
   }
 
   adjustTemp(delta) {
@@ -311,14 +278,6 @@ class SmartClimateCard extends LitElement {
       margin-top: 4px;
     }
 
-    .temp-slider-panel {
-      margin-top: 12px;
-      padding: 12px;
-      border-radius: 10px;
-      background: var(--secondary-background-color);
-      border: 1px solid var(--divider-color);
-    }
-
     .temp-control {
       margin-top: 12px;
       padding: 12px;
@@ -362,24 +321,6 @@ class SmartClimateCard extends LitElement {
       opacity: 0.85;
     }
 
-    .temp-label {
-      font-size: 12px;
-      margin-bottom: 8px;
-      color: var(--secondary-text-color);
-    }
-
-    .temp-slider {
-      width: 100%;
-      accent-color: var(--accent-color);
-      margin-bottom: 8px;
-    }
-
-    .temp-scale {
-      display: flex;
-      justify-content: space-between;
-      font-size: 10px;
-      color: var(--secondary-text-color);
-    }
   `;
 }
 
