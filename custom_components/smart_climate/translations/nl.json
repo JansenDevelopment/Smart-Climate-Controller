@@ -1,0 +1,35 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Smart Climate Instellen",
+        "description": "Configureer Smart Climate Controller",
+        "data": {
+          "name": "Naam",
+          "wrapped_climate": "Gekoppeld Klimaatapparaat",
+          "zone_home": "Thuiszone",
+          "auto_temperature": "Thuis Temperatuur",
+          "away_temperature": "Weg Temperatuur",
+          "away_delay_minutes": "Vertrekvertraging (minuten)",
+          "interruptible": "Overschrijving is onderbrekbaar",
+          "default_override_mode": "Standaard Overschrijfmodus",
+          "default_override_duration": "Standaard Overschrijfduur (minuten)"
+        },
+        "data_description": {
+          "wrapped_climate": "Het klimaatapparaat om te beheren",
+          "zone_home": "De zone die gebruikt wordt voor aanwezigheidsdetectie",
+          "auto_temperature": "Doeltemperatuur wanneer iemand thuis is",
+          "away_temperature": "Doeltemperatuur wanneer niemand thuis is",
+          "away_delay_minutes": "Minuten te wachten voordat de weg-temperatuur wordt toegepast",
+          "interruptible": "Of een aanwezigheidswijziging een actieve overschrijving kan onderbreken",
+          "default_override_mode": "Overschrijfmodus bij het aanpassen van de temperatuur (timer of oneindig)",
+          "default_override_duration": "Standaardduur in minuten voor timer-overschrijfmodus"
+        }
+      }
+    },
+    "error": {},
+    "abort": {
+      "already_configured": "Apparaat is al geconfigureerd"
+    }
+  }
+}

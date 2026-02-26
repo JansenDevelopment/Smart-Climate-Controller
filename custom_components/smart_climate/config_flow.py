@@ -6,9 +6,12 @@ from .const import (
     DOMAIN,
     CONF_WRAPPED_CLIMATE,
     CONF_ZONE_HOME,
+    CONF_AUTO_TEMPERATURE,
     CONF_AWAY_TEMPERATURE,
     CONF_AWAY_DELAY_MINUTES,
     CONF_INTERRUPTIBLE,
+    CONF_DEFAULT_OVERRIDE_MODE,
+    CONF_DEFAULT_OVERRIDE_DURATION,
 )
 
 
@@ -17,18 +20,18 @@ class SmartClimateConfigFlow(ConfigFlow, domain=DOMAIN):
 
     VERSION = 1
 
-    async def async_step_import(self, import_data):
-        """Handle import from YAML."""
-        for config in import_data:
-            name = config.get(CONF_NAME, "Smart Climate")
-            await self.async_set_unique_id(name)
-            self._abort_if_unique_id_configured()
+    def __init__(self):
+        super().__init__()
+        self._import_name = None
 
-            return self.async_create_entry(
-                title=name,
-                data=config,
-            )
-        return self.async_abort(reason="invalid_yaml")
+    async def async_step_import(self, import_data):
+        """Handle import from YAML (only name is required)."""
+        if isinstance(import_data, list):
+            if import_data:
+                self._import_name = import_data[0].get(CONF_NAME, "Smart Climate")
+        else:
+            self._import_name = import_data.get(CONF_NAME, "Smart Climate")
+        return await self.async_step_user()
 
     async def async_step_user(self, user_input=None):
         """Handle user step."""
@@ -43,12 +46,15 @@ class SmartClimateConfigFlow(ConfigFlow, domain=DOMAIN):
 
         schema = vol.Schema(
             {
-                vol.Required(CONF_NAME, default="Smart Climate"): str,
+                vol.Required(CONF_NAME, default=self._import_name or "Smart Climate"): str,
                 vol.Required(CONF_WRAPPED_CLIMATE): cv.entity_id,
                 vol.Required(CONF_ZONE_HOME): cv.entity_id,
+                vol.Optional(CONF_AUTO_TEMPERATURE, default=21): vol.Coerce(float),
                 vol.Optional(CONF_AWAY_TEMPERATURE, default=14): vol.Coerce(float),
                 vol.Optional(CONF_AWAY_DELAY_MINUTES, default=5): vol.Coerce(int),
                 vol.Optional(CONF_INTERRUPTIBLE, default=True): cv.boolean,
+                vol.Optional(CONF_DEFAULT_OVERRIDE_MODE, default="timer"): vol.In(["timer", "infinity"]),
+                vol.Optional(CONF_DEFAULT_OVERRIDE_DURATION, default=30): vol.Coerce(int),
             }
         )
 
