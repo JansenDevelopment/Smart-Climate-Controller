@@ -71,6 +71,14 @@ class SmartClimateCard extends LitElement {
             </div>
           </div>
 
+          ${isLeaving ? html`
+          <div class="away-delay-row">
+            <span class="away-delay-icon">🚶</span>
+            <span class="away-delay-value countdown">${this.formatSeconds(awayDelayRemaining)}</span>
+            <span class="away-delay-label">tot afwezig</span>
+          </div>
+          ` : ""}
+
           ${isTimer ? html`
           <div class="timer-row">
             <span class="timer-icon">⏱</span>
@@ -148,6 +156,13 @@ class SmartClimateCard extends LitElement {
     });
   }
 
+  formatSeconds(seconds) {
+    const total = Math.max(0, seconds);
+    const m = Math.floor(total / 60);
+    const rem = Math.ceil(total % 60);
+    return m ? `${m}m ${rem}s` : `${rem}s`;
+  }
+
   formatTime(minutes) {
     if (minutes < 60) return `${minutes}m`;
     const h = Math.floor(minutes / 60);
@@ -205,6 +220,32 @@ class SmartClimateCard extends LitElement {
       font-size: 12px;
       color: var(--secondary-text-color);
       margin-top: 6px;
+    }
+
+    .away-delay-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 10px;
+      padding: 8px 12px;
+      border-radius: 8px;
+      background: rgba(33, 150, 243, 0.12);
+      border: 1px solid rgba(33, 150, 243, 0.3);
+    }
+
+    .away-delay-icon {
+      font-size: 16px;
+    }
+
+    .away-delay-value {
+      font-size: 18px;
+      font-weight: 700;
+      color: #2196f3;
+    }
+
+    .away-delay-label {
+      font-size: 12px;
+      color: var(--secondary-text-color);
     }
 
     .timer-row {
