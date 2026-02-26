@@ -84,3 +84,103 @@ set_interruptible:
       default: true
       selector:
         boolean:
+
+set_auto_temperature:
+  name: Set Auto Temperature
+  description: Set the target temperature used when presence is home in auto mode
+  fields:
+    entity_id:
+      name: Entity
+      description: Climate entity
+      required: true
+      selector:
+        entity:
+          domain: climate
+    temperature:
+      name: Temperature
+      description: Target temperature when home (auto mode)
+      required: true
+      default: 21
+      selector:
+        number:
+          min: 5
+          max: 25
+          step: 0.5
+          unit_of_measurement: °C
+
+set_away_temperature:
+  name: Set Away Temperature
+  description: Set the target temperature used when nobody is home
+  fields:
+    entity_id:
+      name: Entity
+      description: Climate entity
+      required: true
+      selector:
+        entity:
+          domain: climate
+    temperature:
+      name: Temperature
+      description: Target temperature when away
+      required: true
+      default: 14
+      selector:
+        number:
+          min: 5
+          max: 25
+          step: 0.5
+          unit_of_measurement: °C
+
+set_away_delay:
+  name: Set Away Delay
+  description: Set the delay in minutes before applying away temperature after everyone leaves
+  fields:
+    entity_id:
+      name: Entity
+      description: Climate entity
+      required: true
+      selector:
+        entity:
+          domain: climate
+    minutes:
+      name: Minutes
+      description: Delay in minutes before switching to away mode
+      required: true
+      default: 5
+      selector:
+        number:
+          min: 0
+          max: 60
+          unit_of_measurement: min
+
+set_default_override_mode:
+  name: Set Default Override Mode
+  description: Set the default mode used when a temperature override is triggered
+  fields:
+    entity_id:
+      name: Entity
+      description: Climate entity
+      required: true
+      selector:
+        entity:
+          domain: climate
+    mode:
+      name: Mode
+      description: Override mode (timer or infinity)
+      required: true
+      default: timer
+      selector:
+        select:
+          options:
+            - timer
+            - infinity
+    duration:
+      name: Duration
+      description: Default timer duration in minutes (only applies when mode is timer)
+      required: false
+      default: 30
+      selector:
+        number:
+          min: 1
+          max: 480
+          unit_of_measurement: min
