@@ -76,6 +76,7 @@ class SmartClimateCard extends LitElement {
             <span class="timer-icon">⏱</span>
             <span class="timer-value countdown">${this.formatTime(remaining)}</span>
             <span class="timer-label">resterend</span>
+            <button class="restore-btn" @click=${() => this.clearOverride()}>Herstel schema</button>
           </div>
           ` : ""}
 
@@ -139,6 +140,12 @@ class SmartClimateCard extends LitElement {
     slider.style.setProperty("--slider-value", `${(value / 480) * 100}%`);
   }
 
+  clearOverride() {
+    this.hass.callService("smart_climate", "clear_override", {
+      entity_id: this.config.entity,
+    });
+  }
+
   adjustTemp(delta) {
     const newTemp = Math.min(25, Math.max(5, this._overrideTemp + delta));
     this._overrideTemp = newTemp;
@@ -162,24 +169,24 @@ class SmartClimateCard extends LitElement {
     }
 
     .content {
-      padding: 16px;
+      padding: 10px 12px;
     }
 
     .header {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 4px;
+      margin-bottom: 2px;
     }
 
     .title {
-      font-size: 20px;
+      font-size: 16px;
       font-weight: 600;
     }
 
     .presence {
-      font-size: 12px;
-      padding: 4px 8px;
+      font-size: 11px;
+      padding: 3px 6px;
       border-radius: 6px;
       background: rgba(76, 175, 80, 0.15);
       color: #4caf50;
@@ -197,54 +204,71 @@ class SmartClimateCard extends LitElement {
     }
 
     .temps {
-      margin-top: 8px;
-      font-size: 16px;
+      margin-top: 4px;
+      font-size: 14px;
     }
 
     .mode {
-      font-size: 12px;
+      font-size: 11px;
       color: var(--secondary-text-color);
-      margin-top: 6px;
+      margin-top: 2px;
     }
 
     .timer-row {
       display: flex;
       align-items: center;
       gap: 6px;
-      margin-top: 10px;
-      padding: 8px 12px;
+      margin-top: 6px;
+      padding: 6px 10px;
       border-radius: 8px;
       background: rgba(255, 152, 0, 0.12);
       border: 1px solid rgba(255, 152, 0, 0.3);
     }
 
     .timer-icon {
-      font-size: 16px;
+      font-size: 14px;
     }
 
     .timer-value {
-      font-size: 18px;
+      font-size: 15px;
       font-weight: 700;
       color: #ff9800;
     }
 
     .timer-label {
-      font-size: 12px;
+      font-size: 11px;
       color: var(--secondary-text-color);
+      flex: 1;
+    }
+
+    .restore-btn {
+      background: none;
+      border: 1px solid var(--accent-color);
+      color: var(--accent-color);
+      border-radius: 6px;
+      padding: 2px 8px;
+      font-size: 11px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    .restore-btn:hover {
+      background: var(--accent-color);
+      color: white;
     }
 
     .panel {
-      margin-top: 12px;
-      padding: 12px;
+      margin-top: 8px;
+      padding: 8px 10px;
       border-radius: 10px;
       background: var(--secondary-background-color);
       border: 1px solid var(--divider-color);
     }
 
     .state {
-      font-size: 12px;
-      margin-bottom: 6px;
-      min-height: 20px;
+      font-size: 11px;
+      margin-bottom: 4px;
+      min-height: 16px;
     }
 
     .countdown {
@@ -275,21 +299,21 @@ class SmartClimateCard extends LitElement {
       justify-content: space-between;
       font-size: 10px;
       color: var(--secondary-text-color);
-      margin-top: 4px;
+      margin-top: 2px;
     }
 
     .temp-control {
-      margin-top: 12px;
-      padding: 12px;
+      margin-top: 8px;
+      padding: 8px 10px;
       border-radius: 10px;
       background: var(--secondary-background-color);
       border: 1px solid var(--divider-color);
     }
 
     .temp-control-label {
-      font-size: 12px;
+      font-size: 11px;
       color: var(--secondary-text-color);
-      margin-bottom: 8px;
+      margin-bottom: 4px;
     }
 
     .temp-control-row {
@@ -299,7 +323,7 @@ class SmartClimateCard extends LitElement {
     }
 
     .temp-control-value {
-      font-size: 24px;
+      font-size: 20px;
       font-weight: 600;
     }
 
@@ -308,9 +332,9 @@ class SmartClimateCard extends LitElement {
       color: white;
       border: none;
       border-radius: 50%;
-      width: 36px;
-      height: 36px;
-      font-size: 20px;
+      width: 30px;
+      height: 30px;
+      font-size: 18px;
       cursor: pointer;
       display: flex;
       align-items: center;
@@ -320,7 +344,6 @@ class SmartClimateCard extends LitElement {
     .temp-btn:hover {
       opacity: 0.85;
     }
-
   `;
 }
 
