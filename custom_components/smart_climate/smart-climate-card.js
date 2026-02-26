@@ -27,10 +27,8 @@ class SmartClimateCard extends LitElement {
       `;
     }
 
-    const zone = this.hass.states["zone.home"];
-    const isHome = zone?.state === "home";
-
     const attrs = entity.attributes;
+    const isHome = attrs.presence === "home";
     const currentTemp = attrs.current_temperature ?? "—";
     const targetTemp = attrs.temperature ?? 21;
     const overrideTemp = attrs.override_temperature ?? this._overrideTemp;
@@ -51,7 +49,7 @@ class SmartClimateCard extends LitElement {
           <div class="header">
             <div class="title">SmartClimate</div>
             <div class="presence" ?away=${!isHome}>
-              ${isHome ? "🏠 Home" : "📍 Away"}
+              ${isHome ? "🏠 Aanwezig" : "📍 Afwezig"}
             </div>
           </div>
 
@@ -61,10 +59,18 @@ class SmartClimateCard extends LitElement {
 
           <div class="mode">Mode: ${mode}</div>
 
+          ${isTimer ? html`
+          <div class="timer-row">
+            <span class="timer-icon">⏱</span>
+            <span class="timer-value countdown">${this.formatTime(remaining)}</span>
+            <span class="timer-label">resterend</span>
+          </div>
+          ` : ""}
+
           <div class="panel">
             <div class="state">
               ${isTimer
-                ? html`<span class="countdown">Remaining: <strong>${this.formatTime(remaining)}</strong></span>`
+                ? html`<span>Timer actief</span>`
                 : isInfinity
                 ? html`<strong>♾ Infinity</strong>`
                 : html`Auto`}
@@ -200,6 +206,32 @@ class SmartClimateCard extends LitElement {
       font-size: 12px;
       color: var(--secondary-text-color);
       margin-top: 6px;
+    }
+
+    .timer-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 10px;
+      padding: 8px 12px;
+      border-radius: 8px;
+      background: rgba(255, 152, 0, 0.12);
+      border: 1px solid rgba(255, 152, 0, 0.3);
+    }
+
+    .timer-icon {
+      font-size: 16px;
+    }
+
+    .timer-value {
+      font-size: 18px;
+      font-weight: 700;
+      color: #ff9800;
+    }
+
+    .timer-label {
+      font-size: 12px;
+      color: var(--secondary-text-color);
     }
 
     .panel {
