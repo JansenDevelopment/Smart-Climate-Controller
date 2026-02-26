@@ -14,6 +14,7 @@ from .const import (
     MODE_OVERRIDE_INFINITY,
     CONF_WRAPPED_CLIMATE,
     CONF_ZONE_HOME,
+    CONF_AUTO_TEMPERATURE,
     CONF_AWAY_TEMPERATURE,
     CONF_AWAY_DELAY_MINUTES,
     CONF_INTERRUPTIBLE,
@@ -26,10 +27,19 @@ from .const import (
     ATTR_ZONE_HOME_COUNT,
     ATTR_AWAY_DELAY_SECONDS_REMAINING,
     ATTR_OVERRIDE_TEMPERATURE,
+    ATTR_AUTO_TEMPERATURE,
+    ATTR_AWAY_TEMPERATURE,
+    ATTR_AWAY_DELAY_MINUTES,
+    ATTR_DEFAULT_OVERRIDE_MODE,
+    ATTR_DEFAULT_OVERRIDE_DURATION,
     SERVICE_SET_OVERRIDE_TIMER,
     SERVICE_SET_OVERRIDE_INFINITY,
     SERVICE_CLEAR_OVERRIDE,
     SERVICE_SET_INTERRUPTIBLE,
+    SERVICE_SET_AUTO_TEMPERATURE,
+    SERVICE_SET_AWAY_TEMPERATURE,
+    SERVICE_SET_AWAY_DELAY,
+    SERVICE_SET_DEFAULT_OVERRIDE_MODE,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -45,6 +55,7 @@ async def async_setup_entry(
     wrapped_climate = entry.data.get(CONF_WRAPPED_CLIMATE)
     zone_home = entry.data.get(CONF_ZONE_HOME)
     away_temp = entry.data.get(CONF_AWAY_TEMPERATURE, 14)
+    auto_temp = entry.data.get(CONF_AUTO_TEMPERATURE, 21)
     away_delay = entry.data.get(CONF_AWAY_DELAY_MINUTES, 5)
     interruptible = entry.data.get(CONF_INTERRUPTIBLE, True)
     default_override_mode = entry.data.get(CONF_DEFAULT_OVERRIDE_MODE, "timer")
@@ -56,6 +67,7 @@ async def async_setup_entry(
         name,
         wrapped_climate,
         zone_home,
+        auto_temp,
         away_temp,
         away_delay,
         interruptible,
@@ -82,6 +94,21 @@ async def async_setup_entry(
     async def handle_set_interruptible(call):
         await entity.async_set_interruptible(call.data.get("interruptible", True))
 
+    async def handle_set_auto_temperature(call):
+        await entity.async_set_auto_temperature(call.data.get("temperature", 21))
+
+    async def handle_set_away_temperature(call):
+        await entity.async_set_away_temperature(call.data.get("temperature", 14))
+
+    async def handle_set_away_delay(call):
+        await entity.async_set_away_delay(call.data.get("minutes", 5))
+
+    async def handle_set_default_override_mode(call):
+        await entity.async_set_default_override_mode(
+            call.data.get("mode", "timer"),
+            call.data.get("duration", 30),
+        )
+
     hass.services.async_register(
         DOMAIN, SERVICE_SET_OVERRIDE_TIMER, handle_set_override_timer
     )
@@ -91,6 +118,18 @@ async def async_setup_entry(
     hass.services.async_register(DOMAIN, SERVICE_CLEAR_OVERRIDE, handle_clear_override)
     hass.services.async_register(
         DOMAIN, SERVICE_SET_INTERRUPTIBLE, handle_set_interruptible
+    )
+    hass.services.async_register(
+        DOMAIN, SERVICE_SET_AUTO_TEMPERATURE, handle_set_auto_temperature
+    )
+    hass.services.async_register(
+        DOMAIN, SERVICE_SET_AWAY_TEMPERATURE, handle_set_away_temperature
+    )
+    hass.services.async_register(
+        DOMAIN, SERVICE_SET_AWAY_DELAY, handle_set_away_delay
+    )
+    hass.services.async_register(
+        DOMAIN, SERVICE_SET_DEFAULT_OVERRIDE_MODE, handle_set_default_override_mode
     )
 
 
@@ -104,6 +143,7 @@ class SmartClimateEntity(ClimateEntity):
         name: str,
         wrapped_climate: str,
         zone_home: str,
+        auto_temp: float,
         away_temp: float,
         away_delay_minutes: int,
         interruptible: bool,
@@ -124,6 +164,7 @@ class SmartClimateEntity(ClimateEntity):
         # Config
         self._wrapped_climate = wrapped_climate
         self._zone_home = zone_home
+        self._auto_temperature = auto_temp
         self._away_temperature = away_temp
         self._away_delay_minutes = away_delay_minutes
         self._default_override_mode = default_override_mode
@@ -240,7 +281,7 @@ class SmartClimateEntity(ClimateEntity):
         elif self._mode == MODE_AUTO:
             if self._presence == "home":
                 # TODO: Later integrate with schedule
-                target = 21
+                target = self._auto_temperature
             else:
                 target = self._away_temperature
         else:
@@ -285,6 +326,30 @@ class SmartClimateEntity(ClimateEntity):
         self._interruptible = interruptible
         self.async_write_ha_state()
 
+    async def async_set_auto_temperature(self, temperature: float):
+        """Set the auto (home) temperature."""
+        self._auto_temperature = temperature
+        await self._update_target_temperature()
+        self.async_write_ha_state()
+
+    async def async_set_away_temperature(self, temperature: float):
+        """Set the away temperature."""
+        self._away_temperature = temperature
+        await self._update_target_temperature()
+        self.async_write_ha_state()
+
+    async def async_set_away_delay(self, minutes: int):
+        """Set the away delay in minutes."""
+        self._away_delay_minutes = minutes
+        self.async_write_ha_state()
+
+    async def async_set_default_override_mode(self, mode: str, duration: int = None):
+        """Set the default override mode and optionally the duration."""
+        self._default_override_mode = mode
+        if duration is not None:
+            self._default_override_duration = duration
+        self.async_write_ha_state()
+
     async def async_set_temperature(self, **kwargs):
         """Set temperature - activate override based on DEFAULT_OVERRIDE setting."""
         temperature = kwargs.get("temperature", 22)
@@ -318,7 +383,7 @@ class SmartClimateEntity(ClimateEntity):
         if self._mode in (MODE_OVERRIDE_TIMER, MODE_OVERRIDE_INFINITY):
             return self._override_temperature
         if self._presence == "home":
-            return 21
+            return self._auto_temperature
         return self._away_temperature
 
     @property
@@ -335,4 +400,9 @@ class SmartClimateEntity(ClimateEntity):
             ATTR_INTERRUPTIBLE: self._interruptible,
             ATTR_OVERRIDE_TEMPERATURE: self._override_temperature,
             ATTR_AWAY_DELAY_SECONDS_REMAINING: self._away_delay_remaining,
+            ATTR_AUTO_TEMPERATURE: self._auto_temperature,
+            ATTR_AWAY_TEMPERATURE: self._away_temperature,
+            ATTR_AWAY_DELAY_MINUTES: self._away_delay_minutes,
+            ATTR_DEFAULT_OVERRIDE_MODE: self._default_override_mode,
+            ATTR_DEFAULT_OVERRIDE_DURATION: self._default_override_duration,
         }
