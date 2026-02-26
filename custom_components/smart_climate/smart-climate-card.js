@@ -59,6 +59,15 @@ class SmartClimateCard extends LitElement {
 
           <div class="mode">Mode: ${mode}</div>
 
+          <div class="temp-control">
+            <div class="temp-control-label">Temperatuur instellen</div>
+            <div class="temp-control-row">
+              <button class="temp-btn" @click=${() => this.adjustTemp(-0.5)}>−</button>
+              <span class="temp-control-value">${this._overrideTemp}°</span>
+              <button class="temp-btn" @click=${() => this.adjustTemp(0.5)}>+</button>
+            </div>
+          </div>
+
           ${isTimer ? html`
           <div class="timer-row">
             <span class="timer-icon">⏱</span>
@@ -154,6 +163,19 @@ class SmartClimateCard extends LitElement {
 
   onTempChange(e) {
     this._overrideTemp = Number(e.target.value);
+    this.hass.callService("climate", "set_temperature", {
+      entity_id: this.config.entity,
+      temperature: this._overrideTemp,
+    });
+  }
+
+  adjustTemp(delta) {
+    const newTemp = Math.min(25, Math.max(5, this._overrideTemp + delta));
+    this._overrideTemp = newTemp;
+    this.hass.callService("climate", "set_temperature", {
+      entity_id: this.config.entity,
+      temperature: newTemp,
+    });
   }
 
   formatTime(minutes) {
@@ -287,6 +309,49 @@ class SmartClimateCard extends LitElement {
       border-radius: 10px;
       background: var(--secondary-background-color);
       border: 1px solid var(--divider-color);
+    }
+
+    .temp-control {
+      margin-top: 12px;
+      padding: 12px;
+      border-radius: 10px;
+      background: var(--secondary-background-color);
+      border: 1px solid var(--divider-color);
+    }
+
+    .temp-control-label {
+      font-size: 12px;
+      color: var(--secondary-text-color);
+      margin-bottom: 8px;
+    }
+
+    .temp-control-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .temp-control-value {
+      font-size: 24px;
+      font-weight: 600;
+    }
+
+    .temp-btn {
+      background: var(--accent-color);
+      color: white;
+      border: none;
+      border-radius: 50%;
+      width: 36px;
+      height: 36px;
+      font-size: 20px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .temp-btn:hover {
+      opacity: 0.85;
     }
 
     .temp-label {
