@@ -1,4 +1,4 @@
-# HA Smart Climate
+# Smart Climate Controller
 
 A Home Assistant custom integration that wraps an existing climate entity and adds presence-aware automatic temperature control, timed overrides, and configurable away behaviour.
 
@@ -6,7 +6,7 @@ A Home Assistant custom integration that wraps an existing climate entity and ad
 
 1. Open your Home Assistant dashboard.
 2. Go to **HACS** → **Integrations**.
-3. Search for **HA Smart Climate** and click **Install**.
+3. Search for **Smart Climate Controller** and click **Install**.
 4. Restart Home Assistant.
 
 ## Configuration
