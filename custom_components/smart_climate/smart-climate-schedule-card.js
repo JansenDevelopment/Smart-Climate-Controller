@@ -589,6 +589,7 @@ class SmartClimateScheduleCard extends LitElement {
     svg.graph {
       width: 100%;
       height: auto;
+      min-height: 180px;
       display: block;
       cursor: crosshair;
       user-select: none;
@@ -596,19 +597,19 @@ class SmartClimateScheduleCard extends LitElement {
     }
 
     .ax {
-      font-size: 9px;
+      font-size: 14px;
       fill: var(--secondary-text-color, #888);
       font-family: sans-serif;
     }
 
     .ax-title {
-      font-size: 9px;
+      font-size: 13px;
       fill: var(--secondary-text-color, #888);
       font-family: sans-serif;
     }
 
     .now-label {
-      font-size: 10px;
+      font-size: 14px;
       fill: #4caf50;
       font-weight: 700;
       font-family: sans-serif;
@@ -636,7 +637,7 @@ class SmartClimateScheduleCard extends LitElement {
     }
 
     .next-badge {
-      font-size: 7px;
+      font-size: 11px;
       fill: white;
       font-weight: 700;
       font-family: sans-serif;
@@ -708,7 +709,7 @@ class SmartClimateScheduleCard extends LitElement {
     }
 
     .node-lbl {
-      font-size: 9px;
+      font-size: 13px;
       fill: white;
       font-weight: 700;
       font-family: sans-serif;
@@ -716,7 +717,7 @@ class SmartClimateScheduleCard extends LitElement {
     }
 
     .node-time {
-      font-size: 8px;
+      font-size: 12px;
       fill: rgba(255, 255, 255, 0.7);
       font-family: sans-serif;
       pointer-events: none;
