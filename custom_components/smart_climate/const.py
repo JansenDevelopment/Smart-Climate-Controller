@@ -6,6 +6,11 @@ MODE_AUTO = "auto"
 MODE_OVERRIDE_TIMER = "override_timer"
 MODE_OVERRIDE_INFINITY = "override_infinity"
 
+# Schedule modes
+SCHEDULE_MODE_DAILY = "daily"
+SCHEDULE_MODE_52 = "5/2"
+SCHEDULE_MODE_INDIVIDUAL = "individual"
+
 # Config keys
 CONF_WRAPPED_CLIMATE = "wrapped_climate"
 CONF_ZONE_HOME = "zone_home"
@@ -15,6 +20,7 @@ CONF_AWAY_DELAY_MINUTES = "away_delay_minutes"
 CONF_INTERRUPTIBLE = "interruptible"
 CONF_DEFAULT_OVERRIDE_MODE = "default_override_mode"
 CONF_DEFAULT_OVERRIDE_DURATION = "default_override_duration"
+CONF_SCHEDULE = "schedule"
 
 # Attributes
 ATTR_WRAPPED_CLIMATE = "wrapped_climate"
@@ -31,6 +37,7 @@ ATTR_AWAY_TEMPERATURE = "away_temperature"
 ATTR_AWAY_DELAY_MINUTES = "away_delay_minutes"
 ATTR_DEFAULT_OVERRIDE_MODE = "default_override_mode"
 ATTR_DEFAULT_OVERRIDE_DURATION = "default_override_duration"
+ATTR_SCHEDULE = "schedule"
 
 # Services
 SERVICE_SET_OVERRIDE_TIMER = "set_override_timer"
@@ -41,3 +48,4 @@ SERVICE_SET_AUTO_TEMPERATURE = "set_auto_temperature"
 SERVICE_SET_AWAY_TEMPERATURE = "set_away_temperature"
 SERVICE_SET_AWAY_DELAY = "set_away_delay"
 SERVICE_SET_DEFAULT_OVERRIDE_MODE = "set_default_override_mode"
+SERVICE_SET_SCHEDULE = "set_schedule"

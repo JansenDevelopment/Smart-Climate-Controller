@@ -184,3 +184,49 @@ set_default_override_mode:
           min: 1
           max: 480
           unit_of_measurement: min
+
+set_schedule:
+  name: Set Schedule
+  description: Set the temperature schedule used in auto mode when presence is home
+  fields:
+    entity_id:
+      name: Entity
+      description: Climate entity
+      required: true
+      selector:
+        entity:
+          domain: climate
+    schedule:
+      name: Schedule
+      description: >
+        Schedule configuration. Supports modes: "daily", "5/2", "individual".
+        Example (daily):
+          mode: daily
+          daily:
+            - time: "06:00"
+              temp: 21
+            - time: "22:00"
+              temp: 18
+        Example (5/2):
+          mode: "5/2"
+          weekday:
+            - time: "07:00"
+              temp: 21
+            - time: "23:00"
+              temp: 18
+          weekend:
+            - time: "08:00"
+              temp: 21
+            - time: "23:00"
+              temp: 18
+        Example (individual):
+          mode: individual
+          monday:
+            - time: "06:00"
+              temp: 21
+          tuesday:
+            - time: "06:00"
+              temp: 21
+      required: true
+      selector:
+        object:
