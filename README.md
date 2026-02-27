@@ -1,4 +1,4 @@
-# HA Smart Climate
+# Smart Climate Controller
 
 A Home Assistant custom integration that wraps an existing climate entity and adds presence-aware automatic temperature control, timed overrides, and configurable away behaviour.
 
@@ -6,14 +6,12 @@ A Home Assistant custom integration that wraps an existing climate entity and ad
 
 1. Open your Home Assistant dashboard.
 2. Go to **HACS** → **Integrations**.
-3. Search for **HA Smart Climate** and click **Install**.
+3. Search for **Smart Climate Controller** and click **Install**.
 4. Restart Home Assistant.
 
 ## Configuration
 
-### Recommended: UI / Config Flow (primary method)
-
-After installation and restart, add the integration through the Home Assistant UI:
+No YAML configuration is required. After installation and restart, add the integration through the Home Assistant UI:
 
 1. Go to **Settings** → **Devices & Services** → **Add Integration**.
 2. Search for **Smart Climate** and select it.
@@ -25,17 +23,6 @@ After installation and restart, add the integration through the Home Assistant U
 4. Click **Submit**.
 
 All settings can be changed later via **Settings** → **Devices & Services** → Smart Climate → **Configure**.
-
-### Optional: Minimal YAML Bootstrap
-
-YAML configuration is optional. Use it only if you want the integration entry to be created automatically on startup (e.g. for automated deployments). Only the `name` field is required; all other settings are managed through the UI after import.
-
-```yaml
-smart_climate:
-  - name: Living Room
-```
-
-> **Note:** Do **not** configure this integration under `climate: - platform: smart_climate`. The correct top-level key is `smart_climate:`.
 
 ## Lovelace Card Usage
 
@@ -152,4 +139,3 @@ data:
 - **Integration does not appear after install** – Make sure you restarted Home Assistant after installing via HACS.
 - **Entity not found / config flow fails** – Verify that the wrapped climate entity and zone entity exist and are spelled correctly.
 - **Temperature not changing** – Check that the wrapped climate entity is reachable and that no external automation is overriding it.
-- **YAML import not working** – Ensure the top-level key is `smart_climate:`, not `climate:`. Restart Home Assistant after any YAML change.
