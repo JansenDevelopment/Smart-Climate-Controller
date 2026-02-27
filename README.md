@@ -1,85 +1,155 @@
 # HA Smart Climate
 
+A Home Assistant custom integration that wraps an existing climate entity and adds presence-aware automatic temperature control, timed overrides, and configurable away behaviour.
+
 ## Installation
-To install HA Smart Climate:
-1. Go to your Home Assistant dashboard.
-2. Navigate to HACS (Home Assistant Community Store).
-3. Search for "HA Smart Climate" and click install.
+
+1. Open your Home Assistant dashboard.
+2. Go to **HACS** → **Integrations**.
+3. Search for **HA Smart Climate** and click **Install**.
+4. Restart Home Assistant.
 
 ## Configuration
-### YAML Configuration Options
-| Option            | Description                   |
-|-------------------|-------------------------------|
-| `climate:`        | Main climate integration      |
-| `name:`           | Name of the climate device    |
-| `platform:`       | Should be set to `smart_climate` |
 
-### Example Configuration:
+### Recommended: UI / Config Flow (primary method)
+
+After installation and restart, add the integration through the Home Assistant UI:
+
+1. Go to **Settings** → **Devices & Services** → **Add Integration**.
+2. Search for **Smart Climate** and select it.
+3. Fill in the required fields:
+   - **Name** – a friendly name for this Smart Climate instance.
+   - **Wrapped Climate** – the existing climate entity to control (e.g. `climate.living_room`).
+   - **Zone (home)** – the `zone.home` entity (or equivalent) used for presence detection.
+   - Optional defaults: auto temperature, away temperature, away delay, override mode, etc.
+4. Click **Submit**.
+
+All settings can be changed later via **Settings** → **Devices & Services** → Smart Climate → **Configure**.
+
+### Optional: Minimal YAML Bootstrap
+
+YAML configuration is optional. Use it only if you want the integration entry to be created automatically on startup (e.g. for automated deployments). Only the `name` field is required; all other settings are managed through the UI after import.
+
 ```yaml
-climate:
-  - platform: smart_climate
-    name: Living Room
-    ...
+smart_climate:
+  - name: Living Room
 ```
 
-## Features
-- Supports multiple climate devices.
-- User-friendly interface.
-
-## HACS Installation
-Follow the HACS installation guide included in the documentation.
+> **Note:** Do **not** configure this integration under `climate: - platform: smart_climate`. The correct top-level key is `smart_climate:`.
 
 ## Lovelace Card Usage
-### Example
-```yaml
-type: custom:smart-climate-card
-entity: climate.living_room
 
-# Example card configuration here
+The integration ships with a built-in config card. Add it to any dashboard:
+
+```yaml
+type: custom:smart-climate-config-card
+entity: climate.living_room
 ```
 
-## Services
-### All Service Definitions
-#### Example Service: `climate.set_temperature`
-- **Parameters:**
-  - `entity_id`: Entity ID of the climate device
-  - `temperature`: Desired temperature to set
+The card lets you adjust the auto temperature, away temperature, away delay, and override behaviour directly from the dashboard without editing YAML.
 
-### Example Usage:
+## Services
+
+All services are under the `smart_climate` domain and target a Smart Climate `climate.*` entity.
+
+### `smart_climate.set_override_timer`
+
+Set a timed manual temperature override.
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `entity_id` | Yes | Smart Climate entity |
+| `temperature` | Yes | Target temperature (unit follows your HA system setting) |
+| `minutes` | Yes | Duration (1–120 min) |
+
 ```yaml
-service: climate.set_temperature
+service: smart_climate.set_override_timer
+data:
+  entity_id: climate.living_room
+  temperature: 22
+  minutes: 60
+```
+
+### `smart_climate.set_override_infinity`
+
+Set a permanent manual temperature override (no time limit).
+
+```yaml
+service: smart_climate.set_override_infinity
 data:
   entity_id: climate.living_room
   temperature: 22
 ```
 
-## Entity Attributes
-| Attribute          | Description                 |
-|-------------------|-----------------------------|
-| `current_temperature` | The current temperature of the device |
-| `target_temperature`  | The target temperature being set     |
+### `smart_climate.clear_override`
 
-## Automation Use Cases
-### Example Use Case: Turn on heating at night
+Return to automatic (presence-based) mode.
+
 ```yaml
-automation:
-  - alias: Turn on heating
-    trigger:
-      platform: time
-      at: '22:00:00'
-    action:
-      service: climate.set_temperature
-      data:
-        entity_id: climate.living_room
-        temperature: 21
+service: smart_climate.clear_override
+data:
+  entity_id: climate.living_room
 ```
 
-## Troubleshooting Guide
-- **Issue:** Device is not reporting temperature.
-  - **Solution:** Check if the device is connected to the network.
+### `smart_climate.set_auto_temperature`
 
-- **Issue:** Configuration errors.
-  - **Solution:** Review the configuration file for syntax errors.
+Set the target temperature used when someone is home in auto mode.
 
----
-For further assistance, refer to the [documentation](link-to-documentation).
+```yaml
+service: smart_climate.set_auto_temperature
+data:
+  entity_id: climate.living_room
+  temperature: 21
+```
+
+### `smart_climate.set_away_temperature`
+
+Set the target temperature used when nobody is home.
+
+```yaml
+service: smart_climate.set_away_temperature
+data:
+  entity_id: climate.living_room
+  temperature: 14
+```
+
+### `smart_climate.set_away_delay`
+
+Set how long (in minutes) to wait after everyone leaves before switching to the away temperature.
+
+```yaml
+service: smart_climate.set_away_delay
+data:
+  entity_id: climate.living_room
+  minutes: 5
+```
+
+### `smart_climate.set_interruptible`
+
+Control whether a presence change can interrupt an active override.
+
+```yaml
+service: smart_climate.set_interruptible
+data:
+  entity_id: climate.living_room
+  interruptible: true
+```
+
+### `smart_climate.set_default_override_mode`
+
+Set the default override mode (`timer` or `infinity`) used when a temperature is changed manually.
+
+```yaml
+service: smart_climate.set_default_override_mode
+data:
+  entity_id: climate.living_room
+  mode: timer
+  duration: 30
+```
+
+## Troubleshooting
+
+- **Integration does not appear after install** – Make sure you restarted Home Assistant after installing via HACS.
+- **Entity not found / config flow fails** – Verify that the wrapped climate entity and zone entity exist and are spelled correctly.
+- **Temperature not changing** – Check that the wrapped climate entity is reachable and that no external automation is overriding it.
+- **YAML import not working** – Ensure the top-level key is `smart_climate:`, not `climate:`. Restart Home Assistant after any YAML change.
