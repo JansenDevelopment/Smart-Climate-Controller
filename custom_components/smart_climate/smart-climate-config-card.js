@@ -4,7 +4,6 @@ class SmartClimateConfigCard extends LitElement {
   static properties = {
     hass: {},
     config: {},
-    _autoTemp: { state: true },
     _awayTemp: { state: true },
     _awayDelay: { state: true },
     _overrideMode: { state: true },
@@ -30,7 +29,6 @@ class SmartClimateConfigCard extends LitElement {
     const entity = this.hass?.states[this.config.entity];
     if (!entity) return;
     const attrs = entity.attributes;
-    if (this._autoTemp === undefined) this._autoTemp = attrs.auto_temperature ?? 21;
     if (this._awayTemp === undefined) this._awayTemp = attrs.away_temperature ?? 14;
     if (this._awayDelay === undefined) this._awayDelay = attrs.away_delay_minutes ?? 5;
     if (this._overrideMode === undefined) this._overrideMode = attrs.default_override_mode ?? "timer";
@@ -50,7 +48,6 @@ class SmartClimateConfigCard extends LitElement {
       `;
     }
 
-    const autoTemp = this._autoTemp ?? entity.attributes.auto_temperature ?? 21;
     const awayTemp = this._awayTemp ?? entity.attributes.away_temperature ?? 14;
     const awayDelay = this._awayDelay ?? entity.attributes.away_delay_minutes ?? 5;
     const overrideMode = this._overrideMode ?? entity.attributes.default_override_mode ?? "timer";
@@ -86,15 +83,6 @@ class SmartClimateConfigCard extends LitElement {
 
           <div class="section">
             <div class="section-title">🌡️ Temperatures</div>
-
-            <div class="row">
-              <label>Auto (home)</label>
-              <div class="temp-control">
-                <button class="temp-btn" @click=${() => this._adjust("_autoTemp", -0.5, 5, 25)}>−</button>
-                <span class="temp-value">${autoTemp}°C</span>
-                <button class="temp-btn" @click=${() => this._adjust("_autoTemp", 0.5, 5, 25)}>+</button>
-              </div>
-            </div>
 
             <div class="row">
               <label>Away</label>
@@ -185,10 +173,6 @@ class SmartClimateConfigCard extends LitElement {
   async _save() {
     const entityId = this.config.entity;
 
-    await this.hass.callService("smart_climate", "set_auto_temperature", {
-      entity_id: entityId,
-      temperature: this._autoTemp,
-    });
     await this.hass.callService("smart_climate", "set_away_temperature", {
       entity_id: entityId,
       temperature: this._awayTemp,

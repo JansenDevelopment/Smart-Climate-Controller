@@ -520,4 +520,5 @@ window.customCards.push({
   type: "smart-climate-schedule-card",
   name: "Smart Climate Schedule Card",
   description: "Interactive temperature schedule graph with drag-and-drop nodes",
+  preview: true,
 });

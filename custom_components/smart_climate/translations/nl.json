@@ -8,7 +8,6 @@
           "name": "Naam",
           "wrapped_climate": "Gekoppeld Klimaatapparaat",
           "zone_home": "Thuiszone",
-          "auto_temperature": "Thuis Temperatuur",
           "away_temperature": "Weg Temperatuur",
           "away_delay_minutes": "Vertrekvertraging (minuten)",
           "interruptible": "Overschrijving is onderbrekbaar",
@@ -18,7 +17,6 @@
         "data_description": {
           "wrapped_climate": "Het klimaatapparaat om te beheren",
           "zone_home": "De zone die gebruikt wordt voor aanwezigheidsdetectie",
-          "auto_temperature": "Doeltemperatuur wanneer iemand thuis is",
           "away_temperature": "Doeltemperatuur wanneer niemand thuis is",
           "away_delay_minutes": "Minuten te wachten voordat de weg-temperatuur wordt toegepast",
           "interruptible": "Of een aanwezigheidswijziging een actieve overschrijving kan onderbreken",
