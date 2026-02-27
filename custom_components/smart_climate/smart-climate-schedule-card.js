@@ -21,6 +21,8 @@ class SmartClimateScheduleCard extends LitElement {
     _draggingIdx: { state: true },
     _history: { state: true },
     _saved: { state: true },
+    _dirty: { state: true },
+    _selectedIdx: { state: true },
   };
 
   setConfig(config) {
@@ -116,14 +118,20 @@ class SmartClimateScheduleCard extends LitElement {
 
   _onNodePointerDown(e, idx) {
     e.stopPropagation();
-    e.preventDefault();
+    // Do NOT call e.preventDefault() here — it suppresses click/dblclick synthesis
     this._draggingIdx = idx;
+    this._dragStartX = e.clientX;
+    this._dragStartY = e.clientY;
+    this._dragMoved = false;
     const svgEl = this.shadowRoot?.querySelector("svg.graph");
     if (svgEl) svgEl.setPointerCapture(e.pointerId);
   }
 
   _onSvgPointerMove(e) {
     if (this._draggingIdx == null) return;
+    const dx = e.clientX - this._dragStartX;
+    const dy = e.clientY - this._dragStartY;
+    if (Math.abs(dx) > 4 || Math.abs(dy) > 4) this._dragMoved = true;
     const { x, y } = this._svgCoords(e);
     const nodes = this._getNodes().map((n, i) =>
       i === this._draggingIdx
@@ -142,8 +150,16 @@ class SmartClimateScheduleCard extends LitElement {
         (a, b) => this._timeToHour(a.time) - this._timeToHour(b.time)
       );
       this._setNodes(nodes);
+      if (this._dragMoved) {
+        // Actual drag — mark as dirty, clear selection
+        this._dirty = true;
+        this._selectedIdx = null;
+      } else {
+        // Single click on node — select it for editing
+        this._selectedIdx = this._draggingIdx;
+      }
       this._draggingIdx = null;
-      this._saveSchedule();
+      this._dragMoved = false;
     }
   }
 
@@ -151,19 +167,21 @@ class SmartClimateScheduleCard extends LitElement {
     if (e.target.tagName === "circle" && e.target.classList.contains("node-c")) return;
     const { x, y } = this._svgCoords(e);
     if (x < GL || x > GR || y < GT || y > GB) return;
+    this._selectedIdx = null;
     const nodes = [
       ...this._getNodes(),
       { time: this._hourToTime(this._fromX(x)), temp: this._fromY(y) },
     ].sort((a, b) => this._timeToHour(a.time) - this._timeToHour(b.time));
     this._setNodes(nodes);
-    this._saveSchedule();
+    this._dirty = true;
   }
 
   _removeNode(e, idx) {
-    e.stopPropagation();
+    if (e) e.stopPropagation();
     const nodes = this._getNodes().filter((_, i) => i !== idx);
     this._setNodes(nodes);
-    this._saveSchedule();
+    this._selectedIdx = null;
+    this._dirty = true;
   }
 
   async _saveSchedule() {
@@ -173,6 +191,7 @@ class SmartClimateScheduleCard extends LitElement {
         entity_id: this.config.entity,
         schedule: { ...(this._schedule ?? {}), mode: this._scheduleMode ?? "daily" },
       });
+      this._dirty = false;
       this._saved = true;
       setTimeout(() => { this._saved = false; }, 1500);
     } catch (err) {
@@ -187,6 +206,28 @@ class SmartClimateScheduleCard extends LitElement {
       m === "5/2" ? "weekday"
       : m === "individual" ? "monday"
       : "daily";
+    this._selectedIdx = null;
+    this._dirty = true;
+  }
+
+  _editNodeTime(idx, newTime) {
+    const currentNodes = this._getNodes();
+    const nodeTemp = currentNodes[idx]?.temp;
+    const nodes = currentNodes.map((n, i) => i === idx ? { ...n, time: newTime } : n);
+    const sorted = [...nodes].sort((a, b) => this._timeToHour(a.time) - this._timeToHour(b.time));
+    this._setNodes(sorted);
+    const newIdx = sorted.findIndex(n => n.time === newTime && n.temp === nodeTemp);
+    this._selectedIdx = newIdx >= 0 ? newIdx : null;
+    this._dirty = true;
+  }
+
+  _editNodeTemp(idx, newTemp) {
+    const raw = parseFloat(newTemp);
+    if (isNaN(raw)) return;
+    const t = Math.max(TMIN, Math.min(TMAX, raw));
+    const nodes = this._getNodes().map((n, i) => i === idx ? { ...n, temp: t } : n);
+    this._setNodes(nodes);
+    this._dirty = true;
   }
 
   _stepPath(nodes) {
@@ -257,6 +298,12 @@ class SmartClimateScheduleCard extends LitElement {
     const histPathD = this._historyPath();
     const sortedNodes = [...nodes].sort((a, b) => this._timeToHour(a.time) - this._timeToHour(b.time));
 
+    // Determine next upcoming node index (in sortedNodes)
+    let nextNodeIdx = sortedNodes.findIndex(n => this._timeToHour(n.time) > nowH);
+    if (nextNodeIdx === -1 && sortedNodes.length > 0) nextNodeIdx = 0;
+
+    const selectedNode = this._selectedIdx != null ? sortedNodes[this._selectedIdx] : null;
+
     return html`
       <ha-card>
         <div class="content">
@@ -264,7 +311,14 @@ class SmartClimateScheduleCard extends LitElement {
             <div class="title">
               📅 Schedule${activeDay !== "daily" ? ` (${dayLabel[activeDay] ?? activeDay})` : ""}
             </div>
-            ${this._saved ? html`<span class="saved-badge">✓ Saved</span>` : ""}
+            <div class="header-actions">
+              ${this._dirty ? html`<span class="unsaved-badge">● Unsaved</span>` : ""}
+              ${this._saved ? html`<span class="saved-badge">✓ Saved</span>` : ""}
+              <button class="save-btn ${this._dirty ? "save-btn--dirty" : ""}"
+                @click=${this._saveSchedule} ?disabled=${!this._dirty}>
+                Save
+              </button>
+            </div>
           </div>
 
           <div class="mode-row">
@@ -282,7 +336,7 @@ class SmartClimateScheduleCard extends LitElement {
             <div class="day-tabs">
               ${dayTabs.map(d => html`
                 <button class="day-tab ${activeDay === d ? "active" : ""}"
-                  @click=${() => { this._activeDay = d; }}>
+                  @click=${() => { this._activeDay = d; this._selectedIdx = null; }}>
                   ${dayLabel[d] ?? d}
                 </button>
               `)}
@@ -351,23 +405,64 @@ class SmartClimateScheduleCard extends LitElement {
               ${sortedNodes.map((node, idx) => {
                 const cx = this._toX(this._timeToHour(node.time));
                 const cy = this._toY(node.temp);
-                const lblY = cy - NR - 3;
-                const timeY = cy + NR + 11;
+                const isNext = idx === nextNodeIdx;
+                const isSelected = idx === this._selectedIdx;
+                const r = isNext ? NR + 3 : NR;
+                const lblY = cy - r - 3;
+                const timeY = cy + r + 11;
                 return svg`
                   <g class="node-g">
-                    <circle class="node-c" cx="${cx}" cy="${cy}" r="${NR}"
+                    ${isNext ? svg`
+                      <circle cx="${cx}" cy="${cy}" r="${r + 4}"
+                        fill="none" stroke="#ff9800" stroke-width="1.5"
+                        stroke-dasharray="4,3" opacity="0.7"/>
+                    ` : ""}
+                    ${isSelected ? svg`
+                      <circle cx="${cx}" cy="${cy}" r="${r + 5}"
+                        fill="none" stroke="white" stroke-width="2" opacity="0.6"/>
+                    ` : ""}
+                    <circle class="node-c ${isNext ? "node-c--next" : ""} ${isSelected ? "node-c--selected" : ""}"
+                      cx="${cx}" cy="${cy}" r="${r}"
                       @pointerdown=${(e) => this._onNodePointerDown(e, idx)}
                       @dblclick=${(e) => this._removeNode(e, idx)}
                     />
                     <text x="${cx}" y="${lblY}" text-anchor="middle" class="node-lbl">${node.temp}°C</text>
                     <text x="${cx}" y="${timeY}" text-anchor="middle" class="node-time">${node.time}</text>
+                    ${isNext ? svg`
+                      <text x="${cx}" y="${cy + 4}" text-anchor="middle" class="next-badge">▶</text>
+                    ` : ""}
                   </g>
                 `;
               })}
             </svg>
           </div>
 
-          <div class="hint">Click graph to add node • Drag to move • Double-click to remove</div>
+          ${selectedNode != null ? html`
+            <div class="edit-panel">
+              <span class="edit-panel-title">Edit Node</span>
+              <label class="edit-field">
+                <span>Time</span>
+                <input type="time" class="edit-input" .value=${selectedNode.time}
+                  @input=${(e) => this._editNodeTime(this._selectedIdx, e.target.value)} />
+              </label>
+              <label class="edit-field">
+                <span>Temp (°C)</span>
+                <input type="number" class="edit-input" min="${TMIN}" max="${TMAX}" step="0.5"
+                  .value=${String(selectedNode.temp)}
+                  @input=${(e) => this._editNodeTemp(this._selectedIdx, e.target.value)} />
+              </label>
+              <button class="edit-remove-btn"
+                @click=${() => this._removeNode(null, this._selectedIdx)}>
+                🗑 Remove
+              </button>
+              <button class="edit-close-btn"
+                @click=${() => { this._selectedIdx = null; }}>
+                ✕
+              </button>
+            </div>
+          ` : ""}
+
+          <div class="hint">Click to add node • Drag to move • Double-click or select to remove</div>
         </div>
       </ha-card>
     `;
@@ -388,6 +483,47 @@ class SmartClimateScheduleCard extends LitElement {
       justify-content: space-between;
       align-items: center;
       margin-bottom: 8px;
+    }
+
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .save-btn {
+      background: var(--secondary-background-color);
+      color: var(--primary-text-color);
+      border: 1px solid var(--divider-color);
+      border-radius: 6px;
+      padding: 4px 14px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s, border-color 0.2s, color 0.2s;
+    }
+
+    .save-btn:disabled {
+      opacity: 0.4;
+      cursor: default;
+    }
+
+    .save-btn--dirty {
+      background: var(--accent-color, #f5a623);
+      color: white;
+      border-color: var(--accent-color, #f5a623);
+      animation: pulse-save 1.2s ease-in-out infinite;
+    }
+
+    @keyframes pulse-save {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.75; }
+    }
+
+    .unsaved-badge {
+      font-size: 11px;
+      color: #ff9800;
+      font-weight: 600;
     }
 
     .title {
@@ -485,8 +621,90 @@ class SmartClimateScheduleCard extends LitElement {
       cursor: grab;
     }
 
+    .node-c--next {
+      fill: #ff9800;
+      stroke: white;
+    }
+
+    .node-c--selected {
+      stroke: #fff;
+      stroke-width: 3;
+    }
+
     .node-c:active {
       cursor: grabbing;
+    }
+
+    .next-badge {
+      font-size: 7px;
+      fill: white;
+      font-weight: 700;
+      font-family: sans-serif;
+      pointer-events: none;
+    }
+
+    .edit-panel {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      background: var(--secondary-background-color);
+      border: 1px solid var(--accent-color, #f5a623);
+      border-radius: 8px;
+      padding: 8px 12px;
+      margin-top: 6px;
+      font-size: 12px;
+    }
+
+    .edit-panel-title {
+      font-weight: 600;
+      font-size: 12px;
+    }
+
+    .edit-field {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      cursor: default;
+    }
+
+    .edit-input {
+      background: var(--ha-card-background);
+      color: var(--primary-text-color);
+      border: 1px solid var(--divider-color);
+      border-radius: 4px;
+      padding: 2px 6px;
+      font-size: 12px;
+      width: auto;
+    }
+
+    .edit-remove-btn {
+      background: rgba(244, 67, 54, 0.15);
+      color: #f44336;
+      border: 1px solid #f44336;
+      border-radius: 6px;
+      padding: 3px 10px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+
+    .edit-remove-btn:hover {
+      background: rgba(244, 67, 54, 0.3);
+    }
+
+    .edit-close-btn {
+      background: transparent;
+      color: var(--secondary-text-color);
+      border: 1px solid var(--divider-color);
+      border-radius: 6px;
+      padding: 3px 8px;
+      font-size: 12px;
+      cursor: pointer;
+      margin-left: auto;
+    }
+
+    .edit-close-btn:hover {
+      opacity: 0.75;
     }
 
     .node-lbl {
