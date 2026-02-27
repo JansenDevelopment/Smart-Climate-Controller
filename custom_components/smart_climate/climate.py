@@ -38,6 +38,7 @@ from .const import (
     ATTR_DEFAULT_OVERRIDE_MODE,
     ATTR_DEFAULT_OVERRIDE_DURATION,
     ATTR_SCHEDULE,
+    ATTR_TEMPERATURE_HISTORY,
     SERVICE_SET_OVERRIDE_TIMER,
     SERVICE_SET_OVERRIDE_INFINITY,
     SERVICE_CLEAR_OVERRIDE,
@@ -200,6 +201,10 @@ class SmartClimateEntity(ClimateEntity):
         # Timers
         self._update_timer = None
 
+        # Temperature history (max 48 entries, one per 5 minutes → ~4 hours)
+        self._temperature_history: list[dict] = []
+        self._last_history_time: datetime | None = None
+
     async def async_added_to_hass(self):
         """Initialize after added to hass."""
         await super().async_added_to_hass()
@@ -256,6 +261,22 @@ class SmartClimateEntity(ClimateEntity):
 
         # Calculate target temperature
         await self._update_target_temperature()
+
+        # Record a temperature history point every 5 minutes
+        now = datetime.now()
+        if self._last_history_time is None or (now - self._last_history_time).total_seconds() >= 300:
+            current_temp = self.current_temperature
+            target_temp = self.target_temperature
+            self._temperature_history.append({
+                "time": now.strftime("%H:%M"),
+                "current": current_temp,
+                "target": target_temp,
+            })
+            # Keep at most 48 entries (~4 hours)
+            if len(self._temperature_history) > 48:
+                self._temperature_history = self._temperature_history[-48:]
+            self._last_history_time = now
+
         self.async_write_ha_state()
 
     async def _on_zone_change(self, event):
@@ -498,4 +519,5 @@ class SmartClimateEntity(ClimateEntity):
             ATTR_DEFAULT_OVERRIDE_MODE: self._default_override_mode,
             ATTR_DEFAULT_OVERRIDE_DURATION: self._default_override_duration,
             ATTR_SCHEDULE: self._schedule,
+            ATTR_TEMPERATURE_HISTORY: self._temperature_history,
         }

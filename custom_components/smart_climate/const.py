@@ -38,6 +38,7 @@ ATTR_AWAY_DELAY_MINUTES = "away_delay_minutes"
 ATTR_DEFAULT_OVERRIDE_MODE = "default_override_mode"
 ATTR_DEFAULT_OVERRIDE_DURATION = "default_override_duration"
 ATTR_SCHEDULE = "schedule"
+ATTR_TEMPERATURE_HISTORY = "temperature_history"
 
 # Services
 SERVICE_SET_OVERRIDE_TIMER = "set_override_timer"

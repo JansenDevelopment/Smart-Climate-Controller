@@ -37,6 +37,7 @@ class SmartClimateCard extends LitElement {
     const overrideTemp = attrs.override_temperature ?? this._overrideTemp;
     const mode = attrs.mode ?? "auto";
     const remaining = attrs.remaining_minutes ?? 0;
+    const history = attrs.temperature_history ?? [];
 
     if (overrideTemp !== this._overrideTemp) {
       this._overrideTemp = overrideTemp;
@@ -123,6 +124,11 @@ class SmartClimateCard extends LitElement {
             </div>
           </div>
           ` : ""}
+
+          <div class="history-panel">
+            <div class="history-label">Temperatuurgeschiedenis</div>
+            ${this.renderHistoryGraph(history)}
+          </div>
         </div>
       </ha-card>
     `;
@@ -183,6 +189,76 @@ class SmartClimateCard extends LitElement {
     const h = Math.floor(minutes / 60);
     const m = minutes % 60;
     return m ? `${h}h ${m}m` : `${h}h`;
+  }
+
+  renderHistoryGraph(history) {
+    if (!history || history.length < 2) {
+      return html`<div class="history-empty">Nog geen gegevens beschikbaar</div>`;
+    }
+
+    const W = 300;
+    const H = 80;
+    const PAD = { top: 6, right: 4, bottom: 18, left: 28 };
+    const plotW = W - PAD.left - PAD.right;
+    const plotH = H - PAD.top - PAD.bottom;
+
+    const allTemps = history.flatMap(e => [e.current, e.target].filter(v => v != null));
+    const minTemp = Math.min(...allTemps) - 0.5;
+    const maxTemp = Math.max(...allTemps) + 0.5;
+    // Prevent division by zero when all temperatures are identical
+    const tempRange = maxTemp - minTemp || 1;
+
+    const xScale = i => PAD.left + (i / (history.length - 1)) * plotW;
+    const yScale = v => PAD.top + plotH - ((v - minTemp) / tempRange) * plotH;
+
+    const currentPoints = history
+      .map((e, i) => e.current != null ? `${xScale(i)},${yScale(e.current)}` : null)
+      .filter(Boolean).join(" ");
+    const targetPoints = history
+      .map((e, i) => `${xScale(i)},${yScale(e.target)}`).join(" ");
+
+    const firstLabel = history[0].time;
+    const lastLabel = history[history.length - 1].time;
+    const midIdx = Math.floor((history.length - 1) / 2);
+    const midLabel = history[midIdx].time;
+
+    const gridTemps = [
+      Math.round(minTemp + 0.5),
+      Math.round((minTemp + maxTemp) / 2),
+      Math.round(maxTemp - 0.5),
+    ].filter((v, i, a) => a.indexOf(v) === i);
+
+    return html`
+      <svg viewBox="0 0 ${W} ${H}" class="history-svg" aria-label="Temperatuurgeschiedenis">
+        ${gridTemps.map(t => {
+          const y = yScale(t);
+          return html`
+            <line x1="${PAD.left}" y1="${y}" x2="${W - PAD.right}" y2="${y}"
+                  stroke="var(--divider-color)" stroke-width="0.5" stroke-dasharray="3,3"/>
+            <text x="${PAD.left - 2}" y="${y + 3}" text-anchor="end" class="graph-label">${t}°</text>
+          `;
+        })}
+
+        ${currentPoints ? html`
+          <polyline points="${currentPoints}"
+                    fill="none" stroke="var(--info-color, #2196f3)" stroke-width="1.5"
+                    stroke-linejoin="round" stroke-linecap="round"/>
+        ` : ""}
+
+        <polyline points="${targetPoints}"
+                  fill="none" stroke="var(--warning-color, #ff9800)" stroke-width="1.5"
+                  stroke-dasharray="4,2"
+                  stroke-linejoin="round" stroke-linecap="round"/>
+
+        <text x="${xScale(0)}" y="${H - 2}" text-anchor="middle" class="graph-label">${firstLabel}</text>
+        <text x="${xScale(midIdx)}" y="${H - 2}" text-anchor="middle" class="graph-label">${midLabel}</text>
+        <text x="${xScale(history.length - 1)}" y="${H - 2}" text-anchor="middle" class="graph-label">${lastLabel}</text>
+      </svg>
+      <div class="history-legend">
+        <span class="legend-current">— huidig</span>
+        <span class="legend-target">- - doel</span>
+      </div>
+    `;
   }
 
   static styles = css`
@@ -392,6 +468,56 @@ class SmartClimateCard extends LitElement {
 
     .temp-btn:hover {
       opacity: 0.85;
+    }
+
+    .history-panel {
+      margin-top: 8px;
+      padding: 8px 10px;
+      border-radius: 10px;
+      background: var(--secondary-background-color);
+      border: 1px solid var(--divider-color);
+    }
+
+    .history-label {
+      font-size: 11px;
+      color: var(--secondary-text-color);
+      margin-bottom: 4px;
+    }
+
+    .history-svg {
+      width: 100%;
+      height: auto;
+      display: block;
+      overflow: visible;
+    }
+
+    .graph-label {
+      font-size: 8px;
+      fill: var(--secondary-text-color);
+    }
+
+    .history-empty {
+      font-size: 11px;
+      color: var(--secondary-text-color);
+      text-align: center;
+      padding: 12px 0;
+    }
+
+    .history-legend {
+      display: flex;
+      gap: 12px;
+      justify-content: flex-end;
+      margin-top: 2px;
+    }
+
+    .legend-current {
+      font-size: 10px;
+      color: var(--info-color, #2196f3);
+    }
+
+    .legend-target {
+      font-size: 10px;
+      color: var(--warning-color, #ff9800);
     }
   `;
 }
