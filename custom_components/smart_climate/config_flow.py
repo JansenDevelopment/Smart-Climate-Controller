@@ -1,4 +1,4 @@
-from homeassistant.config_entries import ConfigFlow
+from homeassistant.config_entries import ConfigFlow, OptionsFlow, ConfigEntry
 from homeassistant.const import CONF_NAME
 from homeassistant.helpers import config_validation as cv
 import voluptuous as vol
@@ -23,6 +23,11 @@ class SmartClimateConfigFlow(ConfigFlow, domain=DOMAIN):
     def __init__(self):
         super().__init__()
         self._import_name = None
+
+    @staticmethod
+    def async_get_options_flow(config_entry: ConfigEntry):
+        """Return the options flow."""
+        return SmartClimateOptionsFlow(config_entry)
 
     async def async_step_import(self, import_data):
         """Handle import from YAML (only name is required)."""
@@ -88,5 +93,53 @@ class SmartClimateConfigFlow(ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="reconfigure",
+            data_schema=schema,
+        )
+
+
+class SmartClimateOptionsFlow(OptionsFlow):
+    """Options flow for Smart Climate — change settings after initial setup."""
+
+    def __init__(self, config_entry: ConfigEntry):
+        self._config_entry = config_entry
+
+    async def async_step_init(self, user_input=None):
+        """Handle options step."""
+        current = {**self._config_entry.data, **self._config_entry.options}
+
+        if user_input is not None:
+            return self.async_create_entry(title="", data=user_input)
+
+        schema = vol.Schema(
+            {
+                vol.Optional(
+                    CONF_AUTO_TEMPERATURE,
+                    default=current.get(CONF_AUTO_TEMPERATURE, 21),
+                ): vol.Coerce(float),
+                vol.Optional(
+                    CONF_AWAY_TEMPERATURE,
+                    default=current.get(CONF_AWAY_TEMPERATURE, 14),
+                ): vol.Coerce(float),
+                vol.Optional(
+                    CONF_AWAY_DELAY_MINUTES,
+                    default=current.get(CONF_AWAY_DELAY_MINUTES, 5),
+                ): vol.Coerce(int),
+                vol.Optional(
+                    CONF_INTERRUPTIBLE,
+                    default=current.get(CONF_INTERRUPTIBLE, True),
+                ): cv.boolean,
+                vol.Optional(
+                    CONF_DEFAULT_OVERRIDE_MODE,
+                    default=current.get(CONF_DEFAULT_OVERRIDE_MODE, "timer"),
+                ): vol.In(["timer", "infinity"]),
+                vol.Optional(
+                    CONF_DEFAULT_OVERRIDE_DURATION,
+                    default=current.get(CONF_DEFAULT_OVERRIDE_DURATION, 30),
+                ): vol.Coerce(int),
+            }
+        )
+
+        return self.async_show_form(
+            step_id="init",
             data_schema=schema,
         )
