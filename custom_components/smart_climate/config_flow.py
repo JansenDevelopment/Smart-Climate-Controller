@@ -1,6 +1,6 @@
 from homeassistant.config_entries import ConfigFlow
 from homeassistant.const import CONF_NAME
-from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import selector
 import voluptuous as vol
 from .const import (
     DOMAIN,
@@ -46,15 +46,29 @@ class SmartClimateConfigFlow(ConfigFlow, domain=DOMAIN):
 
         schema = vol.Schema(
             {
-                vol.Required(CONF_NAME, default=self._import_name or "Smart Climate"): str,
-                vol.Required(CONF_WRAPPED_CLIMATE): cv.entity_id,
-                vol.Required(CONF_ZONE_HOME): cv.entity_id,
-                vol.Optional(CONF_AUTO_TEMPERATURE, default=21): vol.Coerce(float),
-                vol.Optional(CONF_AWAY_TEMPERATURE, default=14): vol.Coerce(float),
-                vol.Optional(CONF_AWAY_DELAY_MINUTES, default=5): vol.Coerce(int),
-                vol.Optional(CONF_INTERRUPTIBLE, default=True): cv.boolean,
-                vol.Optional(CONF_DEFAULT_OVERRIDE_MODE, default="timer"): vol.In(["timer", "infinity"]),
-                vol.Optional(CONF_DEFAULT_OVERRIDE_DURATION, default=30): vol.Coerce(int),
+                vol.Required(CONF_NAME, default=self._import_name or "Smart Climate"): selector.TextSelector(),
+                vol.Required(CONF_WRAPPED_CLIMATE): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="climate")
+                ),
+                vol.Required(CONF_ZONE_HOME): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="zone")
+                ),
+                vol.Optional(CONF_AUTO_TEMPERATURE, default=21): selector.NumberSelector(
+                    selector.NumberSelectorConfig(min=5, max=35, step=0.5, unit_of_measurement="°C", mode=selector.NumberSelectorMode.BOX)
+                ),
+                vol.Optional(CONF_AWAY_TEMPERATURE, default=14): selector.NumberSelector(
+                    selector.NumberSelectorConfig(min=5, max=35, step=0.5, unit_of_measurement="°C", mode=selector.NumberSelectorMode.BOX)
+                ),
+                vol.Optional(CONF_AWAY_DELAY_MINUTES, default=5): selector.NumberSelector(
+                    selector.NumberSelectorConfig(min=0, max=120, step=1, unit_of_measurement="min", mode=selector.NumberSelectorMode.BOX)
+                ),
+                vol.Optional(CONF_INTERRUPTIBLE, default=True): selector.BooleanSelector(),
+                vol.Optional(CONF_DEFAULT_OVERRIDE_MODE, default="timer"): selector.SelectSelector(
+                    selector.SelectSelectorConfig(options=["timer", "infinity"])
+                ),
+                vol.Optional(CONF_DEFAULT_OVERRIDE_DURATION, default=30): selector.NumberSelector(
+                    selector.NumberSelectorConfig(min=1, max=1440, step=1, unit_of_measurement="min", mode=selector.NumberSelectorMode.BOX)
+                ),
             }
         )
 
@@ -78,11 +92,15 @@ class SmartClimateConfigFlow(ConfigFlow, domain=DOMAIN):
                 vol.Required(
                     CONF_WRAPPED_CLIMATE,
                     default=entry.data.get(CONF_WRAPPED_CLIMATE, ""),
-                ): cv.entity_id,
+                ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="climate")
+                ),
                 vol.Required(
                     CONF_ZONE_HOME,
                     default=entry.data.get(CONF_ZONE_HOME, ""),
-                ): cv.entity_id,
+                ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="zone")
+                ),
             }
         )
 
