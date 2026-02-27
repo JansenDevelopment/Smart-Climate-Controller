@@ -175,6 +175,7 @@ class SmartClimateScheduleCard extends LitElement {
     } catch (err) {
       console.error("SmartClimateScheduleCard: failed to save schedule", err);
     }
+  }
 
   _setMode(m) {
     this._scheduleMode = m;
