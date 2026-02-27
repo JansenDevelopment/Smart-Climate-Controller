@@ -96,13 +96,12 @@ class SmartClimateCard extends LitElement {
           </div>
           ` : ""}
 
+          ${(isTimer || isInfinity) ? html`
           <div class="panel">
             <div class="state">
               ${isTimer
                 ? html`<span>Timer actief</span>`
-                : isInfinity
-                ? html`<strong>♾ Infinity</strong>`
-                : html`Auto`}
+                : html`<strong>♾ Infinity</strong>`}
             </div>
 
             <input
@@ -123,6 +122,7 @@ class SmartClimateCard extends LitElement {
               <span>∞</span>
             </div>
           </div>
+          ` : ""}
         </div>
       </ha-card>
     `;
