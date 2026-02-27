@@ -133,8 +133,11 @@ class SmartClimateScheduleCard extends LitElement {
     this._setNodes(nodes);
   }
 
-  _onSvgPointerUp() {
+  _onSvgPointerUp(e) {
     if (this._draggingIdx != null) {
+      try {
+        e.target.releasePointerCapture?.(e.pointerId);
+      } catch {}
       const nodes = [...this._getNodes()].sort(
         (a, b) => this._timeToHour(a.time) - this._timeToHour(b.time)
       );
@@ -175,6 +178,7 @@ class SmartClimateScheduleCard extends LitElement {
     } catch (err) {
       console.error("SmartClimateScheduleCard: failed to save schedule", err);
     }
+  }
 
   _setMode(m) {
     this._scheduleMode = m;
