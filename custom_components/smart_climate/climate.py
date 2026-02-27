@@ -56,12 +56,13 @@ async def async_setup_entry(
     name = entry.data.get(CONF_NAME, "Smart Climate")
     wrapped_climate = entry.data.get(CONF_WRAPPED_CLIMATE)
     zone_home = entry.data.get(CONF_ZONE_HOME)
-    away_temp = entry.data.get(CONF_AWAY_TEMPERATURE, 14)
-    auto_temp = entry.data.get(CONF_AUTO_TEMPERATURE, 21)
-    away_delay = entry.data.get(CONF_AWAY_DELAY_MINUTES, 5)
-    interruptible = entry.data.get(CONF_INTERRUPTIBLE, True)
-    default_override_mode = entry.data.get(CONF_DEFAULT_OVERRIDE_MODE, "timer")
-    default_override_duration = entry.data.get(CONF_DEFAULT_OVERRIDE_DURATION, 30)
+    options = {**entry.data, **entry.options}
+    away_temp = options.get(CONF_AWAY_TEMPERATURE, 14)
+    auto_temp = options.get(CONF_AUTO_TEMPERATURE, 21)
+    away_delay = options.get(CONF_AWAY_DELAY_MINUTES, 5)
+    interruptible = options.get(CONF_INTERRUPTIBLE, True)
+    default_override_mode = options.get(CONF_DEFAULT_OVERRIDE_MODE, "timer")
+    default_override_duration = options.get(CONF_DEFAULT_OVERRIDE_DURATION, 30)
 
     entity = SmartClimateEntity(
         hass,

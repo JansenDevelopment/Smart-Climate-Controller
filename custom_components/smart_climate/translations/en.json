@@ -25,11 +25,47 @@
           "default_override_mode": "Override mode used when adjusting temperature (timer or infinity)",
           "default_override_duration": "Default duration in minutes for timer override mode"
         }
+      },
+      "reconfigure": {
+        "title": "Reconfigure Smart Climate",
+        "description": "Change the linked climate entity and home zone",
+        "data": {
+          "wrapped_climate": "Wrapped Climate Entity",
+          "zone_home": "Home Zone"
+        },
+        "data_description": {
+          "wrapped_climate": "The climate entity to wrap and control",
+          "zone_home": "The zone entity used for presence detection"
+        }
       }
     },
     "error": {},
     "abort": {
       "already_configured": "Device is already configured"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Smart Climate Options",
+        "description": "Adjust temperature and override settings",
+        "data": {
+          "auto_temperature": "Home Temperature",
+          "away_temperature": "Away Temperature",
+          "away_delay_minutes": "Away Delay (minutes)",
+          "interruptible": "Override is interruptible",
+          "default_override_mode": "Default Override Mode",
+          "default_override_duration": "Default Override Duration (minutes)"
+        },
+        "data_description": {
+          "auto_temperature": "Target temperature when somebody is home",
+          "away_temperature": "Target temperature when nobody is home",
+          "away_delay_minutes": "Minutes to wait before applying the away temperature",
+          "interruptible": "Whether a presence change can interrupt an active override",
+          "default_override_mode": "Override mode used when adjusting temperature (timer or infinity)",
+          "default_override_duration": "Default duration in minutes for timer override mode"
+        }
+      }
     }
   }
 }

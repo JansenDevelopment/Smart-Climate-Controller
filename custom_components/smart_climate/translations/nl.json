@@ -25,11 +25,47 @@
           "default_override_mode": "Overschrijfmodus bij het aanpassen van de temperatuur (timer of oneindig)",
           "default_override_duration": "Standaardduur in minuten voor timer-overschrijfmodus"
         }
+      },
+      "reconfigure": {
+        "title": "Smart Climate Herconfigureren",
+        "description": "Wijzig het gekoppelde klimaatapparaat en de thuiszone",
+        "data": {
+          "wrapped_climate": "Gekoppeld Klimaatapparaat",
+          "zone_home": "Thuiszone"
+        },
+        "data_description": {
+          "wrapped_climate": "Het klimaatapparaat om te beheren",
+          "zone_home": "De zone die gebruikt wordt voor aanwezigheidsdetectie"
+        }
       }
     },
     "error": {},
     "abort": {
       "already_configured": "Apparaat is al geconfigureerd"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Smart Climate Opties",
+        "description": "Pas temperatuur- en overschrijfinstellingen aan",
+        "data": {
+          "auto_temperature": "Thuis Temperatuur",
+          "away_temperature": "Weg Temperatuur",
+          "away_delay_minutes": "Vertrekvertraging (minuten)",
+          "interruptible": "Overschrijving is onderbrekbaar",
+          "default_override_mode": "Standaard Overschrijfmodus",
+          "default_override_duration": "Standaard Overschrijfduur (minuten)"
+        },
+        "data_description": {
+          "auto_temperature": "Doeltemperatuur wanneer iemand thuis is",
+          "away_temperature": "Doeltemperatuur wanneer niemand thuis is",
+          "away_delay_minutes": "Minuten te wachten voordat de weg-temperatuur wordt toegepast",
+          "interruptible": "Of een aanwezigheidswijziging een actieve overschrijving kan onderbreken",
+          "default_override_mode": "Overschrijfmodus bij het aanpassen van de temperatuur (timer of oneindig)",
+          "default_override_duration": "Standaardduur in minuten voor timer-overschrijfmodus"
+        }
+      }
     }
   }
 }
