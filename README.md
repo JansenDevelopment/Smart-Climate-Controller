@@ -1,41 +1,85 @@
 # HA Smart Climate
 
-## Features
-- Comprehensive control of indoor climate
-- Smart presence indicators for optimized energy use
-- Easy configuration options
-- Timer management for different modes
-
 ## Installation
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/JansenDevelopment/ha-smart-climate.git
-   ```
-2. Navigate to the project directory:
-   ```bash
-   cd ha-smart-climate
-   ```
-3. Follow the installation instructions specific to your platform.
+To install HA Smart Climate:
+1. Go to your Home Assistant dashboard.
+2. Navigate to HACS (Home Assistant Community Store).
+3. Search for "HA Smart Climate" and click install.
 
 ## Configuration
-Details about how to configure the smart climate settings will be provided here, including parameters to optimize your climate settings.
+### YAML Configuration Options
+| Option            | Description                   |
+|-------------------|-------------------------------|
+| `climate:`        | Main climate integration      |
+| `name:`           | Name of the climate device    |
+| `platform:`       | Should be set to `smart_climate` |
 
-## Smart Climate Card with Presence Indicators
-- **Home**: Activates the climate control for comfortable settings.
-- **Leaving**: Prepares the system to save energy when no one is home.
-- **Away**: Adjusts settings to maintain the home environment efficiently.
+### Example Configuration:
+```yaml
+climate:
+  - platform: smart_climate
+    name: Living Room
+    ...
+```
 
-## Temperature Control
-Describes the methods to control the temperature through the application and any automatic settings available.
+## Features
+- Supports multiple climate devices.
+- User-friendly interface.
 
-## Away Delay Countdown
-A feature that allows delayed activation of the Away mode to ensure all residents have left.
+## HACS Installation
+Follow the HACS installation guide included in the documentation.
 
-## Timer Management
-Information on managing timers for different climate settings based on daily or weekly schedules.
+## Lovelace Card Usage
+### Example
+```yaml
+type: custom:smart-climate-card
+entity: climate.living_room
+
+# Example card configuration here
+```
 
 ## Services
-Details on all the services offered by the smart climate application.
+### All Service Definitions
+#### Example Service: `climate.set_temperature`
+- **Parameters:**
+  - `entity_id`: Entity ID of the climate device
+  - `temperature`: Desired temperature to set
 
-## Examples
-- Simple usage example to illustrate how to set up your Smart Climate system effectively.
+### Example Usage:
+```yaml
+service: climate.set_temperature
+data:
+  entity_id: climate.living_room
+  temperature: 22
+```
+
+## Entity Attributes
+| Attribute          | Description                 |
+|-------------------|-----------------------------|
+| `current_temperature` | The current temperature of the device |
+| `target_temperature`  | The target temperature being set     |
+
+## Automation Use Cases
+### Example Use Case: Turn on heating at night
+```yaml
+automation:
+  - alias: Turn on heating
+    trigger:
+      platform: time
+      at: '22:00:00'
+    action:
+      service: climate.set_temperature
+      data:
+        entity_id: climate.living_room
+        temperature: 21
+```
+
+## Troubleshooting Guide
+- **Issue:** Device is not reporting temperature.
+  - **Solution:** Check if the device is connected to the network.
+
+- **Issue:** Configuration errors.
+  - **Solution:** Review the configuration file for syntax errors.
+
+---
+For further assistance, refer to the [documentation](link-to-documentation).
