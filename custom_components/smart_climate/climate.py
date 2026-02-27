@@ -239,10 +239,8 @@ class SmartClimateEntity(ClimateEntity):
         if self._away_delay_task and self._away_delay_remaining > 0:
             self._away_delay_remaining -= 10
             if self._away_delay_remaining <= 0:
-                self._presence = "away"
                 self._away_delay_task = None
-                if self._mode == MODE_OVERRIDE_TIMER and self._interruptible:
-                    self._mode = MODE_AUTO
+                self._transition_to_away()
 
         # Update override timer
         if self._mode == MODE_OVERRIDE_TIMER and self._override_start_time:
@@ -280,8 +278,17 @@ class SmartClimateEntity(ClimateEntity):
         except ValueError:
             pass
 
+    def _transition_to_away(self):
+        """Transition presence to away and interrupt override if needed."""
+        self._presence = "away"
+        if self._mode == MODE_OVERRIDE_TIMER and self._interruptible:
+            self._mode = MODE_AUTO
+
     async def _start_away_delay(self):
         """Start away delay timer."""
+        if self._away_delay_minutes == 0:
+            self._transition_to_away()
+            return
         if not self._away_delay_task:
             self._away_delay_remaining = self._away_delay_minutes * 60
             self._away_delay_task = True
@@ -480,7 +487,7 @@ class SmartClimateEntity(ClimateEntity):
             ATTR_WRAPPED_CLIMATE: self._wrapped_climate,
             ATTR_ZONE_HOME: self._zone_home,
             ATTR_MODE: self._mode,
-            ATTR_PRESENCE: self._presence,
+            ATTR_PRESENCE: "leaving" if self._away_delay_task else self._presence,
             ATTR_REMAINING_MINUTES: int(remaining_minutes),
             ATTR_INTERRUPTIBLE: self._interruptible,
             ATTR_OVERRIDE_TEMPERATURE: self._override_temperature,
