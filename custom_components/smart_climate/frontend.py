@@ -14,9 +14,11 @@ _LOGGER = logging.getLogger(__name__)
 DOMAIN = "smart_climate"
 CARD_NAME = "smart-climate-card"
 CONFIG_CARD_NAME = "smart-climate-config-card"
+SCHEDULE_CARD_NAME = "smart-climate-schedule-card"
 HACS_PATH = "www/community/smart-climate-card"
 RESOURCE_URL = "/hacsfiles/smart-climate-card/smart-climate-card.js"
 CONFIG_RESOURCE_URL = "/hacsfiles/smart-climate-card/smart-climate-config-card.js"
+SCHEDULE_RESOURCE_URL = "/hacsfiles/smart-climate-card/smart-climate-schedule-card.js"
 
 
 class SmartClimateCardRegistration:
@@ -41,6 +43,7 @@ class SmartClimateCardRegistration:
         # Copy cards to HACS community directory
         await self._async_copy_card_to_hacs(CARD_NAME)
         await self._async_copy_card_to_hacs(CONFIG_CARD_NAME)
+        await self._async_copy_card_to_hacs(SCHEDULE_CARD_NAME)
 
         if self.lovelace and self.lovelace.resource_mode == MODE_STORAGE:
             await self._async_wait_for_lovelace_resources()
@@ -68,6 +71,7 @@ class SmartClimateCardRegistration:
             if self.lovelace.resources.loaded:
                 await self._async_register_module(CARD_NAME, RESOURCE_URL)
                 await self._async_register_module(CONFIG_CARD_NAME, CONFIG_RESOURCE_URL)
+                await self._async_register_module(SCHEDULE_CARD_NAME, SCHEDULE_RESOURCE_URL)
             else:
                 _LOGGER.debug("Waiting for Lovelace resources...")
                 async_call_later(self.hass, 5, _check_lovelace_loaded)
