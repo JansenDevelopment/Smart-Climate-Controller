@@ -10,6 +10,7 @@ class SmartClimateConfigCard extends LitElement {
     _overrideDuration: { state: true },
     _interruptible: { state: true },
     _saved: { state: true },
+    _dirty: { state: true },
   };
 
   setConfig(config) {
@@ -61,6 +62,14 @@ class SmartClimateConfigCard extends LitElement {
         <div class="content">
           <div class="header">
             <div class="title">⚙️ SmartClimate Config</div>
+            <div class="header-actions">
+              ${this._dirty ? html`<span class="unsaved-badge">● Unsaved</span>` : ""}
+              ${this._saved ? html`<span class="saved-badge">✓ Saved</span>` : ""}
+              <button class="save-btn ${this._dirty ? "save-btn--dirty" : ""}"
+                @click=${() => this._save()} ?disabled=${!this._dirty}>
+                Save
+              </button>
+            </div>
           </div>
 
           <div class="section">
@@ -115,11 +124,11 @@ class SmartClimateConfigCard extends LitElement {
               <div class="toggle-group">
                 <button
                   class="toggle-btn ${overrideMode === "timer" ? "active" : ""}"
-                  @click=${() => { this._overrideMode = "timer"; }}
+                  @click=${() => { this._overrideMode = "timer"; this._dirty = true; }}
                 >Timer</button>
                 <button
                   class="toggle-btn ${overrideMode === "infinity" ? "active" : ""}"
-                  @click=${() => { this._overrideMode = "infinity"; }}
+                  @click=${() => { this._overrideMode = "infinity"; this._dirty = true; }}
                 >♾ Infinity</button>
               </div>
             </div>
@@ -143,16 +152,11 @@ class SmartClimateConfigCard extends LitElement {
               <label>Allow presence to interrupt override</label>
               <button
                 class="toggle-btn ${interruptible ? "active" : ""}"
-                @click=${() => { this._interruptible = !this._interruptible; }}
+                @click=${() => { this._interruptible = !this._interruptible; this._dirty = true; }}
               >${interruptible ? "✓ Yes" : "✗ No"}</button>
             </div>
           </div>
 
-          <div class="actions">
-            <button class="save-btn" @click=${() => this._save()}>
-              ${this._saved ? "✓ Saved" : "Save"}
-            </button>
-          </div>
         </div>
       </ha-card>
     `;
@@ -161,6 +165,7 @@ class SmartClimateConfigCard extends LitElement {
   _adjust(prop, delta, min, max) {
     const current = this[prop] ?? 0;
     this[prop] = Math.min(max, Math.max(min, Math.round((current + delta) * 10) / 10));
+    this._dirty = true;
   }
 
   _formatDuration(minutes) {
@@ -191,6 +196,7 @@ class SmartClimateConfigCard extends LitElement {
       interruptible: this._interruptible,
     });
 
+    this._dirty = false;
     this._saved = true;
     setTimeout(() => { this._saved = false; }, 2000);
   }
@@ -208,12 +214,62 @@ class SmartClimateConfigCard extends LitElement {
     .header {
       display: flex;
       align-items: center;
+      justify-content: space-between;
       margin-bottom: 8px;
+    }
+
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
     }
 
     .title {
       font-size: 16px;
       font-weight: 600;
+    }
+
+    .unsaved-badge {
+      font-size: 11px;
+      color: #ff9800;
+      font-weight: 600;
+    }
+
+    .saved-badge {
+      font-size: 11px;
+      color: var(--success-color);
+      background: rgba(76, 175, 80, 0.15);
+      padding: 2px 8px;
+      border-radius: 8px;
+    }
+
+    .save-btn {
+      background: var(--secondary-background-color);
+      color: var(--primary-text-color);
+      border: 1px solid var(--divider-color);
+      border-radius: 6px;
+      padding: 4px 14px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s, border-color 0.2s, color 0.2s;
+    }
+
+    .save-btn:disabled {
+      opacity: 0.4;
+      cursor: default;
+    }
+
+    .save-btn--dirty {
+      background: var(--accent-color, #f5a623);
+      color: white;
+      border-color: var(--accent-color, #f5a623);
+      animation: pulse-save 1.2s ease-in-out infinite;
+    }
+
+    @keyframes pulse-save {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.75; }
     }
 
     .section {
@@ -303,28 +359,6 @@ class SmartClimateConfigCard extends LitElement {
     }
 
     .toggle-btn:hover {
-      opacity: 0.85;
-    }
-
-    .actions {
-      display: flex;
-      justify-content: flex-end;
-      margin-top: 6px;
-    }
-
-    .save-btn {
-      background: var(--accent-color);
-      color: white;
-      border: none;
-      border-radius: 8px;
-      padding: 6px 20px;
-      font-size: 13px;
-      font-weight: 600;
-      cursor: pointer;
-      transition: opacity 0.2s;
-    }
-
-    .save-btn:hover {
       opacity: 0.85;
     }
 
