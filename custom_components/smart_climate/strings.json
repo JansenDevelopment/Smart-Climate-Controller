@@ -18,7 +18,7 @@
         "data_description": {
           "wrapped_climate": "The climate entity to wrap and control",
           "zone_home": "The zone entity used for presence detection",
-          "auto_temperature": "Target temperature when somebody is home",
+          "auto_temperature": "Fallback target temperature when somebody is home and no schedule is active",
           "away_temperature": "Target temperature when nobody is home",
           "away_delay_minutes": "Minutes to wait before applying the away temperature",
           "interruptible": "Whether a presence change can interrupt an active override",
