@@ -6,7 +6,6 @@ from .const import (
     DOMAIN,
     CONF_WRAPPED_CLIMATE,
     CONF_ZONE_HOME,
-    CONF_AUTO_TEMPERATURE,
     CONF_AWAY_TEMPERATURE,
     CONF_AWAY_DELAY_MINUTES,
     CONF_INTERRUPTIBLE,
@@ -52,9 +51,6 @@ class SmartClimateConfigFlow(ConfigFlow, domain=DOMAIN):
                 ),
                 vol.Required(CONF_ZONE_HOME): selector.EntitySelector(
                     selector.EntitySelectorConfig(domain="zone")
-                ),
-                vol.Optional(CONF_AUTO_TEMPERATURE, default=21): selector.NumberSelector(
-                    selector.NumberSelectorConfig(min=5, max=35, step=0.5, unit_of_measurement="°C", mode=selector.NumberSelectorMode.BOX)
                 ),
                 vol.Optional(CONF_AWAY_TEMPERATURE, default=14): selector.NumberSelector(
                     selector.NumberSelectorConfig(min=5, max=35, step=0.5, unit_of_measurement="°C", mode=selector.NumberSelectorMode.BOX)
