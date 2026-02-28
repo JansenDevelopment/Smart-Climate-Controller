@@ -130,6 +130,10 @@ class SmartClimateConfigCard extends LitElement {
                   class="toggle-btn ${overrideMode === "infinity" ? "active" : ""}"
                   @click=${() => { this._overrideMode = "infinity"; this._dirty = true; }}
                 >♾ Infinity</button>
+                <button
+                  class="toggle-btn ${overrideMode === "next_node" ? "active" : ""}"
+                  @click=${() => { this._overrideMode = "next_node"; this._dirty = true; }}
+                >📅 Next node</button>
               </div>
             </div>
 

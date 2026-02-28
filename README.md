@@ -68,6 +68,17 @@ data:
   temperature: 22
 ```
 
+### `smart_climate.set_override_next_node`
+
+Set a manual temperature override that lasts until the next schedule node is reached. When the schedule's next node time arrives the override is automatically cleared and auto mode resumes.
+
+```yaml
+service: smart_climate.set_override_next_node
+data:
+  entity_id: climate.living_room
+  temperature: 22
+```
+
 ### `smart_climate.clear_override`
 
 Return to automatic (presence-based) mode.
@@ -124,7 +135,7 @@ data:
 
 ### `smart_climate.set_default_override_mode`
 
-Set the default override mode (`timer` or `infinity`) used when a temperature is changed manually.
+Set the default override mode (`timer`, `infinity`, or `next_node`) used when a temperature is changed manually.
 
 ```yaml
 service: smart_climate.set_default_override_mode
@@ -133,6 +144,8 @@ data:
   mode: timer
   duration: 30
 ```
+
+When `mode` is `next_node` the `duration` field is ignored; the override automatically ends at the next schedule node.
 
 ## Troubleshooting
 

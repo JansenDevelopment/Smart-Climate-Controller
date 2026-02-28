@@ -5,6 +5,7 @@ PLATFORMS = ["climate"]
 MODE_AUTO = "auto"
 MODE_OVERRIDE_TIMER = "override_timer"
 MODE_OVERRIDE_INFINITY = "override_infinity"
+MODE_OVERRIDE_NEXT_NODE = "override_next_node"
 
 # Schedule modes
 SCHEDULE_MODE_DAILY = "daily"
@@ -38,10 +39,12 @@ ATTR_AWAY_DELAY_MINUTES = "away_delay_minutes"
 ATTR_DEFAULT_OVERRIDE_MODE = "default_override_mode"
 ATTR_DEFAULT_OVERRIDE_DURATION = "default_override_duration"
 ATTR_SCHEDULE = "schedule"
+ATTR_NEXT_NODE_MINUTES = "next_node_minutes"
 
 # Services
 SERVICE_SET_OVERRIDE_TIMER = "set_override_timer"
 SERVICE_SET_OVERRIDE_INFINITY = "set_override_infinity"
+SERVICE_SET_OVERRIDE_NEXT_NODE = "set_override_next_node"
 SERVICE_CLEAR_OVERRIDE = "clear_override"
 SERVICE_SET_INTERRUPTIBLE = "set_interruptible"
 SERVICE_SET_AUTO_TEMPERATURE = "set_auto_temperature"
