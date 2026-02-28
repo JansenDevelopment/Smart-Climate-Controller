@@ -260,6 +260,7 @@ class SmartClimateEntity(ClimateEntity):
             if remaining <= 0:
                 self._mode = MODE_AUTO
                 self._override_start_time = None
+                self._last_written_temperature = 0
             else:
                 self._override_start_time = datetime.now() - timedelta(
                     minutes=elapsed
@@ -430,6 +431,7 @@ class SmartClimateEntity(ClimateEntity):
         self._override_temperature = temperature
         self._override_start_time = datetime.now()
         self._override_duration_minutes = minutes
+        self._last_written_temperature = 0
         await self._update_target_temperature()
         self.async_write_ha_state()
 
@@ -438,6 +440,7 @@ class SmartClimateEntity(ClimateEntity):
         self._mode = MODE_OVERRIDE_INFINITY
         self._override_temperature = temperature
         self._override_start_time = None
+        self._last_written_temperature = 0
         await self._update_target_temperature()
         self.async_write_ha_state()
 
@@ -445,6 +448,7 @@ class SmartClimateEntity(ClimateEntity):
         """Clear override and return to AUTO."""
         self._mode = MODE_AUTO
         self._override_start_time = None
+        self._last_written_temperature = 0
         await self._update_target_temperature()
         self.async_write_ha_state()
 
