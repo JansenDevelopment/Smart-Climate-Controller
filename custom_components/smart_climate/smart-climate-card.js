@@ -211,9 +211,19 @@ class SmartClimateCard extends LitElement {
     const xScale = i => PAD.left + (i / (history.length - 1)) * plotW;
     const yScale = v => PAD.top + plotH - ((v - minTemp) / tempRange) * plotH;
 
-    const currentPoints = history
-      .map((e, i) => e.current != null ? `${xScale(i)},${yScale(e.current)}` : null)
-      .filter(Boolean).join(" ");
+    // Build separate polyline segments for current temperature, breaking at null values
+    // so gaps in sensor data are not visually bridged.
+    const currentSegments = [];
+    let seg = [];
+    history.forEach((e, i) => {
+      if (e.current != null) {
+        seg.push(`${xScale(i)},${yScale(e.current)}`);
+      } else {
+        if (seg.length) { currentSegments.push(seg.join(" ")); seg = []; }
+      }
+    });
+    if (seg.length) currentSegments.push(seg.join(" "));
+
     const targetPoints = history
       .map((e, i) => `${xScale(i)},${yScale(e.target)}`).join(" ");
 
@@ -239,11 +249,11 @@ class SmartClimateCard extends LitElement {
           `;
         })}
 
-        ${currentPoints ? html`
-          <polyline points="${currentPoints}"
+        ${currentSegments.map(pts => html`
+          <polyline points="${pts}"
                     fill="none" stroke="var(--info-color, #2196f3)" stroke-width="1.5"
                     stroke-linejoin="round" stroke-linecap="round"/>
-        ` : ""}
+        `)}
 
         <polyline points="${targetPoints}"
                   fill="none" stroke="var(--warning-color, #ff9800)" stroke-width="1.5"

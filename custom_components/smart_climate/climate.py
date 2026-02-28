@@ -263,19 +263,19 @@ class SmartClimateEntity(ClimateEntity):
         await self._update_target_temperature()
 
         # Record a temperature history point every 5 minutes
-        now = datetime.now()
-        if self._last_history_time is None or (now - self._last_history_time).total_seconds() >= 300:
+        _ts = datetime.now()
+        if self._last_history_time is None or (_ts - self._last_history_time).total_seconds() >= 300:
             current_temp = self.current_temperature
             target_temp = self.target_temperature
             self._temperature_history.append({
-                "time": now.strftime("%H:%M"),
+                "time": _ts.strftime("%H:%M"),
                 "current": current_temp,
                 "target": target_temp,
             })
             # Keep at most 48 entries (~4 hours)
             if len(self._temperature_history) > 48:
                 self._temperature_history = self._temperature_history[-48:]
-            self._last_history_time = now
+            self._last_history_time = _ts
 
         self.async_write_ha_state()
 
