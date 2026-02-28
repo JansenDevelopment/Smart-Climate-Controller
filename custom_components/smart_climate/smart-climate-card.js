@@ -44,7 +44,12 @@ class SmartClimateCard extends LitElement {
 
     const isTimer = mode === "override_timer";
     const isInfinity = mode === "override_infinity";
-    const sliderValue = isTimer ? remaining : isInfinity ? 480 : 0;
+    const isNextNode = mode === "override_next_node";
+    const nextNodeMinutes = attrs.next_node_minutes ?? null;
+    // Dot position: capped at 465 (just before the ∞ mark at 480) when > 8 h
+    const nextNodeSliderPos = nextNodeMinutes != null ? Math.min(nextNodeMinutes, 465) : null;
+    const nextNodeDotPct = nextNodeSliderPos != null ? (nextNodeSliderPos / 480) * 100 : null;
+    const sliderValue = isTimer ? remaining : isInfinity ? 480 : isNextNode ? Math.min(remaining, 465) : 0;
 
     return html`
       <ha-card>
@@ -96,23 +101,42 @@ class SmartClimateCard extends LitElement {
           </div>
           ` : ""}
 
-          ${(isTimer || isInfinity) ? html`
+          ${isNextNode ? html`
+          <div class="timer-row">
+            <span class="timer-icon">📅</span>
+            <span class="timer-value countdown">${this.formatTime(remaining)}</span>
+            <span class="timer-label">tot volgend node</span>
+            <button class="restore-btn" @click=${() => this.clearOverride()}>Herstel schema</button>
+          </div>
+          ` : ""}
+
+          ${(isTimer || isInfinity || isNextNode) ? html`
           <div class="panel">
             <div class="state">
               ${isTimer
                 ? html`<span>Timer actief</span>`
-                : html`<strong>♾ Infinity</strong>`}
+                : isNextNode
+                  ? html`<span>📅 Next node actief</span>`
+                  : html`<strong>♾ Infinity</strong>`}
             </div>
 
-            <input
-              type="range"
-              min="0"
-              max="480"
-              step="15"
-              .value=${sliderValue}
-              @input=${this.onSliderInput}
-              @change=${this.onSliderChange}
-            />
+            <div class="slider-container">
+              <input
+                type="range"
+                min="0"
+                max="480"
+                step="15"
+                .value=${sliderValue}
+                @input=${this.onSliderInput}
+                @change=${this.onSliderChange}
+              />
+              ${nextNodeDotPct != null ? html`
+                <div class="next-node-dot"
+                     style="--dot-pos: ${nextNodeDotPct.toFixed(1)}%"
+                     @click=${() => this.onNextNodeDotClick()}
+                     title="Override till next node (${nextNodeMinutes}m)">◆</div>
+              ` : ""}
+            </div>
 
             <div class="scale">
               <span>Auto</span>
@@ -154,6 +178,13 @@ class SmartClimateCard extends LitElement {
     const value = Number(e.target.value);
     const slider = e.target;
     slider.style.setProperty("--slider-value", `${(value / 480) * 100}%`);
+  }
+
+  onNextNodeDotClick() {
+    this.hass.callService("smart_climate", "set_override_next_node", {
+      entity_id: this.config.entity,
+      temperature: this._overrideTemp,
+    });
   }
 
   clearOverride() {
@@ -341,6 +372,27 @@ class SmartClimateCard extends LitElement {
 
     input[type="range"]:hover::-webkit-slider-thumb {
       transform: scale(1.2);
+    }
+
+    .slider-container {
+      position: relative;
+      padding-bottom: 16px;
+    }
+
+    .next-node-dot {
+      position: absolute;
+      bottom: 0;
+      left: var(--dot-pos);
+      transform: translateX(-50%);
+      font-size: 10px;
+      color: var(--accent-color);
+      cursor: pointer;
+      user-select: none;
+      line-height: 1;
+    }
+
+    .next-node-dot:hover {
+      opacity: 0.75;
     }
 
     .scale {

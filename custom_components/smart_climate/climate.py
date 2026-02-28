@@ -12,6 +12,7 @@ from .const import (
     MODE_AUTO,
     MODE_OVERRIDE_TIMER,
     MODE_OVERRIDE_INFINITY,
+    MODE_OVERRIDE_NEXT_NODE,
     SCHEDULE_MODE_DAILY,
     SCHEDULE_MODE_52,
     SCHEDULE_MODE_INDIVIDUAL,
@@ -38,8 +39,10 @@ from .const import (
     ATTR_DEFAULT_OVERRIDE_MODE,
     ATTR_DEFAULT_OVERRIDE_DURATION,
     ATTR_SCHEDULE,
+    ATTR_NEXT_NODE_MINUTES,
     SERVICE_SET_OVERRIDE_TIMER,
     SERVICE_SET_OVERRIDE_INFINITY,
+    SERVICE_SET_OVERRIDE_NEXT_NODE,
     SERVICE_CLEAR_OVERRIDE,
     SERVICE_SET_INTERRUPTIBLE,
     SERVICE_SET_AUTO_TEMPERATURE,
@@ -97,6 +100,11 @@ async def async_setup_entry(
             call.data.get("temperature", 21),
         )
 
+    async def handle_set_override_next_node(call):
+        await entity.async_set_override_next_node(
+            call.data.get("temperature", 21),
+        )
+
     async def handle_clear_override(call):
         await entity.async_clear_override()
 
@@ -126,6 +134,9 @@ async def async_setup_entry(
     )
     hass.services.async_register(
         DOMAIN, SERVICE_SET_OVERRIDE_INFINITY, handle_set_override_infinity
+    )
+    hass.services.async_register(
+        DOMAIN, SERVICE_SET_OVERRIDE_NEXT_NODE, handle_set_override_next_node
     )
     hass.services.async_register(DOMAIN, SERVICE_CLEAR_OVERRIDE, handle_clear_override)
     hass.services.async_register(
@@ -194,11 +205,16 @@ class SmartClimateEntity(ClimateEntity):
         self._override_temperature = 21
         self._override_start_time = None
         self._override_duration_minutes = 0
+        self._override_next_node_time = None
         self._away_delay_task = None
         self._away_delay_remaining = 0
 
         # Timers
         self._update_timer = None
+
+        # Track the last temperature written to the wrapped climate to avoid
+        # unnecessary writes and to detect external changes
+        self._last_written_temperature = None
 
     async def async_added_to_hass(self):
         """Initialize after added to hass."""
@@ -208,6 +224,13 @@ class SmartClimateEntity(ClimateEntity):
         self.async_on_remove(
             async_track_state_change_event(
                 self.hass, [self._zone_home], self._on_zone_change
+            )
+        )
+
+        # Listen to wrapped climate changes to detect external temperature adjustments
+        self.async_on_remove(
+            async_track_state_change_event(
+                self.hass, [self._wrapped_climate], self._on_wrapped_climate_change
             )
         )
 
@@ -249,14 +272,54 @@ class SmartClimateEntity(ClimateEntity):
             if remaining <= 0:
                 self._mode = MODE_AUTO
                 self._override_start_time = None
+                self._last_written_temperature = 0
             else:
                 self._override_start_time = datetime.now() - timedelta(
                     minutes=elapsed
                 )
 
+        # Update override next node
+        if self._mode == MODE_OVERRIDE_NEXT_NODE:
+            if (
+                self._override_next_node_time is not None
+                and datetime.now() >= self._override_next_node_time
+            ):
+                self._mode = MODE_AUTO
+                self._override_next_node_time = None
+                self._last_written_temperature = 0
+
         # Calculate target temperature
         await self._update_target_temperature()
         self.async_write_ha_state()
+
+    async def _on_wrapped_climate_change(self, event):
+        """Handle wrapped climate state changes.
+
+        If the target temperature was changed externally (not by us), start an
+        override so the change is respected instead of being overwritten.
+        """
+        new_state = event.data.get("new_state")
+        if not new_state:
+            return
+
+        new_temp = new_state.attributes.get("target_temperature")
+        if new_temp is None:
+            return
+
+        # Detect an external change: the temperature differs from what we last wrote
+        if (
+            self._last_written_temperature is not None
+            and new_temp != self._last_written_temperature
+        ):
+            # Acknowledge the external change immediately so subsequent state-change
+            # events with the same temperature don't re-trigger the override
+            self._last_written_temperature = new_temp
+            if self._default_override_mode == "infinity":
+                await self.async_set_override_infinity(new_temp)
+            elif self._default_override_mode == "next_node":
+                await self.async_set_override_next_node(new_temp)
+            else:
+                await self.async_set_override_timer(self._default_override_duration, new_temp)
 
     async def _on_zone_change(self, event):
         """Handle zone state changes."""
@@ -359,9 +422,58 @@ class SmartClimateEntity(ClimateEntity):
 
         return target_temp
 
+    def _get_schedule_nodes(self) -> list:
+        """Return the list of schedule nodes applicable to the current day."""
+        if not self._schedule:
+            return []
+        schedule_mode = self._schedule.get("mode", SCHEDULE_MODE_DAILY)
+        weekday = datetime.now().weekday()
+        if schedule_mode == SCHEDULE_MODE_DAILY:
+            return self._schedule.get("daily", [])
+        if schedule_mode == SCHEDULE_MODE_52:
+            return self._schedule.get("weekday", []) if weekday < 5 else self._schedule.get("weekend", [])
+        if schedule_mode == SCHEDULE_MODE_INDIVIDUAL:
+            day_names = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+            return self._schedule.get(day_names[weekday], [])
+        return []
+
+    def _compute_next_node_datetime(self) -> "datetime | None":
+        """Return the datetime of the next upcoming schedule node, or None if unavailable."""
+        nodes = self._get_schedule_nodes()
+        if not nodes:
+            return None
+
+        def _parse_time(t: str):
+            try:
+                return datetime.strptime(t, "%H:%M").time()
+            except (ValueError, TypeError):
+                return None
+
+        now = datetime.now()
+        current_time = now.time().replace(second=0, microsecond=0)
+        valid_times = sorted(
+            t for node in nodes if (t := _parse_time(node.get("time", ""))) is not None
+        )
+        if not valid_times:
+            return None
+
+        for node_time in valid_times:
+            if node_time > current_time:
+                return datetime.combine(now.date(), node_time)
+
+        # All nodes are before current time → next node is the first one tomorrow
+        return datetime.combine(now.date() + timedelta(days=1), valid_times[0])
+
+    def _get_next_node_minutes(self) -> "int | None":
+        """Return minutes until the next schedule node, or None if no schedule."""
+        next_dt = self._compute_next_node_datetime()
+        if next_dt is None:
+            return None
+        return int(max(0, (next_dt - datetime.now()).total_seconds() / 60))
+
     async def _update_target_temperature(self):
         """Calculate and update target temperature to wrapped climate."""
-        if self._mode == MODE_OVERRIDE_TIMER or self._mode == MODE_OVERRIDE_INFINITY:
+        if self._mode == MODE_OVERRIDE_TIMER or self._mode == MODE_OVERRIDE_INFINITY or self._mode == MODE_OVERRIDE_NEXT_NODE:
             target = self._override_temperature
         elif self._mode == MODE_AUTO:
             if self._presence == "home":
@@ -371,7 +483,12 @@ class SmartClimateEntity(ClimateEntity):
         else:
             target = 21
 
-        # Set on wrapped climate
+        # Only write to the wrapped climate when the target temperature has changed;
+        # callers are responsible for calling async_write_ha_state() to update the UI
+        if target == self._last_written_temperature:
+            return
+
+        self._last_written_temperature = target
         await self.hass.services.async_call(
             "climate",
             "set_temperature",
@@ -387,6 +504,7 @@ class SmartClimateEntity(ClimateEntity):
         self._override_temperature = temperature
         self._override_start_time = datetime.now()
         self._override_duration_minutes = minutes
+        self._last_written_temperature = 0
         await self._update_target_temperature()
         self.async_write_ha_state()
 
@@ -395,6 +513,17 @@ class SmartClimateEntity(ClimateEntity):
         self._mode = MODE_OVERRIDE_INFINITY
         self._override_temperature = temperature
         self._override_start_time = None
+        self._last_written_temperature = 0
+        await self._update_target_temperature()
+        self.async_write_ha_state()
+
+    async def async_set_override_next_node(self, temperature: float):
+        """Set override until the next schedule node."""
+        self._mode = MODE_OVERRIDE_NEXT_NODE
+        self._override_temperature = temperature
+        self._override_start_time = None
+        self._last_written_temperature = 0
+        self._override_next_node_time = self._compute_next_node_datetime()
         await self._update_target_temperature()
         self.async_write_ha_state()
 
@@ -402,6 +531,8 @@ class SmartClimateEntity(ClimateEntity):
         """Clear override and return to AUTO."""
         self._mode = MODE_AUTO
         self._override_start_time = None
+        self._override_next_node_time = None
+        self._last_written_temperature = 0
         await self._update_target_temperature()
         self.async_write_ha_state()
 
@@ -443,9 +574,11 @@ class SmartClimateEntity(ClimateEntity):
     async def async_set_temperature(self, **kwargs):
         """Set temperature - activate override based on DEFAULT_OVERRIDE setting."""
         temperature = kwargs.get("temperature", 22)
-        
+
         if self._default_override_mode == "infinity":
             await self.async_set_override_infinity(temperature)
+        elif self._default_override_mode == "next_node":
+            await self.async_set_override_next_node(temperature)
         else:
             # timer mode (default)
             await self.async_set_override_timer(self._default_override_duration, temperature)
@@ -470,7 +603,7 @@ class SmartClimateEntity(ClimateEntity):
 
     @property
     def target_temperature(self):
-        if self._mode in (MODE_OVERRIDE_TIMER, MODE_OVERRIDE_INFINITY):
+        if self._mode in (MODE_OVERRIDE_TIMER, MODE_OVERRIDE_INFINITY, MODE_OVERRIDE_NEXT_NODE):
             return self._override_temperature
         if self._presence == "home":
             return self._get_scheduled_temperature()
@@ -482,6 +615,11 @@ class SmartClimateEntity(ClimateEntity):
         if self._mode == MODE_OVERRIDE_TIMER and self._override_start_time:
             elapsed = (datetime.now() - self._override_start_time).total_seconds() / 60
             remaining_minutes = max(0, self._override_duration_minutes - elapsed)
+        elif self._mode == MODE_OVERRIDE_NEXT_NODE and self._override_next_node_time:
+            remaining_minutes = max(
+                0,
+                (self._override_next_node_time - datetime.now()).total_seconds() / 60,
+            )
 
         return {
             ATTR_WRAPPED_CLIMATE: self._wrapped_climate,
@@ -498,4 +636,5 @@ class SmartClimateEntity(ClimateEntity):
             ATTR_DEFAULT_OVERRIDE_MODE: self._default_override_mode,
             ATTR_DEFAULT_OVERRIDE_DURATION: self._default_override_duration,
             ATTR_SCHEDULE: self._schedule,
+            ATTR_NEXT_NODE_MINUTES: self._get_next_node_minutes(),
         }

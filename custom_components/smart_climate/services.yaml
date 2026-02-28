@@ -54,6 +54,29 @@ set_override_infinity:
           step: 0.5
           unit_of_measurement: °C
 
+set_override_next_node:
+  name: Set Override Next Node
+  description: Set manual override until the next schedule node is reached
+  fields:
+    entity_id:
+      name: Entity
+      description: Climate entity
+      required: true
+      selector:
+        entity:
+          domain: climate
+    temperature:
+      name: Temperature
+      description: Target temperature during override
+      required: true
+      default: 21
+      selector:
+        number:
+          min: 5
+          max: 25
+          step: 0.5
+          unit_of_measurement: °C
+
 clear_override:
   name: Clear Override
   description: Return to auto mode
@@ -166,7 +189,7 @@ set_default_override_mode:
           domain: climate
     mode:
       name: Mode
-      description: Override mode (timer or infinity)
+      description: Override mode (timer, infinity, or next_node)
       required: true
       default: timer
       selector:
@@ -174,6 +197,7 @@ set_default_override_mode:
           options:
             - timer
             - infinity
+            - next_node
     duration:
       name: Duration
       description: Default timer duration in minutes (only applies when mode is timer)
