@@ -519,11 +519,20 @@ class SmartClimateEntity(ClimateEntity):
 
     async def async_set_override_next_node(self, temperature: float):
         """Set override until the next schedule node."""
+        now = datetime.now()
+        # Preserve the existing override end-time when already active and not yet
+        # expired; only (re-)calculate when entering the mode fresh or when the
+        # previously stored time has already passed.
+        if (
+            self._mode != MODE_OVERRIDE_NEXT_NODE
+            or self._override_next_node_time is None
+            or self._override_next_node_time <= now
+        ):
+            self._override_next_node_time = self._compute_next_node_datetime()
         self._mode = MODE_OVERRIDE_NEXT_NODE
         self._override_temperature = temperature
         self._override_start_time = None
         self._last_written_temperature = 0
-        self._override_next_node_time = self._compute_next_node_datetime()
         await self._update_target_temperature()
         self.async_write_ha_state()
 
@@ -572,10 +581,21 @@ class SmartClimateEntity(ClimateEntity):
         self.async_write_ha_state()
 
     async def async_set_temperature(self, **kwargs):
-        """Set temperature - activate override based on DEFAULT_OVERRIDE setting."""
+        """Set temperature - preserve the active override mode, or fall back to the default."""
         temperature = kwargs.get("temperature", 22)
+        now = datetime.now()
 
-        if self._default_override_mode == "infinity":
+        if self._mode == MODE_OVERRIDE_NEXT_NODE:
+            await self.async_set_override_next_node(temperature)
+        elif self._mode == MODE_OVERRIDE_INFINITY:
+            await self.async_set_override_infinity(temperature)
+        elif self._mode == MODE_OVERRIDE_TIMER:
+            remaining = self._override_duration_minutes
+            if self._override_start_time:
+                elapsed = (now - self._override_start_time).total_seconds() / 60
+                remaining = max(1, int(self._override_duration_minutes - elapsed))
+            await self.async_set_override_timer(remaining, temperature)
+        elif self._default_override_mode == "infinity":
             await self.async_set_override_infinity(temperature)
         elif self._default_override_mode == "next_node":
             await self.async_set_override_next_node(temperature)
