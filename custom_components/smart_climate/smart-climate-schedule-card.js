@@ -68,7 +68,7 @@ class SmartClimateScheduleCard extends LitElement {
       start.setHours(0, 0, 0, 0);
       const result = await this.hass.callApi(
         "GET",
-        `history/period/${start.toISOString()}?filter_entity_id=${wrapped}&minimal_response=true`
+        `history/period/${start.toISOString()}?filter_entity_id=${wrapped}&significant_changes_only=true`
       );
       this._history = result?.[0] ?? [];
     } catch (err) {
@@ -253,7 +253,7 @@ class SmartClimateScheduleCard extends LitElement {
     const baseMs = base.getTime();
     const pts = [];
     for (const h of hist) {
-      const t = parseFloat(h.state);
+      const t = parseFloat(h.attributes?.current_temperature ?? h.state);
       if (isNaN(t)) continue;
       const hr = (new Date(h.last_changed ?? h.last_updated).getTime() - baseMs) / 3600000;
       if (hr < 0 || hr > 24) continue;
