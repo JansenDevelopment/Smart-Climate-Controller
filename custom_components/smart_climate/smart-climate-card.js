@@ -136,6 +136,9 @@ class SmartClimateCard extends LitElement {
                      @click=${() => this.onNextNodeDotClick()}
                      title="Override till next node (${nextNodeMinutes}m)">◆</div>
               ` : ""}
+              <div class="infinity-indicator"
+                   @click=${() => this.onInfinityDotClick()}
+                   title="Override infinity">∞</div>
             </div>
 
             <div class="scale">
@@ -187,6 +190,13 @@ class SmartClimateCard extends LitElement {
     });
   }
 
+  onInfinityDotClick() {
+    this.hass.callService("smart_climate", "set_override_infinity", {
+      entity_id: this.config.entity,
+      temperature: this._overrideTemp,
+    });
+  }
+
   clearOverride() {
     this.hass.callService("smart_climate", "clear_override", {
       entity_id: this.config.entity,
@@ -196,10 +206,33 @@ class SmartClimateCard extends LitElement {
   adjustTemp(delta) {
     const newTemp = Math.min(25, Math.max(5, this._overrideTemp + delta));
     this._overrideTemp = newTemp;
-    this.hass.callService("climate", "set_temperature", {
-      entity_id: this.config.entity,
-      temperature: newTemp,
-    });
+    const entityId = this.config.entity;
+    const attrs = this.hass.states[entityId]?.attributes ?? {};
+    const mode = attrs.mode ?? "auto";
+    const remaining = attrs.remaining_minutes ?? 0;
+
+    if (mode === "override_next_node") {
+      this.hass.callService("smart_climate", "set_override_next_node", {
+        entity_id: entityId,
+        temperature: newTemp,
+      });
+    } else if (mode === "override_infinity") {
+      this.hass.callService("smart_climate", "set_override_infinity", {
+        entity_id: entityId,
+        temperature: newTemp,
+      });
+    } else if (mode === "override_timer") {
+      this.hass.callService("smart_climate", "set_override_timer", {
+        entity_id: entityId,
+        minutes: Math.max(1, remaining),
+        temperature: newTemp,
+      });
+    } else {
+      this.hass.callService("climate", "set_temperature", {
+        entity_id: entityId,
+        temperature: newTemp,
+      });
+    }
   }
 
   formatSeconds(seconds) {
@@ -393,6 +426,23 @@ class SmartClimateCard extends LitElement {
 
     .next-node-dot:hover {
       opacity: 0.75;
+    }
+
+    .infinity-indicator {
+      position: absolute;
+      bottom: 0;
+      left: 100%;
+      transform: translateX(-50%);
+      font-size: 10px;
+      color: var(--secondary-text-color);
+      cursor: pointer;
+      user-select: none;
+      line-height: 1;
+    }
+
+    .infinity-indicator:hover {
+      opacity: 0.75;
+      color: var(--accent-color);
     }
 
     .scale {
