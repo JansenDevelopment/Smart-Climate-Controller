@@ -1,4 +1,5 @@
 import { LitElement, html, css } from "https://unpkg.com/lit@3/index.js?module";
+import { SmartClimateBaseEditor } from "./smart-climate-base-editor.js";
 
 class SmartClimateCard extends LitElement {
   static properties = {
@@ -506,51 +507,8 @@ class SmartClimateCard extends LitElement {
   `;
 }
 
-class SmartClimateCardEditor extends LitElement {
-  static properties = {
-    hass: {},
-    config: {},
-  };
-
-  setConfig(config) {
-    this.config = config;
-  }
-
-  render() {
-    return html`
-      <div class="card-config">
-        <ha-entity-picker
-          label="Entity"
-          .hass=${this.hass}
-          .value=${this.config?.entity ?? ""}
-          .includeDomains=${["climate"]}
-          @value-changed=${this._entityChanged}
-          allow-custom-entity
-        ></ha-entity-picker>
-      </div>
-    `;
-  }
-
-  _entityChanged(e) {
-    if (e.detail.value === this.config?.entity) return;
-    this.dispatchEvent(
-      new CustomEvent("config-changed", {
-        detail: { config: { ...this.config, entity: e.detail.value } },
-        bubbles: true,
-        composed: true,
-      })
-    );
-  }
-
-  static styles = css`
-    .card-config {
-      padding: 16px;
-    }
-    ha-entity-picker {
-      width: 100%;
-    }
-  `;
-}
+/** Card editor for smart-climate-card — delegates all behaviour to the shared base. */
+class SmartClimateCardEditor extends SmartClimateBaseEditor {}
 
 customElements.define("smart-climate-card-editor", SmartClimateCardEditor);
 
