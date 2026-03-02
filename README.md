@@ -147,6 +147,18 @@ data:
 
 When `mode` is `next_node` the `duration` field is ignored; the override automatically ends at the next schedule node.
 
+## Persistent Storage
+
+Configuration values that can be changed at runtime (away temperature, away delay, interruptible flag, default override mode, default override duration, auto temperature, and schedule) are now saved persistently.
+
+When you call any of the configuration services (e.g. `set_away_temperature`, `set_schedule`) or use one of the built-in Lovelace cards, the updated values are written immediately to Home Assistant's config entry storage:
+
+```
+<config_dir>/.storage/core.config_entries
+```
+
+This means all settings survive a Home Assistant restart without any extra steps. The values that were set via services are reloaded automatically when the integration starts.
+
 ## Troubleshooting
 
 - **Integration does not appear after install** – Make sure you restarted Home Assistant after installing via HACS.
