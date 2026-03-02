@@ -154,6 +154,9 @@ class SmartClimateScheduleCard extends LitElement {
         // Actual drag — mark as dirty, clear selection
         this._dirty = true;
         this._selectedIdx = null;
+      } else if (this._selectedIdx === this._draggingIdx) {
+        // Click on already-selected node — remove it
+        this._removeNode(null, this._draggingIdx);
       } else {
         // Single click on node — select it for editing
         this._selectedIdx = this._draggingIdx;
@@ -424,7 +427,6 @@ class SmartClimateScheduleCard extends LitElement {
                     <circle class="node-c ${isNext ? "node-c--next" : ""} ${isSelected ? "node-c--selected" : ""}"
                       cx="${cx}" cy="${cy}" r="${r}"
                       @pointerdown=${(e) => this._onNodePointerDown(e, idx)}
-                      @dblclick=${(e) => this._removeNode(e, idx)}
                     />
                     <text x="${cx}" y="${lblY}" text-anchor="middle" class="node-lbl">${node.temp}°C</text>
                     <text x="${cx}" y="${timeY}" text-anchor="middle" class="node-time">${node.time}</text>
