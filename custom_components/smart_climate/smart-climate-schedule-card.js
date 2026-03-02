@@ -29,6 +29,14 @@ class SmartClimateScheduleCard extends LitElement {
     _selectedIdx: { state: true },
   };
 
+  static getConfigElement() {
+    return document.createElement("smart-climate-schedule-card-editor");
+  }
+
+  static getStubConfig() {
+    return { entity: "" };
+  }
+
   setConfig(config) {
     if (!config.entity) throw new Error("Entity required");
     this.config = config;
@@ -860,6 +868,54 @@ class SmartClimateScheduleCard extends LitElement {
     .presence-dot--away    { background: #f44336; }
   `;
 }
+
+class SmartClimateScheduleCardEditor extends LitElement {
+  static properties = {
+    hass: {},
+    config: {},
+  };
+
+  setConfig(config) {
+    this.config = config;
+  }
+
+  render() {
+    return html`
+      <div class="card-config">
+        <ha-entity-picker
+          label="Entity"
+          .hass=${this.hass}
+          .value=${this.config?.entity ?? ""}
+          .includeDomains=${["climate"]}
+          @value-changed=${this._entityChanged}
+          allow-custom-entity
+        ></ha-entity-picker>
+      </div>
+    `;
+  }
+
+  _entityChanged(e) {
+    if (e.detail.value === this.config?.entity) return;
+    this.dispatchEvent(
+      new CustomEvent("config-changed", {
+        detail: { config: { ...this.config, entity: e.detail.value } },
+        bubbles: true,
+        composed: true,
+      })
+    );
+  }
+
+  static styles = css`
+    .card-config {
+      padding: 16px;
+    }
+    ha-entity-picker {
+      width: 100%;
+    }
+  `;
+}
+
+customElements.define("smart-climate-schedule-card-editor", SmartClimateScheduleCardEditor);
 
 customElements.define("smart-climate-schedule-card", SmartClimateScheduleCard);
 
