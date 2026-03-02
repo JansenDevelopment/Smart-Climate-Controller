@@ -1,4 +1,5 @@
 import { LitElement, html, css, svg } from "https://unpkg.com/lit@3/index.js?module";
+import { SmartClimateBaseEditor } from "./smart-climate-base-editor.js";
 
 // SVG graph layout constants (viewBox units)
 const GL = 52;   // graph left x
@@ -13,6 +14,9 @@ const VW = 600;  // viewBox width
 const VH = 292;  // viewBox height
 const NR = 8;    // node radius
 const MIN_NODE_DISTANCE_HOURS = 0.25; // minimum 15 minutes between nodes
+// Friendly-name suffix used to identify a presence sensor when the derived ID
+// (sensor.<name>_presence) is not found in hass.states.
+const PRESENCE_FRIENDLY_NAME_SUFFIX = " Presence";
 
 class SmartClimateScheduleCard extends LitElement {
   static properties = {
@@ -49,6 +53,8 @@ class SmartClimateScheduleCard extends LitElement {
       if (this._presenceHistory === undefined) this._fetchPresenceHistory();
     }
   }
+
+  // ── Component lifecycle / state ──────────────────────────────────────────
 
   _syncFromEntity() {
     const entity = this.hass?.states[this.config.entity];
@@ -90,6 +96,48 @@ class SmartClimateScheduleCard extends LitElement {
     }
   }
 
+  async _fetchPresenceHistory() {
+    this._presenceHistory = [];
+    const entity = this.hass?.states[this.config.entity];
+    if (!entity) return;
+    // Derive the presence sensor entity_id from the climate entity_id.
+    // Convention: climate.my_room → sensor.my_room_presence.
+    // NOTE: If the user renamed the sensor in HA's entity registry, the
+    // derived ID will not exist. As a fallback we scan hass.states for a
+    // sensor whose friendly name ends with PRESENCE_FRIENDLY_NAME_SUFFIX and
+    // whose entity ID starts with "sensor." – this makes the lookup more
+    // resilient to renames. The resolved ID is cached on the instance to avoid
+    // repeated full-state scans on subsequent calls.
+    if (!this._resolvedPresenceId) {
+      const derivedId = this.config.entity.replace(/^climate\./, "sensor.") + "_presence";
+      if (this.hass.states[derivedId]) {
+        this._resolvedPresenceId = derivedId;
+      } else {
+        // Fallback: scan states for a sensor whose friendly name ends with the known suffix.
+        const candidate = Object.keys(this.hass.states).find(id => {
+          if (!id.startsWith("sensor.")) return false;
+          const friendlyName = this.hass.states[id].attributes?.friendly_name ?? "";
+          return friendlyName.endsWith(PRESENCE_FRIENDLY_NAME_SUFFIX);
+        });
+        this._resolvedPresenceId = candidate ?? null;
+      }
+    }
+
+    if (!this._resolvedPresenceId) return;
+    try {
+      const start = new Date();
+      start.setHours(0, 0, 0, 0);
+      const result = await this.hass.callApi(
+        "GET",
+        `history/period/${start.toISOString()}?filter_entity_id=${this._resolvedPresenceId}&significant_changes_only=true`
+      );
+      this._presenceHistory = result?.[0] ?? [];
+    } catch (err) {
+      console.warn("SmartClimateScheduleCard: failed to fetch presence history", err);
+      this._presenceHistory = [];
+    }
+  }
+
   _getNodes() {
     const key = this._activeDay ?? "daily";
     return (this._schedule ?? {})[key] ?? [];
@@ -98,35 +146,6 @@ class SmartClimateScheduleCard extends LitElement {
   _setNodes(nodes) {
     const key = this._activeDay ?? "daily";
     this._schedule = { ...(this._schedule ?? {}), [key]: nodes };
-  }
-
-  _toX(h) { return GL + (h / 24) * (GR - GL); }
-  _toY(t) { return GB - ((t - TMIN) / (TMAX - TMIN)) * (GB - GT); }
-  _fromX(x) { return Math.max(0, Math.min(24, (x - GL) / (GR - GL) * 24)); }
-  _fromY(y) {
-    const t = TMIN + (GB - y) / (GB - GT) * (TMAX - TMIN);
-    return Math.max(TMIN, Math.min(TMAX, Math.round(t * 2) / 2));
-  }
-
-  _timeToHour(s) {
-    if (!s) return 0;
-    const [h, m] = s.split(":").map(Number);
-    return h + (m || 0) / 60;
-  }
-
-  _hourToTime(h) {
-    const hh = Math.floor(h);
-    const mm = Math.round((h - hh) * 60);
-    return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
-  }
-
-  _svgCoords(e) {
-    const el = this.shadowRoot?.querySelector("svg.graph");
-    if (!el) return { x: 0, y: 0 };
-    const pt = el.createSVGPoint();
-    pt.x = e.clientX;
-    pt.y = e.clientY;
-    return pt.matrixTransform(el.getScreenCTM().inverse());
   }
 
   _onNodePointerDown(e, idx) {
@@ -256,6 +275,56 @@ class SmartClimateScheduleCard extends LitElement {
     this._dirty = true;
   }
 
+  // ── Graph / SVG helpers ──────────────────────────────────────────────────
+
+  /** Convert an hour value (0–24) to an SVG x coordinate. @param {number} h */
+  _toX(h) { return GL + (h / 24) * (GR - GL); }
+
+  /** Convert a temperature value to an SVG y coordinate. @param {number} t */
+  _toY(t) { return GB - ((t - TMIN) / (TMAX - TMIN)) * (GB - GT); }
+
+  /** Convert an SVG x coordinate back to an hour value (0–24). @param {number} x */
+  _fromX(x) { return Math.max(0, Math.min(24, (x - GL) / (GR - GL) * 24)); }
+
+  /** Convert an SVG y coordinate back to a temperature value, snapped to 0.5°. @param {number} y */
+  _fromY(y) {
+    const t = TMIN + (GB - y) / (GB - GT) * (TMAX - TMIN);
+    return Math.max(TMIN, Math.min(TMAX, Math.round(t * 2) / 2));
+  }
+
+  /** Parse a "HH:MM" time string into a fractional hour number. @param {string} s */
+  _timeToHour(s) {
+    if (!s) return 0;
+    const [h, m] = s.split(":").map(Number);
+    return h + (m || 0) / 60;
+  }
+
+  /** Convert a fractional hour number back to a "HH:MM" string. @param {number} h */
+  _hourToTime(h) {
+    const hh = Math.floor(h);
+    const mm = Math.round((h - hh) * 60);
+    return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
+  }
+
+  /**
+   * Map a pointer event to SVG coordinate space.
+   * @param {PointerEvent} e
+   * @returns {{ x: number, y: number }}
+   */
+  _svgCoords(e) {
+    const el = this.shadowRoot?.querySelector("svg.graph");
+    if (!el) return { x: 0, y: 0 };
+    const pt = el.createSVGPoint();
+    pt.x = e.clientX;
+    pt.y = e.clientY;
+    return pt.matrixTransform(el.getScreenCTM().inverse());
+  }
+
+  /**
+   * Build an SVG path string for the step-wise temperature schedule.
+   * @param {Array<{time: string, temp: number}>} nodes
+   * @returns {string}
+   */
   _stepPath(nodes) {
     if (!nodes?.length) return "";
     const s = [...nodes].sort((a, b) => this._timeToHour(a.time) - this._timeToHour(b.time));
@@ -271,6 +340,10 @@ class SmartClimateScheduleCard extends LitElement {
     return d.join(" ");
   }
 
+  /**
+   * Build an SVG path string from the actual temperature history fetched from HA.
+   * @returns {string}
+   */
   _historyPath() {
     const hist = this._history;
     if (!hist?.length) return "";
@@ -290,30 +363,10 @@ class SmartClimateScheduleCard extends LitElement {
     return pts.join(" ");
   }
 
-  async _fetchPresenceHistory() {
-    this._presenceHistory = [];
-    const entity = this.hass?.states[this.config.entity];
-    if (!entity) return;
-    // Derive presence sensor entity_id from the climate entity_id.
-    // Convention: climate.my_room → sensor.my_room_presence.
-    // If the user renamed the sensor in HA's entity registry the bar will
-    // simply not appear (the `hass.states` check below guards against that).
-    const presenceId = this.config.entity.replace(/^climate\./, "sensor.") + "_presence";
-    if (!this.hass.states[presenceId]) return;
-    try {
-      const start = new Date();
-      start.setHours(0, 0, 0, 0);
-      const result = await this.hass.callApi(
-        "GET",
-        `history/period/${start.toISOString()}?filter_entity_id=${presenceId}&significant_changes_only=true`
-      );
-      this._presenceHistory = result?.[0] ?? [];
-    } catch (err) {
-      console.warn("SmartClimateScheduleCard: failed to fetch presence history", err);
-      this._presenceHistory = [];
-    }
-  }
-
+  /**
+   * Build an array of SVG `<rect>` elements representing presence history segments.
+   * @returns {import('lit').TemplateResult[]}
+   */
   _presenceBar() {
     const hist = this._presenceHistory;
     if (!hist?.length) return [];
@@ -869,51 +922,8 @@ class SmartClimateScheduleCard extends LitElement {
   `;
 }
 
-class SmartClimateScheduleCardEditor extends LitElement {
-  static properties = {
-    hass: {},
-    config: {},
-  };
-
-  setConfig(config) {
-    this.config = config;
-  }
-
-  render() {
-    return html`
-      <div class="card-config">
-        <ha-entity-picker
-          label="Entity"
-          .hass=${this.hass}
-          .value=${this.config?.entity ?? ""}
-          .includeDomains=${["climate"]}
-          @value-changed=${this._entityChanged}
-          allow-custom-entity
-        ></ha-entity-picker>
-      </div>
-    `;
-  }
-
-  _entityChanged(e) {
-    if (e.detail.value === this.config?.entity) return;
-    this.dispatchEvent(
-      new CustomEvent("config-changed", {
-        detail: { config: { ...this.config, entity: e.detail.value } },
-        bubbles: true,
-        composed: true,
-      })
-    );
-  }
-
-  static styles = css`
-    .card-config {
-      padding: 16px;
-    }
-    ha-entity-picker {
-      width: 100%;
-    }
-  `;
-}
+/** Card editor for smart-climate-schedule-card — delegates all behaviour to the shared base. */
+class SmartClimateScheduleCardEditor extends SmartClimateBaseEditor {}
 
 customElements.define("smart-climate-schedule-card-editor", SmartClimateScheduleCardEditor);
 
