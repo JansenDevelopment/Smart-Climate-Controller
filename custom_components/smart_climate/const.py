@@ -1,5 +1,5 @@
 DOMAIN = "smart_climate"
-PLATFORMS = ["climate"]
+PLATFORMS = ["climate", "sensor"]
 
 # Modes
 MODE_AUTO = "auto"
