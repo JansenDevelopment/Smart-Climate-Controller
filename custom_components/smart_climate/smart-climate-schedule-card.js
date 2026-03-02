@@ -5,6 +5,8 @@ const GL = 52;   // graph left x
 const GR = 582;  // graph right x
 const GT = 22;   // graph top y
 const GB = 262;  // graph bottom y
+const PBAR_H = 8;              // presence bar height (SVG units)
+const PBAR_Y = GB - PBAR_H;   // presence bar top y (inside graph area)
 const TMIN = 5;  // min temperature °C
 const TMAX = 30; // max temperature °C
 const VW = 600;  // viewBox width
@@ -21,6 +23,7 @@ class SmartClimateScheduleCard extends LitElement {
     _schedule: { state: true },
     _draggingIdx: { state: true },
     _history: { state: true },
+    _presenceHistory: { state: true },
     _saved: { state: true },
     _dirty: { state: true },
     _selectedIdx: { state: true },
@@ -35,6 +38,7 @@ class SmartClimateScheduleCard extends LitElement {
     if (changedProps.has("hass") && this.hass) {
       if (this._schedule === undefined) this._syncFromEntity();
       if (this._history === undefined) this._fetchHistory();
+      if (this._presenceHistory === undefined) this._fetchPresenceHistory();
     }
   }
 
@@ -278,6 +282,73 @@ class SmartClimateScheduleCard extends LitElement {
     return pts.join(" ");
   }
 
+  async _fetchPresenceHistory() {
+    this._presenceHistory = [];
+    const entity = this.hass?.states[this.config.entity];
+    if (!entity) return;
+    // Derive presence sensor entity_id from the climate entity_id.
+    // Convention: climate.my_room → sensor.my_room_presence.
+    // If the user renamed the sensor in HA's entity registry the bar will
+    // simply not appear (the `hass.states` check below guards against that).
+    const presenceId = this.config.entity.replace(/^climate\./, "sensor.") + "_presence";
+    if (!this.hass.states[presenceId]) return;
+    try {
+      const start = new Date();
+      start.setHours(0, 0, 0, 0);
+      const result = await this.hass.callApi(
+        "GET",
+        `history/period/${start.toISOString()}?filter_entity_id=${presenceId}&significant_changes_only=true`
+      );
+      this._presenceHistory = result?.[0] ?? [];
+    } catch (err) {
+      console.warn("SmartClimateScheduleCard: failed to fetch presence history", err);
+      this._presenceHistory = [];
+    }
+  }
+
+  _presenceBar() {
+    const hist = this._presenceHistory;
+    if (!hist?.length) return [];
+
+    const base = new Date();
+    base.setHours(0, 0, 0, 0);
+    const baseMs = base.getTime();
+    const nowMs = Math.min(Date.now(), baseMs + 24 * 3600000);
+
+    const COLOR = { home: "#4caf50", leaving: "#ff9800", away: "#f44336" };
+
+    const entries = hist
+      .map(h => ({
+        state: h.state,
+        ms: new Date(h.last_changed ?? h.last_updated).getTime(),
+      }))
+      .filter(e => e.ms >= baseMs && e.ms <= nowMs);
+
+    if (!entries.length) return [];
+
+    // Best-effort: backfill from midnight using the first known state.
+    // If HA's history retention didn't capture the state before this point,
+    // we simply assume the earliest recorded state was also active at midnight.
+    if (entries[0].ms > baseMs) {
+      entries.unshift({ state: entries[0].state, ms: baseMs });
+    }
+
+    return entries.map((entry, i) => {
+      const color = COLOR[entry.state];
+      if (!color) return "";
+      const startHr = Math.max(0, (entry.ms - baseMs) / 3600000);
+      const endHr = Math.min(
+        24,
+        ((i + 1 < entries.length ? entries[i + 1].ms : nowMs) - baseMs) / 3600000
+      );
+      if (startHr >= endHr) return "";
+      const x = this._toX(startHr);
+      const w = this._toX(endHr) - x;
+      return svg`<rect x="${x}" y="${PBAR_Y}" width="${w}" height="${PBAR_H}"
+        fill="${color}" opacity="0.85" rx="1"/>`;
+    });
+  }
+
   render() {
     if (!this.hass) return html``;
     const entity = this.hass.states[this.config.entity];
@@ -399,6 +470,9 @@ class SmartClimateScheduleCard extends LitElement {
               <text x="${(GL + GR) / 2}" y="${VH - 1}"
                 text-anchor="middle" class="ax-title">Time (24 hours)</text>
 
+              <!-- presence history bar -->
+              ${this._presenceBar()}
+
               <!-- history background path -->
               ${histPathD ? svg`
                 <path d="${histPathD}" fill="none"
@@ -473,6 +547,20 @@ class SmartClimateScheduleCard extends LitElement {
                 @click=${() => { this._selectedIdx = null; }}>
                 ✕
               </button>
+            </div>
+          ` : ""}
+
+          ${this._presenceHistory?.length ? html`
+            <div class="presence-legend">
+              <span class="presence-legend-item">
+                <span class="presence-dot presence-dot--home"></span>🏠 Home
+              </span>
+              <span class="presence-legend-item">
+                <span class="presence-dot presence-dot--leaving"></span>⏳ Leaving
+              </span>
+              <span class="presence-legend-item">
+                <span class="presence-dot presence-dot--away"></span>🏃 Away
+              </span>
             </div>
           ` : ""}
 
@@ -743,6 +831,33 @@ class SmartClimateScheduleCard extends LitElement {
       margin-top: 4px;
       text-align: center;
     }
+
+    .presence-legend {
+      display: flex;
+      gap: 12px;
+      font-size: 10px;
+      color: var(--secondary-text-color);
+      margin-top: 3px;
+      justify-content: center;
+    }
+
+    .presence-legend-item {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .presence-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      display: inline-block;
+      flex-shrink: 0;
+    }
+
+    .presence-dot--home    { background: #4caf50; }
+    .presence-dot--leaving { background: #ff9800; }
+    .presence-dot--away    { background: #f44336; }
   `;
 }
 
