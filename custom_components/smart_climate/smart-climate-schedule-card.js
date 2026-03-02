@@ -10,6 +10,7 @@ const TMAX = 30; // max temperature °C
 const VW = 600;  // viewBox width
 const VH = 292;  // viewBox height
 const NR = 8;    // node radius
+const MIN_NODE_DISTANCE_HOURS = 0.25; // minimum 15 minutes between nodes
 
 class SmartClimateScheduleCard extends LitElement {
   static properties = {
@@ -154,9 +155,6 @@ class SmartClimateScheduleCard extends LitElement {
         // Actual drag — mark as dirty, clear selection
         this._dirty = true;
         this._selectedIdx = null;
-      } else if (this._selectedIdx === this._draggingIdx) {
-        // Click on already-selected node — remove it
-        this._removeNode(null, this._draggingIdx);
       } else {
         // Single click on node — select it for editing
         this._selectedIdx = this._draggingIdx;
@@ -168,14 +166,27 @@ class SmartClimateScheduleCard extends LitElement {
 
   _onSvgClick(e) {
     if (e.target.tagName === "circle" && e.target.classList.contains("node-c")) return;
+    this._selectedIdx = null;
+  }
+
+  _onSvgDblClick(e) {
+    if (e.target.tagName === "circle" && e.target.classList.contains("node-c")) return;
     const { x, y } = this._svgCoords(e);
     if (x < GL || x > GR || y < GT || y > GB) return;
-    this._selectedIdx = null;
-    const nodes = [
-      ...this._getNodes(),
-      { time: this._hourToTime(this._fromX(x)), temp: this._fromY(y) },
+    const newHour = this._fromX(x);
+    const nodes = this._getNodes();
+    // Require at least 15 minutes distance from any existing node (check both direct and midnight wraparound)
+    const tooClose = nodes.some(n => {
+      const diff = Math.abs(this._timeToHour(n.time) - newHour);
+      return Math.min(diff, 24 - diff) < MIN_NODE_DISTANCE_HOURS;
+    });
+    if (tooClose) return;
+    const newNodes = [
+      ...nodes,
+      { time: this._hourToTime(newHour), temp: this._fromY(y) },
     ].sort((a, b) => this._timeToHour(a.time) - this._timeToHour(b.time));
-    this._setNodes(nodes);
+    this._setNodes(newNodes);
+    this._selectedIdx = null;
     this._dirty = true;
   }
 
@@ -349,6 +360,7 @@ class SmartClimateScheduleCard extends LitElement {
           <div class="graph-wrap">
             <svg class="graph" viewBox="0 0 ${VW} ${VH}" preserveAspectRatio="xMidYMid meet"
               @click=${this._onSvgClick}
+              @dblclick=${this._onSvgDblClick}
               @pointermove=${this._onSvgPointerMove}
               @pointerup=${this._onSvgPointerUp}
               @pointercancel=${this._onSvgPointerUp}
@@ -464,7 +476,7 @@ class SmartClimateScheduleCard extends LitElement {
             </div>
           ` : ""}
 
-          <div class="hint">Click to add node • Drag to move • Double-click or select to remove</div>
+          <div class="hint">Double-click to add node • Drag to move • Select then remove to delete</div>
         </div>
       </ha-card>
     `;
