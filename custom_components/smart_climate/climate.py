@@ -545,26 +545,46 @@ class SmartClimateEntity(ClimateEntity):
         await self._update_target_temperature()
         self.async_write_ha_state()
 
+    async def _async_save_config(self):
+        """Persist current configuration values to the config entry storage."""
+        self.hass.config_entries.async_update_entry(
+            self.entry,
+            data={
+                **self.entry.data,
+                CONF_AWAY_TEMPERATURE: self._away_temperature,
+                CONF_AWAY_DELAY_MINUTES: self._away_delay_minutes,
+                CONF_INTERRUPTIBLE: self._interruptible,
+                CONF_DEFAULT_OVERRIDE_MODE: self._default_override_mode,
+                CONF_DEFAULT_OVERRIDE_DURATION: self._default_override_duration,
+                CONF_AUTO_TEMPERATURE: self._auto_temperature,
+                CONF_SCHEDULE: self._schedule,
+            },
+        )
+
     async def async_set_interruptible(self, interruptible: bool):
         """Set interruptible mode."""
         self._interruptible = interruptible
+        await self._async_save_config()
         self.async_write_ha_state()
 
     async def async_set_auto_temperature(self, temperature: float):
         """Set the auto (home) temperature."""
         self._auto_temperature = temperature
+        await self._async_save_config()
         await self._update_target_temperature()
         self.async_write_ha_state()
 
     async def async_set_away_temperature(self, temperature: float):
         """Set the away temperature."""
         self._away_temperature = temperature
+        await self._async_save_config()
         await self._update_target_temperature()
         self.async_write_ha_state()
 
     async def async_set_away_delay(self, minutes: int):
         """Set the away delay in minutes."""
         self._away_delay_minutes = minutes
+        await self._async_save_config()
         self.async_write_ha_state()
 
     async def async_set_default_override_mode(self, mode: str, duration: int = None):
@@ -572,11 +592,13 @@ class SmartClimateEntity(ClimateEntity):
         self._default_override_mode = mode
         if duration is not None:
             self._default_override_duration = duration
+        await self._async_save_config()
         self.async_write_ha_state()
 
     async def async_set_schedule(self, schedule: dict | None):
         """Set the temperature schedule used in auto mode when presence is home."""
         self._schedule = schedule
+        await self._async_save_config()
         await self._update_target_temperature()
         self.async_write_ha_state()
 
