@@ -22,6 +22,8 @@ class SmartClimateConfigCard extends LitElement {
     return { entity: "" };
   }
 
+  // ── Component lifecycle / state ─────────────────────────────────────────
+
   setConfig(config) {
     if (!config.entity) {
       throw new Error("Entity required");
@@ -175,12 +177,26 @@ class SmartClimateConfigCard extends LitElement {
     `;
   }
 
+  // ── Config helpers / service calls ──────────────────────────────────────
+
+  /**
+   * Adjust a numeric config property by *delta*, clamped to [min, max].
+   * @param {string} prop  Name of the reactive property to update.
+   * @param {number} delta Amount to add (may be negative).
+   * @param {number} min   Minimum allowed value.
+   * @param {number} max   Maximum allowed value.
+   */
   _adjust(prop, delta, min, max) {
     const current = this[prop] ?? 0;
     this[prop] = Math.min(max, Math.max(min, Math.round((current + delta) * 10) / 10));
     this._dirty = true;
   }
 
+  /**
+   * Format a duration in minutes to a human-readable string (e.g. "1h 30m").
+   * @param {number} minutes
+   * @returns {string}
+   */
   _formatDuration(minutes) {
     if (minutes < 60) return `${minutes}m`;
     const h = Math.floor(minutes / 60);
