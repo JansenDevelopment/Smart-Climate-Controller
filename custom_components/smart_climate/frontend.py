@@ -15,6 +15,7 @@ DOMAIN = "smart_climate"
 CARD_NAME = "smart-climate-card"
 CONFIG_CARD_NAME = "smart-climate-config-card"
 SCHEDULE_CARD_NAME = "smart-climate-schedule-card"
+BASE_EDITOR_NAME = "smart-climate-base-editor"
 HACS_PATH = "www/community/smart-climate-card"
 RESOURCE_URL = "/hacsfiles/smart-climate-card/smart-climate-card.js"
 CONFIG_RESOURCE_URL = "/hacsfiles/smart-climate-card/smart-climate-config-card.js"
@@ -41,6 +42,7 @@ class SmartClimateCardRegistration:
     async def async_register(self) -> None:
         """Register cards."""
         # Copy cards to HACS community directory
+        await self._async_copy_card_to_hacs(BASE_EDITOR_NAME)
         await self._async_copy_card_to_hacs(CARD_NAME)
         await self._async_copy_card_to_hacs(CONFIG_CARD_NAME)
         await self._async_copy_card_to_hacs(SCHEDULE_CARD_NAME)
