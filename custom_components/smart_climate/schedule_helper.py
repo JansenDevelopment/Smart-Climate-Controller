@@ -1,0 +1,167 @@
+"""Schedule helper functions for Smart Climate Controller.
+
+This module provides pure, HA-independent functions for resolving schedule
+nodes and computing target temperatures based on the current time.  All
+functions accept the schedule dict and a ``datetime`` object as arguments
+so they can be unit-tested without a Home Assistant instance.
+"""
+
+from datetime import datetime, timedelta
+import logging
+
+from .const import SCHEDULE_MODE_DAILY, SCHEDULE_MODE_52, SCHEDULE_MODE_INDIVIDUAL
+
+_LOGGER = logging.getLogger(__name__)
+
+
+def get_schedule_nodes(schedule: dict | None, now: datetime) -> list:
+    """Return the list of schedule nodes applicable to the current day/mode.
+
+    Args:
+        schedule: The schedule dict (may be ``None`` or empty).
+        now: The current datetime used to determine the active weekday.
+
+    Returns:
+        A list of schedule node dicts for the active period, or an empty list
+        when no schedule is configured or the mode is unrecognised.
+    """
+    if not schedule:
+        return []
+    schedule_mode = schedule.get("mode", SCHEDULE_MODE_DAILY)
+    weekday = now.weekday()  # Monday=0 … Sunday=6
+    if schedule_mode == SCHEDULE_MODE_DAILY:
+        return schedule.get("daily", [])
+    if schedule_mode == SCHEDULE_MODE_52:
+        return schedule.get("weekday", []) if weekday < 5 else schedule.get("weekend", [])
+    if schedule_mode == SCHEDULE_MODE_INDIVIDUAL:
+        day_names = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+        return schedule.get(day_names[weekday], [])
+    return []
+
+
+def get_scheduled_temperature(
+    schedule: dict | None,
+    now: datetime,
+    fallback_temp: float,
+) -> float:
+    """Return the scheduled temperature for the current time.
+
+    Finds the last schedule node whose time is at or before *now*.  If the
+    current time is before the first node of the day the last node of the
+    previous day (wrap-around) is used instead.  Falls back to
+    *fallback_temp* when the schedule is absent, empty, or contains no
+    valid nodes.
+
+    Args:
+        schedule: The schedule dict (may be ``None`` or empty).
+        now: The current datetime used for time comparisons.
+        fallback_temp: Temperature to return when no node matches.
+
+    Returns:
+        The target temperature in degrees Celsius.
+    """
+    if not schedule:
+        return fallback_temp
+
+    nodes = get_schedule_nodes(schedule, now)
+    if not nodes:
+        return fallback_temp
+
+    def _parse_time(t: str):
+        """Parse HH:MM time string; return a comparable time object."""
+        try:
+            return datetime.strptime(t, "%H:%M").time()
+        except (ValueError, TypeError):
+            _LOGGER.warning(
+                "Smart Climate: invalid time format '%s' in schedule node (expected HH:MM)", t
+            )
+            return None
+
+    current_time = now.time().replace(second=0, microsecond=0)
+
+    # Sort nodes by parsed time, skipping any with invalid times
+    valid_nodes = []
+    for node in nodes:
+        t = _parse_time(node.get("time", ""))
+        if t is not None and "temp" in node:
+            valid_nodes.append((t, node["temp"]))
+        else:
+            _LOGGER.warning(
+                "Smart Climate: skipping schedule node with missing/invalid time or temp: %s",
+                node,
+            )
+
+    if not valid_nodes:
+        return fallback_temp
+
+    valid_nodes.sort(key=lambda x: x[0])
+
+    # Find the last node whose time <= current time
+    target_temp = None
+    for node_time, node_temp in valid_nodes:
+        if node_time <= current_time:
+            target_temp = node_temp
+
+    # If no node matched (current time is before the first node), wrap around
+    # to the last node of the previous day
+    if target_temp is None:
+        target_temp = valid_nodes[-1][1]
+
+    return target_temp
+
+
+def compute_next_node_datetime(schedule: dict | None, now: datetime) -> datetime | None:
+    """Return the datetime of the next upcoming schedule node.
+
+    Scans the active nodes for the current day and returns the next node
+    whose time is strictly after *now*.  If all nodes have already passed,
+    the first node of the following day is returned instead.
+
+    Args:
+        schedule: The schedule dict (may be ``None`` or empty).
+        now: The current datetime used as the reference point.
+
+    Returns:
+        A :class:`datetime` for the next node, or ``None`` when no schedule
+        is configured or no valid node times could be parsed.
+    """
+    nodes = get_schedule_nodes(schedule, now)
+    if not nodes:
+        return None
+
+    def _parse_time(t: str):
+        try:
+            return datetime.strptime(t, "%H:%M").time()
+        except (ValueError, TypeError):
+            return None
+
+    current_time = now.time().replace(second=0, microsecond=0)
+    valid_times = sorted(
+        t for node in nodes if (t := _parse_time(node.get("time", ""))) is not None
+    )
+    if not valid_times:
+        return None
+
+    for node_time in valid_times:
+        if node_time > current_time:
+            return datetime.combine(now.date(), node_time)
+
+    # All nodes are before current time → next node is the first one tomorrow
+    return datetime.combine(now.date() + timedelta(days=1), valid_times[0])
+
+
+def get_next_node_minutes(schedule: dict | None, now: datetime) -> int | None:
+    """Return minutes until the next schedule node.
+
+    Args:
+        schedule: The schedule dict (may be ``None`` or empty).
+        now: The current datetime used as the reference point.
+
+    Returns:
+        An integer number of minutes (≥ 0) until the next node, or ``None``
+        when no schedule is configured.
+    """
+    next_dt = compute_next_node_datetime(schedule, now)
+    if next_dt is None:
+        return None
+    return int(max(0, (next_dt - now).total_seconds() / 60))

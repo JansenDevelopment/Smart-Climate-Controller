@@ -8,14 +8,10 @@ from homeassistant.helpers.event import async_track_time_interval, async_track_s
 import logging
 
 from .const import (
-    DOMAIN,
     MODE_AUTO,
     MODE_OVERRIDE_TIMER,
     MODE_OVERRIDE_INFINITY,
     MODE_OVERRIDE_NEXT_NODE,
-    SCHEDULE_MODE_DAILY,
-    SCHEDULE_MODE_52,
-    SCHEDULE_MODE_INDIVIDUAL,
     CONF_WRAPPED_CLIMATE,
     CONF_ZONE_HOME,
     CONF_AUTO_TEMPERATURE,
@@ -40,17 +36,13 @@ from .const import (
     ATTR_DEFAULT_OVERRIDE_DURATION,
     ATTR_SCHEDULE,
     ATTR_NEXT_NODE_MINUTES,
-    SERVICE_SET_OVERRIDE_TIMER,
-    SERVICE_SET_OVERRIDE_INFINITY,
-    SERVICE_SET_OVERRIDE_NEXT_NODE,
-    SERVICE_CLEAR_OVERRIDE,
-    SERVICE_SET_INTERRUPTIBLE,
-    SERVICE_SET_AUTO_TEMPERATURE,
-    SERVICE_SET_AWAY_TEMPERATURE,
-    SERVICE_SET_AWAY_DELAY,
-    SERVICE_SET_DEFAULT_OVERRIDE_MODE,
-    SERVICE_SET_SCHEDULE,
 )
+from .schedule_helper import (
+    get_scheduled_temperature,
+    compute_next_node_datetime,
+    get_next_node_minutes,
+)
+from .services import async_register_services
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -88,75 +80,7 @@ async def async_setup_entry(
     )
     async_add_entities([entity], True)
 
-    # Register services
-    async def handle_set_override_timer(call):
-        await entity.async_set_override_timer(
-            call.data.get("minutes", 60),
-            call.data.get("temperature", 21),
-        )
-
-    async def handle_set_override_infinity(call):
-        await entity.async_set_override_infinity(
-            call.data.get("temperature", 21),
-        )
-
-    async def handle_set_override_next_node(call):
-        await entity.async_set_override_next_node(
-            call.data.get("temperature", 21),
-        )
-
-    async def handle_clear_override(call):
-        await entity.async_clear_override()
-
-    async def handle_set_interruptible(call):
-        await entity.async_set_interruptible(call.data.get("interruptible", True))
-
-    async def handle_set_auto_temperature(call):
-        await entity.async_set_auto_temperature(call.data.get("temperature", 21))
-
-    async def handle_set_away_temperature(call):
-        await entity.async_set_away_temperature(call.data.get("temperature", 14))
-
-    async def handle_set_away_delay(call):
-        await entity.async_set_away_delay(call.data.get("minutes", 5))
-
-    async def handle_set_default_override_mode(call):
-        await entity.async_set_default_override_mode(
-            call.data.get("mode", "timer"),
-            call.data.get("duration", 30),
-        )
-
-    async def handle_set_schedule(call):
-        await entity.async_set_schedule(call.data.get("schedule"))
-
-    hass.services.async_register(
-        DOMAIN, SERVICE_SET_OVERRIDE_TIMER, handle_set_override_timer
-    )
-    hass.services.async_register(
-        DOMAIN, SERVICE_SET_OVERRIDE_INFINITY, handle_set_override_infinity
-    )
-    hass.services.async_register(
-        DOMAIN, SERVICE_SET_OVERRIDE_NEXT_NODE, handle_set_override_next_node
-    )
-    hass.services.async_register(DOMAIN, SERVICE_CLEAR_OVERRIDE, handle_clear_override)
-    hass.services.async_register(
-        DOMAIN, SERVICE_SET_INTERRUPTIBLE, handle_set_interruptible
-    )
-    hass.services.async_register(
-        DOMAIN, SERVICE_SET_AUTO_TEMPERATURE, handle_set_auto_temperature
-    )
-    hass.services.async_register(
-        DOMAIN, SERVICE_SET_AWAY_TEMPERATURE, handle_set_away_temperature
-    )
-    hass.services.async_register(
-        DOMAIN, SERVICE_SET_AWAY_DELAY, handle_set_away_delay
-    )
-    hass.services.async_register(
-        DOMAIN, SERVICE_SET_DEFAULT_OVERRIDE_MODE, handle_set_default_override_mode
-    )
-    hass.services.async_register(
-        DOMAIN, SERVICE_SET_SCHEDULE, handle_set_schedule
-    )
+    await async_register_services(hass, entity)
 
 
 class SmartClimateEntity(ClimateEntity):
@@ -363,113 +287,15 @@ class SmartClimateEntity(ClimateEntity):
 
     def _get_scheduled_temperature(self) -> float:
         """Return the scheduled temperature for the current time, or fall back to auto_temperature."""
-        if not self._schedule:
-            return self._auto_temperature
+        return get_scheduled_temperature(self._schedule, datetime.now(), self._auto_temperature)
 
-        schedule_mode = self._schedule.get("mode", SCHEDULE_MODE_DAILY)
-        now = datetime.now()
-        weekday = now.weekday()  # Monday=0 … Sunday=6
-
-        if schedule_mode == SCHEDULE_MODE_DAILY:
-            nodes = self._schedule.get("daily", [])
-        elif schedule_mode == SCHEDULE_MODE_52:
-            if weekday < 5:
-                nodes = self._schedule.get("weekday", [])
-            else:
-                nodes = self._schedule.get("weekend", [])
-        elif schedule_mode == SCHEDULE_MODE_INDIVIDUAL:
-            day_names = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
-            nodes = self._schedule.get(day_names[weekday], [])
-        else:
-            nodes = []
-
-        if not nodes:
-            return self._auto_temperature
-
-        def _parse_time(t: str):
-            """Parse HH:MM time string; return a comparable time object."""
-            try:
-                return datetime.strptime(t, "%H:%M").time()
-            except (ValueError, TypeError):
-                _LOGGER.warning("Smart Climate: invalid time format '%s' in schedule node (expected HH:MM)", t)
-                return None
-
-        current_time = now.time().replace(second=0, microsecond=0)
-
-        # Sort nodes by parsed time, skipping any with invalid times
-        valid_nodes = []
-        for node in nodes:
-            t = _parse_time(node.get("time", ""))
-            if t is not None and "temp" in node:
-                valid_nodes.append((t, node["temp"]))
-            else:
-                _LOGGER.warning("Smart Climate: skipping schedule node with missing/invalid time or temp: %s", node)
-
-        if not valid_nodes:
-            return self._auto_temperature
-
-        valid_nodes.sort(key=lambda x: x[0])
-
-        # Find the last node whose time <= current time
-        target_temp = None
-        for node_time, node_temp in valid_nodes:
-            if node_time <= current_time:
-                target_temp = node_temp
-
-        # If no node matched (current time is before the first node), wrap around to the last node
-        if target_temp is None:
-            target_temp = valid_nodes[-1][1]
-
-        return target_temp
-
-    def _get_schedule_nodes(self) -> list:
-        """Return the list of schedule nodes applicable to the current day."""
-        if not self._schedule:
-            return []
-        schedule_mode = self._schedule.get("mode", SCHEDULE_MODE_DAILY)
-        weekday = datetime.now().weekday()
-        if schedule_mode == SCHEDULE_MODE_DAILY:
-            return self._schedule.get("daily", [])
-        if schedule_mode == SCHEDULE_MODE_52:
-            return self._schedule.get("weekday", []) if weekday < 5 else self._schedule.get("weekend", [])
-        if schedule_mode == SCHEDULE_MODE_INDIVIDUAL:
-            day_names = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
-            return self._schedule.get(day_names[weekday], [])
-        return []
-
-    def _compute_next_node_datetime(self) -> "datetime | None":
+    def _compute_next_node_datetime(self) -> datetime | None:
         """Return the datetime of the next upcoming schedule node, or None if unavailable."""
-        nodes = self._get_schedule_nodes()
-        if not nodes:
-            return None
+        return compute_next_node_datetime(self._schedule, datetime.now())
 
-        def _parse_time(t: str):
-            try:
-                return datetime.strptime(t, "%H:%M").time()
-            except (ValueError, TypeError):
-                return None
-
-        now = datetime.now()
-        current_time = now.time().replace(second=0, microsecond=0)
-        valid_times = sorted(
-            t for node in nodes if (t := _parse_time(node.get("time", ""))) is not None
-        )
-        if not valid_times:
-            return None
-
-        for node_time in valid_times:
-            if node_time > current_time:
-                return datetime.combine(now.date(), node_time)
-
-        # All nodes are before current time → next node is the first one tomorrow
-        return datetime.combine(now.date() + timedelta(days=1), valid_times[0])
-
-    def _get_next_node_minutes(self) -> "int | None":
+    def _get_next_node_minutes(self) -> int | None:
         """Return minutes until the next schedule node, or None if no schedule."""
-        next_dt = self._compute_next_node_datetime()
-        if next_dt is None:
-            return None
-        return int(max(0, (next_dt - datetime.now()).total_seconds() / 60))
+        return get_next_node_minutes(self._schedule, datetime.now())
 
     async def _update_target_temperature(self):
         """Calculate and update target temperature to wrapped climate."""
