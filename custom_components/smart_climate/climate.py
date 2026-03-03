@@ -224,13 +224,31 @@ class SmartClimateEntity(ClimateEntity):
     async def _on_wrapped_climate_change(self, event):
         """Handle wrapped climate state changes.
 
-        If the target temperature was changed externally (not by us), start an
-        override so the change is respected instead of being overwritten.
+        Syncs HVAC mode (off/on) and detects external target-temperature
+        changes so they are reflected as an override on the smart climate.
         """
         new_state = event.data.get("new_state")
         if not new_state:
             return
 
+        old_state = event.data.get("old_state")
+
+        # --- HVAC mode sync ---
+        new_hvac = new_state.state
+        old_hvac = old_state.state if old_state else None
+        if new_hvac != old_hvac:
+            if new_hvac == HVACMode.OFF:
+                self._is_off = True
+                self.async_write_ha_state()
+                return
+            if old_hvac == HVACMode.OFF and new_hvac != HVACMode.OFF:
+                self._is_off = False
+                self._last_written_temperature = 0
+                await self._update_target_temperature()
+                self.async_write_ha_state()
+                return
+
+        # --- External temperature change detection ---
         new_temp = new_state.attributes.get("target_temperature")
         if new_temp is None:
             return
@@ -539,6 +557,8 @@ class SmartClimateEntity(ClimateEntity):
 
     @property
     def target_temperature(self):
+        if self.hvac_mode == HVACMode.OFF:
+            return None
         if self._mode in (MODE_OVERRIDE_TIMER, MODE_OVERRIDE_INFINITY, MODE_OVERRIDE_NEXT_NODE):
             return self._override_temperature
         if self._presence == "home":
