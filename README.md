@@ -35,6 +35,28 @@ entity: climate.living_room
 
 The card lets you adjust the auto temperature, away temperature, away delay, and override behaviour directly from the dashboard without editing YAML.
 
+## HVAC Mode
+
+The Smart Climate entity supports two standard HA HVAC modes, controllable from any native climate card or automation:
+
+| HVAC mode | Behaviour |
+|-----------|-----------|
+| `heat` | Normal operation — auto/schedule mode or active override controls the wrapped climate. |
+| `off` | Turns the wrapped climate off and suspends all temperature writes until `heat` is selected again. |
+
+## Preset Modes
+
+The operating mode of the Smart Climate is exposed as a standard HA **preset mode**, visible and settable from the native climate card:
+
+| Preset | Internal mode | Description |
+|--------|---------------|-------------|
+| `none` | `auto` | Presence-aware automatic/schedule mode (default). |
+| `override_timer` | `override_timer` | Timed manual override — reverts to auto after the configured duration. |
+| `override_infinity` | `override_infinity` | Permanent manual override — remains active until cleared. |
+| `override_next_node` | `override_next_node` | Override until the next schedule node is reached. |
+
+> **Backward compatibility** — The custom `mode` extra state attribute (`state_attr('climate.xxx', 'mode')`) is **not deprecated**. It continues to be published alongside the standard `preset_mode` so that existing automations and templates that read it are unaffected.
+
 ## Services
 
 All services are under the `smart_climate` domain and target a Smart Climate `climate.*` entity.
