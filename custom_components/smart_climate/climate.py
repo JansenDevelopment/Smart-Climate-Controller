@@ -12,6 +12,10 @@ from .const import (
     MODE_OVERRIDE_TIMER,
     MODE_OVERRIDE_INFINITY,
     MODE_OVERRIDE_NEXT_NODE,
+    PRESET_AUTO,
+    PRESET_OVERRIDE_TIMER,
+    PRESET_OVERRIDE_INFINITY,
+    PRESET_OVERRIDE_NEXT_NODE,
     CONF_WRAPPED_CLIMATE,
     CONF_ZONE_HOME,
     CONF_AUTO_TEMPERATURE,
@@ -109,7 +113,7 @@ class SmartClimateEntity(ClimateEntity):
         self._attr_min_temp = 5
         self._attr_max_temp = 25
         self._attr_target_temperature_step = 0.5
-        self._attr_supported_features = ClimateEntityFeature.TARGET_TEMPERATURE
+        self._attr_supported_features = ClimateEntityFeature.TARGET_TEMPERATURE | ClimateEntityFeature.PRESET_MODE
         self._attr_should_poll = False
 
         # Config
@@ -124,6 +128,7 @@ class SmartClimateEntity(ClimateEntity):
 
         # State
         self._mode = MODE_AUTO
+        self._is_off = False
         self._presence = "away"  # Start as away
         self._interruptible = interruptible
         self._override_temperature = 21
@@ -299,6 +304,9 @@ class SmartClimateEntity(ClimateEntity):
 
     async def _update_target_temperature(self):
         """Calculate and update target temperature to wrapped climate."""
+        if self._is_off:
+            return
+
         if self._mode == MODE_OVERRIDE_TIMER or self._mode == MODE_OVERRIDE_INFINITY or self._mode == MODE_OVERRIDE_NEXT_NODE:
             target = self._override_temperature
         elif self._mode == MODE_AUTO:
@@ -457,10 +465,62 @@ class SmartClimateEntity(ClimateEntity):
 
     @property
     def hvac_mode(self):
+        if self._is_off:
+            return HVACMode.OFF
         wrapped = self.hass.states.get(self._wrapped_climate)
-        if wrapped:
-            return wrapped.state
+        if wrapped and wrapped.state == HVACMode.OFF:
+            return HVACMode.OFF
         return HVACMode.HEAT
+
+    async def async_set_hvac_mode(self, hvac_mode: HVACMode):
+        """Set HVAC mode. OFF turns off the wrapped climate; HEAT resumes normal operation."""
+        if hvac_mode == HVACMode.OFF:
+            self._is_off = True
+            await self.hass.services.async_call(
+                "climate",
+                "turn_off",
+                {"entity_id": self._wrapped_climate},
+            )
+            self.async_write_ha_state()
+        elif hvac_mode == HVACMode.HEAT:
+            self._is_off = False
+            await self.hass.services.async_call(
+                "climate",
+                "turn_on",
+                {"entity_id": self._wrapped_climate},
+            )
+            self._last_written_temperature = 0
+            await self._update_target_temperature()
+            self.async_write_ha_state()
+
+    @property
+    def preset_modes(self):
+        return [PRESET_AUTO, PRESET_OVERRIDE_TIMER, PRESET_OVERRIDE_INFINITY, PRESET_OVERRIDE_NEXT_NODE]
+
+    @property
+    def preset_mode(self):
+        if self._mode == MODE_AUTO:
+            return PRESET_AUTO
+        if self._mode == MODE_OVERRIDE_TIMER:
+            return PRESET_OVERRIDE_TIMER
+        if self._mode == MODE_OVERRIDE_INFINITY:
+            return PRESET_OVERRIDE_INFINITY
+        if self._mode == MODE_OVERRIDE_NEXT_NODE:
+            return PRESET_OVERRIDE_NEXT_NODE
+        return PRESET_AUTO
+
+    async def async_set_preset_mode(self, preset_mode: str):
+        """Set preset mode, mapping to a smart climate override mode."""
+        if preset_mode == PRESET_AUTO:
+            await self.async_clear_override()
+        elif preset_mode == PRESET_OVERRIDE_TIMER:
+            await self.async_set_override_timer(
+                self._default_override_duration, self._override_temperature
+            )
+        elif preset_mode == PRESET_OVERRIDE_INFINITY:
+            await self.async_set_override_infinity(self._override_temperature)
+        elif preset_mode == PRESET_OVERRIDE_NEXT_NODE:
+            await self.async_set_override_next_node(self._override_temperature)
 
     @property
     def current_temperature(self):
