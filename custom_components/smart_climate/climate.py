@@ -156,6 +156,14 @@ class SmartClimateEntity(ClimateEntity):
             )
         )
 
+        # Initialize _last_written_temperature from the wrapped climate's current state
+        # This ensures we can detect external temperature changes even before we write
+        wrapped = self.hass.states.get(self._wrapped_climate)
+        if wrapped and wrapped.state != HVACMode.OFF:
+            current_temp = wrapped.attributes.get("target_temperature")
+            if current_temp is not None:
+                self._last_written_temperature = current_temp
+
         # Listen to wrapped climate changes to detect external temperature adjustments
         self.async_on_remove(
             async_track_state_change_event(
@@ -243,6 +251,29 @@ class SmartClimateEntity(ClimateEntity):
                 return
             elif old_hvac == HVACMode.OFF:
                 self._is_off = False
+                # When turning on, check if the temperature was set by the user
+                # by comparing it to what we would calculate
+                new_temp = new_state.attributes.get("target_temperature")
+                if new_temp is not None:
+                    # Calculate what temperature the smart climate would set
+                    if self._presence == "home":
+                        expected_temp = self._get_scheduled_temperature()
+                    else:
+                        expected_temp = self._away_temperature
+
+                    # If the temperature differs from what we would calculate,
+                    # treat it as an external change and create an override
+                    if new_temp != expected_temp:
+                        self._last_written_temperature = new_temp
+                        if self._default_override_mode == "infinity":
+                            await self.async_set_override_infinity(new_temp)
+                        elif self._default_override_mode == "next_node":
+                            await self.async_set_override_next_node(new_temp)
+                        else:
+                            await self.async_set_override_timer(self._default_override_duration, new_temp)
+                        return
+
+                # Normal case: set our calculated temperature
                 self._last_written_temperature = 0
                 await self._update_target_temperature()
                 self.async_write_ha_state()
@@ -254,9 +285,10 @@ class SmartClimateEntity(ClimateEntity):
             return
 
         # Detect an external change: the temperature differs from what we last wrote
+        # or we haven't written anything yet (initial state)
         if (
-            self._last_written_temperature is not None
-            and new_temp != self._last_written_temperature
+            self._last_written_temperature is None
+            or new_temp != self._last_written_temperature
         ):
             # Acknowledge the external change immediately so subsequent state-change
             # events with the same temperature don't re-trigger the override
