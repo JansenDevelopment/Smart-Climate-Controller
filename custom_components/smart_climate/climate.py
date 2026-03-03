@@ -235,13 +235,13 @@ class SmartClimateEntity(ClimateEntity):
 
         # --- HVAC mode sync ---
         new_hvac = new_state.state
-        old_hvac = old_state.state if old_state else None
+        old_hvac = getattr(old_state, "state", None)
         if new_hvac != old_hvac:
             if new_hvac == HVACMode.OFF:
                 self._is_off = True
                 self.async_write_ha_state()
                 return
-            if old_hvac == HVACMode.OFF and new_hvac != HVACMode.OFF:
+            elif old_hvac == HVACMode.OFF:
                 self._is_off = False
                 self._last_written_temperature = 0
                 await self._update_target_temperature()
