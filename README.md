@@ -50,10 +50,19 @@ The operating mode of the Smart Climate is exposed as a standard HA **preset mod
 
 | Preset | Internal mode | Description |
 |--------|---------------|-------------|
-| `none` | `auto` | Presence-aware automatic/schedule mode (default). |
-| `override_timer` | `override_timer` | Timed manual override — reverts to auto after the configured duration. |
-| `override_infinity` | `override_infinity` | Permanent manual override — remains active until cleared. |
-| `override_next_node` | `override_next_node` | Override until the next schedule node is reached. |
+| `auto` | `auto` | Presence-aware automatic/schedule mode (default). |
+| `timer` | `override_timer` | Timed manual override — reverts to auto after the configured duration. |
+| `infinity` | `override_infinity` | Permanent manual override — remains active until cleared. |
+| `next_node` | `override_next_node` | Override until the next schedule node is reached. |
+
+Preset mode labels are translated in the Home Assistant UI:
+
+| Preset value | English label | Dutch label |
+|-------------|---------------|-------------|
+| `auto` | Schedule | Schema |
+| `timer` | Timer | Timer |
+| `infinity` | Always | Altijd |
+| `next_node` | Until next slot | Tot volgend moment |
 
 > **Backward compatibility** — The custom `mode` extra state attribute (`state_attr('climate.xxx', 'mode')`) is **not deprecated**. It continues to be published alongside the standard `preset_mode` so that existing automations and templates that read it are unaffected.
 
