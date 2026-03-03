@@ -523,6 +523,14 @@ class SmartClimateEntity(ClimateEntity):
             await self.async_set_override_next_node(self._override_temperature)
 
     @property
+    def hvac_action(self):
+        """Return the current HVAC action, forwarded from the wrapped climate entity."""
+        wrapped = self.hass.states.get(self._wrapped_climate)
+        if wrapped:
+            return wrapped.attributes.get("hvac_action")
+        return None
+
+    @property
     def current_temperature(self):
         wrapped = self.hass.states.get(self._wrapped_climate)
         if wrapped:

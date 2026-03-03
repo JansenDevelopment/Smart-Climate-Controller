@@ -29,5 +29,21 @@
     "abort": {
       "already_configured": "Apparaat is al geconfigureerd"
     }
+  },
+  "entity": {
+    "climate": {
+      "smart_climate": {
+        "state_attributes": {
+          "preset_mode": {
+            "state": {
+              "auto": "Schema",
+              "timer": "Timer",
+              "infinity": "Altijd",
+              "next_node": "Tot volgend moment"
+            }
+          }
+        }
+      }
+    }
   }
 }

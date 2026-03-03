@@ -29,5 +29,21 @@
     "abort": {
       "already_configured": "Device is already configured"
     }
+  },
+  "entity": {
+    "climate": {
+      "smart_climate": {
+        "state_attributes": {
+          "preset_mode": {
+            "state": {
+              "auto": "Schedule",
+              "timer": "Timer",
+              "infinity": "Always",
+              "next_node": "Until next slot"
+            }
+          }
+        }
+      }
+    }
   }
 }
