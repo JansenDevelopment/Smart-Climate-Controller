@@ -27,6 +27,7 @@ class SmartClimateScheduleCard extends LitElement {
     _schedule: { state: true },
     _draggingIdx: { state: true },
     _history: { state: true },
+    _yesterdayHistory: { state: true },
     _presenceHistory: { state: true },
     _saved: { state: true },
     _dirty: { state: true },
@@ -50,6 +51,7 @@ class SmartClimateScheduleCard extends LitElement {
     if (changedProps.has("hass") && this.hass) {
       if (this._schedule === undefined) this._syncFromEntity();
       if (this._history === undefined) this._fetchHistory();
+      if (this._yesterdayHistory === undefined) this._fetchYesterdayHistory();
       if (this._presenceHistory === undefined) this._fetchPresenceHistory();
     }
   }
@@ -93,6 +95,27 @@ class SmartClimateScheduleCard extends LitElement {
     } catch (err) {
       console.warn("SmartClimateScheduleCard: failed to fetch history", err);
       this._history = [];
+    }
+  }
+
+  async _fetchYesterdayHistory() {
+    this._yesterdayHistory = [];
+    const entity = this.hass?.states[this.config.entity];
+    if (!entity) return;
+    const wrapped = entity.attributes.wrapped_climate;
+    if (!wrapped) return;
+    try {
+      const end = new Date();
+      end.setHours(0, 0, 0, 0);
+      const start = new Date(end.getTime() - 86400000);
+      const result = await this.hass.callApi(
+        "GET",
+        `history/period/${start.toISOString()}?filter_entity_id=${wrapped}&end_time=${end.toISOString()}&significant_changes_only=true`
+      );
+      this._yesterdayHistory = result?.[0] ?? [];
+    } catch (err) {
+      console.warn("SmartClimateScheduleCard: failed to fetch yesterday's history", err);
+      this._yesterdayHistory = [];
     }
   }
 
@@ -364,6 +387,32 @@ class SmartClimateScheduleCard extends LitElement {
   }
 
   /**
+   * Build an SVG path string from yesterday's temperature history for future time slots.
+   * Only includes data points at hours >= the current time, so the line covers the
+   * portion of today's graph that hasn't happened yet.
+   * @returns {string}
+   */
+  _yesterdayHistoryPath() {
+    const hist = this._yesterdayHistory;
+    if (!hist?.length) return "";
+    const now = new Date();
+    const nowH = now.getHours() + now.getMinutes() / 60;
+    const todayMidnightMs = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const yesterdayBaseMs = todayMidnightMs - 86400000;
+    const pts = [];
+    for (const h of hist) {
+      const t = parseFloat(h.attributes?.current_temperature ?? h.state);
+      if (isNaN(t)) continue;
+      const hr = (new Date(h.last_changed ?? h.last_updated).getTime() - yesterdayBaseMs) / 3600000;
+      if (hr < nowH || hr >= 24) continue;
+      const x = this._toX(hr);
+      const y = this._toY(Math.max(TMIN, Math.min(TMAX, t)));
+      pts.push(pts.length ? `L${x},${y}` : `M${x},${y}`);
+    }
+    return pts.join(" ");
+  }
+
+  /**
    * Build an array of SVG `<rect>` elements representing presence history segments.
    * @returns {import('lit').TemplateResult[]}
    */
@@ -442,6 +491,7 @@ class SmartClimateScheduleCard extends LitElement {
 
     const stepPathD = this._stepPath(nodes);
     const histPathD = this._historyPath();
+    const yesterdayHistPathD = this._yesterdayHistoryPath();
     const sortedNodes = [...nodes].sort((a, b) => this._timeToHour(a.time) - this._timeToHour(b.time));
 
     // Determine next upcoming node index (in sortedNodes)
@@ -538,6 +588,13 @@ class SmartClimateScheduleCard extends LitElement {
               ${histPathD ? svg`
                 <path d="${histPathD}" fill="none"
                   stroke="rgba(255,160,50,0.45)" stroke-width="1.5" stroke-linejoin="round"/>
+              ` : ""}
+
+              <!-- yesterday history path (shown for future hours as a dashed reference) -->
+              ${yesterdayHistPathD ? svg`
+                <path d="${yesterdayHistPathD}" fill="none"
+                  stroke="rgba(255,160,50,0.25)" stroke-width="1.5" stroke-linejoin="round"
+                  stroke-dasharray="4,3"/>
               ` : ""}
 
               <!-- schedule step path -->
