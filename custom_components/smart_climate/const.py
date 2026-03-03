@@ -7,6 +7,12 @@ MODE_OVERRIDE_TIMER = "override_timer"
 MODE_OVERRIDE_INFINITY = "override_infinity"
 MODE_OVERRIDE_NEXT_NODE = "override_next_node"
 
+# Preset mode names (used with ClimateEntityFeature.PRESET_MODE)
+PRESET_AUTO = "none"
+PRESET_OVERRIDE_TIMER = "override_timer"
+PRESET_OVERRIDE_INFINITY = "override_infinity"
+PRESET_OVERRIDE_NEXT_NODE = "override_next_node"
+
 # Schedule modes
 SCHEDULE_MODE_DAILY = "daily"
 SCHEDULE_MODE_52 = "5/2"
