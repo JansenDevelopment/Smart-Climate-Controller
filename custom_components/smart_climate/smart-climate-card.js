@@ -1,15 +1,4 @@
 import { LitElement, html, css } from "https://unpkg.com/lit@3/index.js?module";
-import { SmartClimateBaseEditor } from "./smart-climate-base-editor.js";
-
-/**
- * Fire a Home Assistant DOM event.
- * @param {Element} node
- * @param {string} type
- * @param {*} detail
- */
-function fireEvent(node, type, detail) {
-  node.dispatchEvent(new CustomEvent(type, { detail, bubbles: true, composed: true }));
-}
 
 class SmartClimateCard extends LitElement {
   static properties = {
@@ -17,25 +6,6 @@ class SmartClimateCard extends LitElement {
     config: {},
     _overrideTemp: { state: true },
   };
-
-  constructor() {
-    super();
-    this._holdTimer = null;
-    this._tapTimer = null;
-  }
-
-  static getConfigElement() {
-    return document.createElement("smart-climate-card-editor");
-  }
-
-  static getStubConfig() {
-    return {
-      entity: "",
-      show_temperature_control: true,
-      show_presence: true,
-      tap_action: { action: "more-info" },
-    };
-  }
 
   setConfig(config) {
     if (!config.entity) {
@@ -57,11 +27,10 @@ class SmartClimateCard extends LitElement {
       `;
     }
 
+    const zone = this.hass.states["zone.home"];
+    const isHome = zone?.state === "home";
+
     const attrs = entity.attributes;
-    const presence = attrs.presence ?? "away";
-    const isHome = presence === "home";
-    const awayDelayRemaining = attrs.away_delay_seconds_remaining ?? 0;
-    const isLeaving = !isHome && awayDelayRemaining > 0;
     const currentTemp = attrs.current_temperature ?? "—";
     const targetTemp = attrs.temperature ?? 21;
     const overrideTemp = attrs.override_temperature ?? this._overrideTemp;
@@ -74,32 +43,16 @@ class SmartClimateCard extends LitElement {
 
     const isTimer = mode === "override_timer";
     const isInfinity = mode === "override_infinity";
-    const isNextNode = mode === "override_next_node";
-    const nextNodeMinutes = attrs.next_node_minutes ?? null;
-    // Dot position: capped at 465 (just before the ∞ mark at 480) when > 8 h
-    const nextNodeSliderPos = nextNodeMinutes != null ? Math.min(nextNodeMinutes, 465) : null;
-    const nextNodeDotPct = nextNodeSliderPos != null ? (nextNodeSliderPos / 480) * 100 : null;
-    const sliderValue = isTimer ? remaining : isInfinity ? 480 : isNextNode ? Math.min(remaining, 465) : 0;
-
-    const showTempControl = this.config.show_temperature_control !== false;
-    const showPresence = this.config.show_presence !== false;
+    const sliderValue = isTimer ? remaining : isInfinity ? 480 : 0;
 
     return html`
-      <ha-card
-        @click=${this._handleTap}
-        @dblclick=${this._handleDoubleTap}
-        @pointerdown=${this._handleHoldStart}
-        @pointerup=${this._handleHoldEnd}
-        @pointercancel=${this._handleHoldEnd}
-      >
+      <ha-card>
         <div class="content">
           <div class="header">
             <div class="title">SmartClimate</div>
-            ${showPresence ? html`
-            <div class="presence" ?away=${!isHome} ?leaving=${isLeaving}>
-              ${isHome ? "🏠 Home" : isLeaving ? `🚶 Leaving (${Math.ceil(awayDelayRemaining / 60)}m)` : "📍 Away"}
+            <div class="presence" ?away=${!isHome}>
+              ${isHome ? "🏠 Home" : "📍 Away"}
             </div>
-            ` : ""}
           </div>
 
           <div class="temps">
@@ -108,81 +61,24 @@ class SmartClimateCard extends LitElement {
 
           <div class="mode">Mode: ${mode}</div>
 
-          ${showTempControl ? html`
-          <div class="temp-control" @click=${(e) => e.stopPropagation()}>
-            <div class="temp-control-label">Temperatuur instellen</div>
-            <div class="temp-control-row">
-              <button class="temp-btn" @click=${() => this.adjustTemp(-0.5)}>−</button>
-              <span class="temp-control-value">${this._overrideTemp}°</span>
-              <button class="temp-btn" @click=${() => this.adjustTemp(0.5)}>+</button>
-            </div>
-          </div>
-          ` : ""}
-
-          ${isLeaving ? html`
-          <div class="away-delay-row">
-            <span class="away-delay-icon">🚶</span>
-            <span class="away-delay-value countdown">${this.formatSeconds(awayDelayRemaining)}</span>
-            <span class="away-delay-label">tot afwezig</span>
-          </div>
-          ` : ""}
-
-          ${isTimer ? html`
-          <div class="timer-row">
-            <span class="timer-icon">⏱</span>
-            <span class="timer-value countdown">${this.formatTime(remaining)}</span>
-            <span class="timer-label">resterend</span>
-            <button class="restore-btn" @click=${(e) => { e.stopPropagation(); this.clearOverride(); }}>Herstel schema</button>
-          </div>
-          ` : ""}
-
-          ${isInfinity ? html`
-          <div class="timer-row">
-            <span class="timer-icon">♾</span>
-            <span class="timer-label">Infinity actief</span>
-            <button class="restore-btn" @click=${(e) => { e.stopPropagation(); this.clearOverride(); }}>Herstel schema</button>
-          </div>
-          ` : ""}
-
-          ${isNextNode ? html`
-          <div class="timer-row">
-            <span class="timer-icon">📅</span>
-            <span class="timer-value countdown">${this.formatTime(remaining)}</span>
-            <span class="timer-label">tot volgend node</span>
-            <button class="restore-btn" @click=${(e) => { e.stopPropagation(); this.clearOverride(); }}>Herstel schema</button>
-          </div>
-          ` : ""}
-
-          ${(isTimer || isInfinity || isNextNode) ? html`
-          <div class="panel" @click=${(e) => e.stopPropagation()}>
+          <div class="panel">
             <div class="state">
               ${isTimer
-                ? html`<span>Timer actief</span>`
-                : isNextNode
-                  ? html`<span>📅 Next node actief</span>`
-                  : html`<strong>♾ Infinity</strong>`}
+                ? html`<span class="countdown">Remaining: <strong>${this.formatTime(remaining)}</strong></span>`
+                : isInfinity
+                ? html`<strong>♾ Infinity</strong>`
+                : html`Auto`}
             </div>
 
-            <div class="slider-container">
-              <input
-                type="range"
-                min="0"
-                max="480"
-                step="15"
-                .value=${sliderValue}
-                @input=${this.onSliderInput}
-                @change=${this.onSliderChange}
-              />
-              ${nextNodeDotPct != null ? html`
-                <div class="next-node-dot"
-                     style="--dot-pos: ${nextNodeDotPct.toFixed(1)}%"
-                     @click=${() => this.onNextNodeDotClick()}
-                     title="Override till next node (${nextNodeMinutes}m)">◆</div>
-              ` : ""}
-              <div class="infinity-indicator"
-                   @click=${() => this.onInfinityDotClick()}
-                   title="Override infinity">∞</div>
-            </div>
+            <input
+              type="range"
+              min="0"
+              max="480"
+              step="15"
+              .value=${sliderValue}
+              @input=${this.onSliderInput}
+              @change=${this.onSliderChange}
+            />
 
             <div class="scale">
               <span>Auto</span>
@@ -192,69 +88,28 @@ class SmartClimateCard extends LitElement {
               <span>∞</span>
             </div>
           </div>
-          ` : ""}
+
+          <div class="temp-slider-panel">
+            <div class="temp-label">Override: <strong>${this._overrideTemp}°</strong></div>
+            <input
+              type="range"
+              min="5"
+              max="25"
+              step="0.5"
+              .value=${this._overrideTemp}
+              @input=${this.onTempInput}
+              @change=${this.onTempChange}
+              class="temp-slider"
+            />
+            <div class="temp-scale">
+              <span>5°</span>
+              <span>15°</span>
+              <span>25°</span>
+            </div>
+          </div>
         </div>
       </ha-card>
     `;
-  }
-
-  _handleTap(e) {
-    // Delay tap action slightly to allow double-tap to cancel it.
-    if (this._tapTimer) return;
-    this._tapTimer = setTimeout(() => {
-      this._tapTimer = null;
-      const action = this.config.tap_action?.action ?? "more-info";
-      if (action !== "none") this._fireAction(action, this.config.tap_action);
-    }, 250);
-  }
-
-  _handleDoubleTap(e) {
-    // Cancel any pending tap action before handling double-tap.
-    if (this._tapTimer) {
-      clearTimeout(this._tapTimer);
-      this._tapTimer = null;
-    }
-    if (!this.config.double_tap_action) return;
-    e.stopPropagation();
-    const action = this.config.double_tap_action?.action ?? "none";
-    if (action !== "none") this._fireAction(action, this.config.double_tap_action);
-  }
-
-  _handleHoldStart(e) {
-    if (!this.config.hold_action) return;
-    this._holdTimer = setTimeout(() => {
-      this._holdTimer = null;
-      const action = this.config.hold_action?.action ?? "none";
-      if (action !== "none") this._fireAction(action, this.config.hold_action);
-    }, 500);
-  }
-
-  _handleHoldEnd(e) {
-    if (this._holdTimer) {
-      clearTimeout(this._holdTimer);
-      this._holdTimer = null;
-    }
-  }
-
-  _fireAction(action, actionConfig) {
-    if (action === "more-info") {
-      fireEvent(this, "hass-more-info", { entityId: this.config.entity });
-    } else if (action === "navigate") {
-      const path = actionConfig?.navigation_path ?? "/";
-      history.pushState(null, "", path);
-      fireEvent(window, "location-changed", { replace: false });
-    } else if (action === "url") {
-      const url = actionConfig?.url_path ?? "";
-      if (url && /^https?:\/\//i.test(url)) {
-        window.open(url, "_blank", "noopener,noreferrer");
-      }
-    } else if (action === "call-service") {
-      const service = actionConfig?.service ?? "";
-      const [domain, svc] = service.split(".", 2);
-      if (domain && svc) {
-        this.hass.callService(domain, svc, actionConfig?.service_data ?? {});
-      }
-    }
   }
 
   onSliderChange(e) {
@@ -285,63 +140,12 @@ class SmartClimateCard extends LitElement {
     slider.style.setProperty("--slider-value", `${(value / 480) * 100}%`);
   }
 
-  onNextNodeDotClick() {
-    this.hass.callService("smart_climate", "set_override_next_node", {
-      entity_id: this.config.entity,
-      temperature: this._overrideTemp,
-    });
+  onTempInput(e) {
+    this._overrideTemp = Number(e.target.value);
   }
 
-  onInfinityDotClick() {
-    this.hass.callService("smart_climate", "set_override_infinity", {
-      entity_id: this.config.entity,
-      temperature: this._overrideTemp,
-    });
-  }
-
-  clearOverride() {
-    this.hass.callService("smart_climate", "clear_override", {
-      entity_id: this.config.entity,
-    });
-  }
-
-  adjustTemp(delta) {
-    const newTemp = Math.min(25, Math.max(5, this._overrideTemp + delta));
-    this._overrideTemp = newTemp;
-    const entityId = this.config.entity;
-    const attrs = this.hass.states[entityId]?.attributes ?? {};
-    const mode = attrs.mode ?? "auto";
-    const remaining = attrs.remaining_minutes ?? 0;
-
-    if (mode === "override_next_node") {
-      this.hass.callService("smart_climate", "set_override_next_node", {
-        entity_id: entityId,
-        temperature: newTemp,
-      });
-    } else if (mode === "override_infinity") {
-      this.hass.callService("smart_climate", "set_override_infinity", {
-        entity_id: entityId,
-        temperature: newTemp,
-      });
-    } else if (mode === "override_timer") {
-      this.hass.callService("smart_climate", "set_override_timer", {
-        entity_id: entityId,
-        minutes: Math.max(1, remaining),
-        temperature: newTemp,
-      });
-    } else {
-      this.hass.callService("climate", "set_temperature", {
-        entity_id: entityId,
-        temperature: newTemp,
-      });
-    }
-  }
-
-  formatSeconds(seconds) {
-    const total = Math.max(0, seconds);
-    const m = Math.floor(total / 60);
-    const rem = Math.ceil(total % 60);
-    return m ? `${m}m ${rem}s` : `${rem}s`;
+  onTempChange(e) {
+    this._overrideTemp = Number(e.target.value);
   }
 
   formatTime(minutes) {
@@ -355,136 +159,61 @@ class SmartClimateCard extends LitElement {
     ha-card {
       background: var(--ha-card-background);
       color: var(--primary-text-color);
-      cursor: pointer;
     }
 
     .content {
-      padding: 10px 12px;
+      padding: 16px;
     }
 
     .header {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 2px;
+      margin-bottom: 4px;
     }
 
     .title {
-      font-size: 16px;
+      font-size: 20px;
       font-weight: 600;
     }
 
     .presence {
-      font-size: 11px;
-      padding: 3px 6px;
+      font-size: 12px;
+      padding: 4px 8px;
       border-radius: 6px;
-      background: rgba(var(--rgb-success-color, 76, 175, 80), 0.15);
-      color: var(--success-color);
+      background: rgba(76, 175, 80, 0.15);
+      color: #4caf50;
       transition: all 0.3s ease;
     }
 
     .presence[away] {
-      background: rgba(var(--rgb-error-color, 244, 67, 54), 0.15);
-      color: var(--error-color);
-    }
-
-    .presence[leaving] {
-      background: rgba(var(--rgb-warning-color, 255, 152, 0), 0.15);
-      color: var(--warning-color);
+      background: rgba(244, 67, 54, 0.15);
+      color: #f44336;
     }
 
     .temps {
-      margin-top: 4px;
-      font-size: 14px;
-    }
-
-    .mode {
-      font-size: 11px;
-      color: var(--secondary-text-color);
-      margin-top: 2px;
-    }
-
-    .away-delay-row {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      margin-top: 10px;
-      padding: 8px 12px;
-      border-radius: 8px;
-      background: rgba(var(--rgb-info-color, 33, 150, 243), 0.12);
-      border: 1px solid rgba(var(--rgb-info-color, 33, 150, 243), 0.3);
-    }
-
-    .away-delay-icon {
+      margin-top: 8px;
       font-size: 16px;
     }
 
-    .away-delay-value {
-      font-size: 18px;
-      font-weight: 700;
-      color: var(--info-color);
-    }
-
-    .away-delay-label {
+    .mode {
       font-size: 12px;
       color: var(--secondary-text-color);
-    }
-
-    .timer-row {
-      display: flex;
-      align-items: center;
-      gap: 6px;
       margin-top: 6px;
-      padding: 6px 10px;
-      border-radius: 8px;
-      background: rgba(var(--rgb-warning-color, 255, 152, 0), 0.12);
-      border: 1px solid rgba(var(--rgb-warning-color, 255, 152, 0), 0.3);
-    }
-
-    .timer-icon {
-      font-size: 14px;
-    }
-
-    .timer-value {
-      font-size: 15px;
-      font-weight: 700;
-      color: var(--warning-color);
-    }
-
-    .timer-label {
-      font-size: 11px;
-      color: var(--secondary-text-color);
-      flex: 1;
-    }
-
-    .restore-btn {
-      background: none;
-      border: 1px solid var(--accent-color);
-      color: var(--accent-color);
-      border-radius: 6px;
-      padding: 2px 8px;
-      font-size: 11px;
-      cursor: pointer;
-      white-space: nowrap;
-    }
-
-    .restore-btn:hover {
-      background: var(--accent-color);
-      color: white;
     }
 
     .panel {
-      margin-top: 8px;
-      padding: 8px 10px;
+      margin-top: 12px;
+      padding: 12px;
       border-radius: 10px;
       background: var(--secondary-background-color);
       border: 1px solid var(--divider-color);
     }
 
     .state {
-      font-size: 11px;
-      margin-bottom: 4px;
-      min-height: 16px;
+      font-size: 12px;
+      margin-bottom: 6px;
+      min-height: 20px;
     }
 
     .countdown {
@@ -510,131 +239,42 @@ class SmartClimateCard extends LitElement {
       transform: scale(1.2);
     }
 
-    .slider-container {
-      position: relative;
-      padding-bottom: 16px;
-    }
-
-    .next-node-dot {
-      position: absolute;
-      bottom: 0;
-      left: var(--dot-pos);
-      transform: translateX(-50%);
-      font-size: 10px;
-      color: var(--accent-color);
-      cursor: pointer;
-      user-select: none;
-      line-height: 1;
-    }
-
-    .next-node-dot:hover {
-      opacity: 0.75;
-    }
-
-    .infinity-indicator {
-      position: absolute;
-      bottom: 0;
-      left: 100%;
-      transform: translateX(-50%);
-      font-size: 10px;
-      color: var(--secondary-text-color);
-      cursor: pointer;
-      user-select: none;
-      line-height: 1;
-    }
-
-    .infinity-indicator:hover {
-      opacity: 0.75;
-      color: var(--accent-color);
-    }
-
     .scale {
       display: flex;
       justify-content: space-between;
       font-size: 10px;
       color: var(--secondary-text-color);
-      margin-top: 2px;
+      margin-top: 4px;
     }
 
-    .temp-control {
-      margin-top: 8px;
-      padding: 8px 10px;
+    .temp-slider-panel {
+      margin-top: 12px;
+      padding: 12px;
       border-radius: 10px;
       background: var(--secondary-background-color);
       border: 1px solid var(--divider-color);
     }
 
-    .temp-control-label {
-      font-size: 11px;
+    .temp-label {
+      font-size: 12px;
+      margin-bottom: 8px;
       color: var(--secondary-text-color);
-      margin-bottom: 4px;
     }
 
-    .temp-control-row {
+    .temp-slider {
+      width: 100%;
+      accent-color: var(--accent-color);
+      margin-bottom: 8px;
+    }
+
+    .temp-scale {
       display: flex;
-      align-items: center;
       justify-content: space-between;
-    }
-
-    .temp-control-value {
-      font-size: 20px;
-      font-weight: 600;
-    }
-
-    .temp-btn {
-      background: var(--accent-color);
-      color: white;
-      border: none;
-      border-radius: 50%;
-      width: 30px;
-      height: 30px;
-      font-size: 18px;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-
-    .temp-btn:hover {
-      opacity: 0.85;
+      font-size: 10px;
+      color: var(--secondary-text-color);
     }
   `;
 }
-
-/** Card editor for smart-climate-card — adds feature-toggle and action options. */
-class SmartClimateCardEditor extends SmartClimateBaseEditor {
-  get _schema() {
-    return [
-      {
-        name: "entity",
-        required: true,
-        selector: { entity: { domain: "climate" } },
-      },
-      {
-        name: "show_temperature_control",
-        selector: { boolean: {} },
-      },
-      {
-        name: "show_presence",
-        selector: { boolean: {} },
-      },
-      {
-        name: "tap_action",
-        selector: { action: {} },
-      },
-      {
-        name: "hold_action",
-        selector: { action: {} },
-      },
-      {
-        name: "double_tap_action",
-        selector: { action: {} },
-      },
-    ];
-  }
-}
-
-customElements.define("smart-climate-card-editor", SmartClimateCardEditor);
 
 customElements.define("smart-climate-card", SmartClimateCard);
 
