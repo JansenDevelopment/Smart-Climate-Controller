@@ -1,6 +1,16 @@
 import { LitElement, html, css } from "https://unpkg.com/lit@3/index.js?module";
 import { SmartClimateBaseEditor } from "./smart-climate-base-editor.js";
 
+/**
+ * Fire a Home Assistant DOM event.
+ * @param {Element} node
+ * @param {string} type
+ * @param {*} detail
+ */
+function fireEvent(node, type, detail) {
+  node.dispatchEvent(new CustomEvent(type, { detail, bubbles: true, composed: true }));
+}
+
 class SmartClimateCard extends LitElement {
   static properties = {
     hass: {},
@@ -8,12 +18,23 @@ class SmartClimateCard extends LitElement {
     _overrideTemp: { state: true },
   };
 
+  constructor() {
+    super();
+    this._holdTimer = null;
+    this._tapTimer = null;
+  }
+
   static getConfigElement() {
     return document.createElement("smart-climate-card-editor");
   }
 
   static getStubConfig() {
-    return { entity: "" };
+    return {
+      entity: "",
+      show_temperature_control: true,
+      show_presence: true,
+      tap_action: { action: "more-info" },
+    };
   }
 
   setConfig(config) {
@@ -60,14 +81,25 @@ class SmartClimateCard extends LitElement {
     const nextNodeDotPct = nextNodeSliderPos != null ? (nextNodeSliderPos / 480) * 100 : null;
     const sliderValue = isTimer ? remaining : isInfinity ? 480 : isNextNode ? Math.min(remaining, 465) : 0;
 
+    const showTempControl = this.config.show_temperature_control !== false;
+    const showPresence = this.config.show_presence !== false;
+
     return html`
-      <ha-card>
+      <ha-card
+        @click=${this._handleTap}
+        @dblclick=${this._handleDoubleTap}
+        @pointerdown=${this._handleHoldStart}
+        @pointerup=${this._handleHoldEnd}
+        @pointercancel=${this._handleHoldEnd}
+      >
         <div class="content">
           <div class="header">
             <div class="title">SmartClimate</div>
+            ${showPresence ? html`
             <div class="presence" ?away=${!isHome} ?leaving=${isLeaving}>
               ${isHome ? "🏠 Home" : isLeaving ? `🚶 Leaving (${Math.ceil(awayDelayRemaining / 60)}m)` : "📍 Away"}
             </div>
+            ` : ""}
           </div>
 
           <div class="temps">
@@ -76,7 +108,8 @@ class SmartClimateCard extends LitElement {
 
           <div class="mode">Mode: ${mode}</div>
 
-          <div class="temp-control">
+          ${showTempControl ? html`
+          <div class="temp-control" @click=${(e) => e.stopPropagation()}>
             <div class="temp-control-label">Temperatuur instellen</div>
             <div class="temp-control-row">
               <button class="temp-btn" @click=${() => this.adjustTemp(-0.5)}>−</button>
@@ -84,6 +117,7 @@ class SmartClimateCard extends LitElement {
               <button class="temp-btn" @click=${() => this.adjustTemp(0.5)}>+</button>
             </div>
           </div>
+          ` : ""}
 
           ${isLeaving ? html`
           <div class="away-delay-row">
@@ -98,7 +132,7 @@ class SmartClimateCard extends LitElement {
             <span class="timer-icon">⏱</span>
             <span class="timer-value countdown">${this.formatTime(remaining)}</span>
             <span class="timer-label">resterend</span>
-            <button class="restore-btn" @click=${() => this.clearOverride()}>Herstel schema</button>
+            <button class="restore-btn" @click=${(e) => { e.stopPropagation(); this.clearOverride(); }}>Herstel schema</button>
           </div>
           ` : ""}
 
@@ -106,7 +140,7 @@ class SmartClimateCard extends LitElement {
           <div class="timer-row">
             <span class="timer-icon">♾</span>
             <span class="timer-label">Infinity actief</span>
-            <button class="restore-btn" @click=${() => this.clearOverride()}>Herstel schema</button>
+            <button class="restore-btn" @click=${(e) => { e.stopPropagation(); this.clearOverride(); }}>Herstel schema</button>
           </div>
           ` : ""}
 
@@ -115,12 +149,12 @@ class SmartClimateCard extends LitElement {
             <span class="timer-icon">📅</span>
             <span class="timer-value countdown">${this.formatTime(remaining)}</span>
             <span class="timer-label">tot volgend node</span>
-            <button class="restore-btn" @click=${() => this.clearOverride()}>Herstel schema</button>
+            <button class="restore-btn" @click=${(e) => { e.stopPropagation(); this.clearOverride(); }}>Herstel schema</button>
           </div>
           ` : ""}
 
           ${(isTimer || isInfinity || isNextNode) ? html`
-          <div class="panel">
+          <div class="panel" @click=${(e) => e.stopPropagation()}>
             <div class="state">
               ${isTimer
                 ? html`<span>Timer actief</span>`
@@ -162,6 +196,65 @@ class SmartClimateCard extends LitElement {
         </div>
       </ha-card>
     `;
+  }
+
+  _handleTap(e) {
+    // Delay tap action slightly to allow double-tap to cancel it.
+    if (this._tapTimer) return;
+    this._tapTimer = setTimeout(() => {
+      this._tapTimer = null;
+      const action = this.config.tap_action?.action ?? "more-info";
+      if (action !== "none") this._fireAction(action, this.config.tap_action);
+    }, 250);
+  }
+
+  _handleDoubleTap(e) {
+    // Cancel any pending tap action before handling double-tap.
+    if (this._tapTimer) {
+      clearTimeout(this._tapTimer);
+      this._tapTimer = null;
+    }
+    if (!this.config.double_tap_action) return;
+    e.stopPropagation();
+    const action = this.config.double_tap_action?.action ?? "none";
+    if (action !== "none") this._fireAction(action, this.config.double_tap_action);
+  }
+
+  _handleHoldStart(e) {
+    if (!this.config.hold_action) return;
+    this._holdTimer = setTimeout(() => {
+      this._holdTimer = null;
+      const action = this.config.hold_action?.action ?? "none";
+      if (action !== "none") this._fireAction(action, this.config.hold_action);
+    }, 500);
+  }
+
+  _handleHoldEnd(e) {
+    if (this._holdTimer) {
+      clearTimeout(this._holdTimer);
+      this._holdTimer = null;
+    }
+  }
+
+  _fireAction(action, actionConfig) {
+    if (action === "more-info") {
+      fireEvent(this, "hass-more-info", { entityId: this.config.entity });
+    } else if (action === "navigate") {
+      const path = actionConfig?.navigation_path ?? "/";
+      history.pushState(null, "", path);
+      fireEvent(window, "location-changed", { replace: false });
+    } else if (action === "url") {
+      const url = actionConfig?.url_path ?? "";
+      if (url && /^https?:\/\//i.test(url)) {
+        window.open(url, "_blank", "noopener,noreferrer");
+      }
+    } else if (action === "call-service") {
+      const service = actionConfig?.service ?? "";
+      const [domain, svc] = service.split(".", 2);
+      if (domain && svc) {
+        this.hass.callService(domain, svc, actionConfig?.service_data ?? {});
+      }
+    }
   }
 
   onSliderChange(e) {
@@ -262,6 +355,7 @@ class SmartClimateCard extends LitElement {
     ha-card {
       background: var(--ha-card-background);
       color: var(--primary-text-color);
+      cursor: pointer;
     }
 
     .content {
@@ -507,8 +601,38 @@ class SmartClimateCard extends LitElement {
   `;
 }
 
-/** Card editor for smart-climate-card — delegates all behaviour to the shared base. */
-class SmartClimateCardEditor extends SmartClimateBaseEditor {}
+/** Card editor for smart-climate-card — adds feature-toggle and action options. */
+class SmartClimateCardEditor extends SmartClimateBaseEditor {
+  get _schema() {
+    return [
+      {
+        name: "entity",
+        required: true,
+        selector: { entity: { domain: "climate" } },
+      },
+      {
+        name: "show_temperature_control",
+        selector: { boolean: {} },
+      },
+      {
+        name: "show_presence",
+        selector: { boolean: {} },
+      },
+      {
+        name: "tap_action",
+        selector: { action: {} },
+      },
+      {
+        name: "hold_action",
+        selector: { action: {} },
+      },
+      {
+        name: "double_tap_action",
+        selector: { action: {} },
+      },
+    ];
+  }
+}
 
 customElements.define("smart-climate-card-editor", SmartClimateCardEditor);
 

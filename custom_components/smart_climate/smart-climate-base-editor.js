@@ -3,10 +3,9 @@ import { LitElement, html, css } from "https://unpkg.com/lit@3/index.js?module";
 /**
  * Base editor class shared by all three SmartClimate card editors.
  *
- * Renders a single `ha-entity-picker` restricted to the `climate` domain and
- * dispatches a standard `config-changed` event whenever the user selects a
- * different entity. All three card editors are identical in behaviour, so they
- * extend this class instead of repeating the same boilerplate.
+ * Renders a `ha-form` driven by a schema. Subclasses can override `_schema`
+ * to append card-specific fields after the required entity picker row.
+ * A standard `config-changed` event is dispatched on every change.
  */
 class SmartClimateBaseEditor extends LitElement {
   static properties = {
@@ -18,30 +17,59 @@ class SmartClimateBaseEditor extends LitElement {
     this.config = config;
   }
 
+  /**
+   * Base schema: just the entity selector. Subclasses extend this array.
+   * @returns {Array}
+   */
+  get _schema() {
+    return [
+      {
+        name: "entity",
+        required: true,
+        selector: { entity: { domain: "climate" } },
+      },
+    ];
+  }
+
   render() {
     return html`
       <div class="card-config">
-        <ha-entity-picker
-          label="Entity"
+        <ha-form
           .hass=${this.hass}
-          .value=${this.config?.entity ?? ""}
-          .includeDomains=${["climate"]}
-          @value-changed=${this._entityChanged}
-          allow-custom-entity
-        ></ha-entity-picker>
+          .data=${this.config ?? {}}
+          .schema=${this._schema}
+          .computeLabel=${this._computeLabel}
+          @value-changed=${this._valueChanged}
+        ></ha-form>
       </div>
     `;
   }
 
   /**
-   * Fires `config-changed` when the user picks a different entity.
+   * Provides human-readable labels for schema fields.
+   * @param {Object} schema
+   * @returns {string}
+   */
+  _computeLabel(schema) {
+    const labels = {
+      entity: "Entity",
+      show_temperature_control: "Show temperature control",
+      show_presence: "Show presence badge",
+      tap_action: "Tap action",
+      hold_action: "Hold action",
+      double_tap_action: "Double-tap action",
+    };
+    return labels[schema.name] ?? schema.name;
+  }
+
+  /**
+   * Fires `config-changed` whenever any field in the form changes.
    * @param {CustomEvent} e
    */
-  _entityChanged(e) {
-    if (e.detail.value === this.config?.entity) return;
+  _valueChanged(e) {
     this.dispatchEvent(
       new CustomEvent("config-changed", {
-        detail: { config: { ...this.config, entity: e.detail.value } },
+        detail: { config: e.detail.value },
         bubbles: true,
         composed: true,
       })
@@ -52,8 +80,8 @@ class SmartClimateBaseEditor extends LitElement {
     .card-config {
       padding: 16px;
     }
-    ha-entity-picker {
-      width: 100%;
+    ha-form {
+      display: block;
     }
   `;
 }
