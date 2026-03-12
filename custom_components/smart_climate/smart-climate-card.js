@@ -16,6 +16,8 @@ class SmartClimateCard extends LitElement {
     return { entity: "" };
   }
 
+  // ── Component lifecycle / state ─────────────────────────────────────────
+
   setConfig(config) {
     if (!config.entity) {
       throw new Error("Entity required");
@@ -79,16 +81,16 @@ class SmartClimateCard extends LitElement {
           <div class="temp-control">
             <div class="temp-control-label">Temperatuur instellen</div>
             <div class="temp-control-row">
-              <button class="temp-btn" @click=${() => this.adjustTemp(-0.5)}>−</button>
+              <button class="temp-btn" @click=${() => this._adjustTemp(-0.5)}>−</button>
               <span class="temp-control-value">${this._overrideTemp}°</span>
-              <button class="temp-btn" @click=${() => this.adjustTemp(0.5)}>+</button>
+              <button class="temp-btn" @click=${() => this._adjustTemp(0.5)}>+</button>
             </div>
           </div>
 
           ${isLeaving ? html`
           <div class="away-delay-row">
             <span class="away-delay-icon">🚶</span>
-            <span class="away-delay-value countdown">${this.formatSeconds(awayDelayRemaining)}</span>
+            <span class="away-delay-value countdown">${this._formatSeconds(awayDelayRemaining)}</span>
             <span class="away-delay-label">tot afwezig</span>
           </div>
           ` : ""}
@@ -96,9 +98,9 @@ class SmartClimateCard extends LitElement {
           ${isTimer ? html`
           <div class="timer-row">
             <span class="timer-icon">⏱</span>
-            <span class="timer-value countdown">${this.formatTime(remaining)}</span>
+            <span class="timer-value countdown">${this._formatTime(remaining)}</span>
             <span class="timer-label">resterend</span>
-            <button class="restore-btn" @click=${() => this.clearOverride()}>Herstel schema</button>
+            <button class="restore-btn" @click=${() => this._clearOverride()}>Herstel schema</button>
           </div>
           ` : ""}
 
@@ -106,16 +108,16 @@ class SmartClimateCard extends LitElement {
           <div class="timer-row">
             <span class="timer-icon">♾</span>
             <span class="timer-label">Infinity actief</span>
-            <button class="restore-btn" @click=${() => this.clearOverride()}>Herstel schema</button>
+            <button class="restore-btn" @click=${() => this._clearOverride()}>Herstel schema</button>
           </div>
           ` : ""}
 
           ${isNextNode ? html`
           <div class="timer-row">
             <span class="timer-icon">📅</span>
-            <span class="timer-value countdown">${this.formatTime(remaining)}</span>
+            <span class="timer-value countdown">${this._formatTime(remaining)}</span>
             <span class="timer-label">tot volgend node</span>
-            <button class="restore-btn" @click=${() => this.clearOverride()}>Herstel schema</button>
+            <button class="restore-btn" @click=${() => this._clearOverride()}>Herstel schema</button>
           </div>
           ` : ""}
 
@@ -136,17 +138,17 @@ class SmartClimateCard extends LitElement {
                 max="480"
                 step="15"
                 .value=${sliderValue}
-                @input=${this.onSliderInput}
-                @change=${this.onSliderChange}
+                @input=${this._onSliderInput}
+                @change=${this._onSliderChange}
               />
               ${nextNodeDotPct != null ? html`
                 <div class="next-node-dot"
                      style="--dot-pos: ${nextNodeDotPct.toFixed(1)}%"
-                     @click=${() => this.onNextNodeDotClick()}
+                     @click=${() => this._onNextNodeDotClick()}
                      title="Override till next node (${nextNodeMinutes}m)">◆</div>
               ` : ""}
               <div class="infinity-indicator"
-                   @click=${() => this.onInfinityDotClick()}
+                   @click=${() => this._onInfinityDotClick()}
                    title="Override infinity">∞</div>
             </div>
 
@@ -164,7 +166,9 @@ class SmartClimateCard extends LitElement {
     `;
   }
 
-  onSliderChange(e) {
+  // ── Event handlers / service calls ──────────────────────────────────────
+
+  _onSliderChange(e) {
     const value = Number(e.target.value);
     const entityId = this.config.entity;
 
@@ -186,33 +190,33 @@ class SmartClimateCard extends LitElement {
     }
   }
 
-  onSliderInput(e) {
+  _onSliderInput(e) {
     const value = Number(e.target.value);
     const slider = e.target;
     slider.style.setProperty("--slider-value", `${(value / 480) * 100}%`);
   }
 
-  onNextNodeDotClick() {
+  _onNextNodeDotClick() {
     this.hass.callService("smart_climate", "set_override_next_node", {
       entity_id: this.config.entity,
       temperature: this._overrideTemp,
     });
   }
 
-  onInfinityDotClick() {
+  _onInfinityDotClick() {
     this.hass.callService("smart_climate", "set_override_infinity", {
       entity_id: this.config.entity,
       temperature: this._overrideTemp,
     });
   }
 
-  clearOverride() {
+  _clearOverride() {
     this.hass.callService("smart_climate", "clear_override", {
       entity_id: this.config.entity,
     });
   }
 
-  adjustTemp(delta) {
+  _adjustTemp(delta) {
     const newTemp = Math.min(25, Math.max(5, this._overrideTemp + delta));
     this._overrideTemp = newTemp;
     const entityId = this.config.entity;
@@ -244,14 +248,26 @@ class SmartClimateCard extends LitElement {
     }
   }
 
-  formatSeconds(seconds) {
+  // ── Formatters ──────────────────────────────────────────────────────────
+
+  /**
+   * Format a duration in seconds to a human-readable string (e.g. "2m 30s").
+   * @param {number} seconds
+   * @returns {string}
+   */
+  _formatSeconds(seconds) {
     const total = Math.max(0, seconds);
     const m = Math.floor(total / 60);
     const rem = Math.ceil(total % 60);
     return m ? `${m}m ${rem}s` : `${rem}s`;
   }
 
-  formatTime(minutes) {
+  /**
+   * Format a duration in minutes to a human-readable string (e.g. "1h 30m").
+   * @param {number} minutes
+   * @returns {string}
+   */
+  _formatTime(minutes) {
     if (minutes < 60) return `${minutes}m`;
     const h = Math.floor(minutes / 60);
     const m = minutes % 60;
