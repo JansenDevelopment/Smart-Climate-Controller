@@ -29,6 +29,7 @@ class SmartClimateScheduleCard extends LitElement {
     _history: { state: true },
     _yesterdayHistory: { state: true },
     _presenceHistory: { state: true },
+    _tempSensorHistory: { state: true },
     _saved: { state: true },
     _dirty: { state: true },
     _selectedIdx: { state: true },
@@ -45,14 +46,28 @@ class SmartClimateScheduleCard extends LitElement {
   setConfig(config) {
     if (!config.entity) throw new Error("Entity required");
     this.config = config;
+    // Reset sensor history when temp_sensor config changes so it gets re-fetched.
+    this._tempSensorHistory = undefined;
   }
 
   updated(changedProps) {
     if (changedProps.has("hass") && this.hass) {
       if (this._schedule === undefined) this._syncFromEntity();
-      if (this._history === undefined) this._fetchHistory();
-      if (this._yesterdayHistory === undefined) this._fetchYesterdayHistory();
-      if (this._presenceHistory === undefined) this._fetchPresenceHistory();
+      if (this.config.show_history !== false && this._history === undefined) this._fetchHistory();
+      if (this.config.show_yesterday !== false && this._yesterdayHistory === undefined) this._fetchYesterdayHistory();
+      if (this.config.show_presence !== false && this._presenceHistory === undefined) this._fetchPresenceHistory();
+      if (this.config.temp_sensor && this._tempSensorHistory === undefined) this._fetchTempSensorHistory();
+    }
+    if (changedProps.has("config")) {
+      const prev = changedProps.get("config");
+      // Re-fetch data whenever a feature is re-enabled or the sensor changes.
+      if (this.hass && prev?.show_history === false && this.config.show_history !== false && this._history === undefined) this._fetchHistory();
+      if (this.hass && prev?.show_yesterday === false && this.config.show_yesterday !== false && this._yesterdayHistory === undefined) this._fetchYesterdayHistory();
+      if (this.hass && prev?.show_presence === false && this.config.show_presence !== false && this._presenceHistory === undefined) this._fetchPresenceHistory();
+      if (prev?.temp_sensor !== this.config.temp_sensor) {
+        this._tempSensorHistory = undefined;
+        if (this.hass && this.config.temp_sensor) this._fetchTempSensorHistory();
+      }
     }
   }
 
@@ -159,6 +174,43 @@ class SmartClimateScheduleCard extends LitElement {
       console.warn("SmartClimateScheduleCard: failed to fetch presence history", err);
       this._presenceHistory = [];
     }
+  }
+
+  async _fetchTempSensorHistory() {
+    this._tempSensorHistory = [];
+    const sensorId = this.config.temp_sensor;
+    if (!sensorId || !this.hass) return;
+    try {
+      const start = new Date();
+      start.setHours(0, 0, 0, 0);
+      const result = await this.hass.callApi(
+        "GET",
+        `history/period/${start.toISOString()}?filter_entity_id=${sensorId}&significant_changes_only=true`
+      );
+      this._tempSensorHistory = result?.[0] ?? [];
+    } catch (err) {
+      console.warn("SmartClimateScheduleCard: failed to fetch temp sensor history", err);
+      this._tempSensorHistory = [];
+    }
+  }
+
+  _tempSensorPath() {
+    const hist = this._tempSensorHistory;
+    if (!hist?.length) return "";
+    const base = new Date();
+    base.setHours(0, 0, 0, 0);
+    const baseMs = base.getTime();
+    const pts = [];
+    for (const h of hist) {
+      const t = parseFloat(h.state);
+      if (isNaN(t)) continue;
+      const hr = (new Date(h.last_changed ?? h.last_updated).getTime() - baseMs) / 3600000;
+      if (hr < 0 || hr > 24) continue;
+      const x = this._toX(hr);
+      const y = this._toY(Math.max(TMIN, Math.min(TMAX, t)));
+      pts.push(pts.length ? `L${x},${y}` : `M${x},${y}`);
+    }
+    return pts.join(" ");
   }
 
   _getNodes() {
@@ -490,8 +542,9 @@ class SmartClimateScheduleCard extends LitElement {
     };
 
     const stepPathD = this._stepPath(nodes);
-    const histPathD = this._historyPath();
-    const yesterdayHistPathD = this._yesterdayHistoryPath();
+    const histPathD = this.config.show_history !== false ? this._historyPath() : "";
+    const yesterdayHistPathD = this.config.show_yesterday !== false ? this._yesterdayHistoryPath() : "";
+    const tempSensorPathD = this.config.temp_sensor ? this._tempSensorPath() : "";
     const sortedNodes = [...nodes].sort((a, b) => this._timeToHour(a.time) - this._timeToHour(b.time));
 
     // Determine next upcoming node index (in sortedNodes)
@@ -582,7 +635,7 @@ class SmartClimateScheduleCard extends LitElement {
                 text-anchor="middle" class="ax-title">Time (24 hours)</text>
 
               <!-- presence history bar -->
-              ${this._presenceBar()}
+              ${this.config.show_presence !== false ? this._presenceBar() : ""}
 
               <!-- history background path -->
               ${histPathD ? svg`
@@ -595,6 +648,12 @@ class SmartClimateScheduleCard extends LitElement {
                 <path d="${yesterdayHistPathD}" fill="none"
                   stroke="rgba(255,160,50,0.25)" stroke-width="1.5" stroke-linejoin="round"
                   stroke-dasharray="4,3"/>
+              ` : ""}
+
+              <!-- optional temperature sensor overlay -->
+              ${tempSensorPathD ? svg`
+                <path d="${tempSensorPathD}" fill="none"
+                  stroke="rgba(100,200,255,0.75)" stroke-width="1.5" stroke-linejoin="round"/>
               ` : ""}
 
               <!-- schedule step path -->
@@ -668,7 +727,7 @@ class SmartClimateScheduleCard extends LitElement {
             </div>
           ` : ""}
 
-          ${this._presenceHistory?.length ? html`
+          ${this.config.show_presence !== false && this._presenceHistory?.length ? html`
             <div class="presence-legend">
               <span class="presence-legend-item">
                 <span class="presence-dot presence-dot--home"></span>🏠 Home
@@ -678,6 +737,15 @@ class SmartClimateScheduleCard extends LitElement {
               </span>
               <span class="presence-legend-item">
                 <span class="presence-dot presence-dot--away"></span>🏃 Away
+              </span>
+            </div>
+          ` : ""}
+
+          ${this.config.temp_sensor && this._tempSensorHistory?.length ? html`
+            <div class="presence-legend">
+              <span class="presence-legend-item">
+                <span class="presence-dot" style="background:rgba(100,200,255,0.75)"></span>
+                ${this.hass?.states[this.config.temp_sensor]?.attributes?.friendly_name ?? this.config.temp_sensor}
               </span>
             </div>
           ` : ""}
@@ -979,8 +1047,40 @@ class SmartClimateScheduleCard extends LitElement {
   `;
 }
 
-/** Card editor for smart-climate-schedule-card — delegates all behaviour to the shared base. */
-class SmartClimateScheduleCardEditor extends SmartClimateBaseEditor {}
+/** Card editor for smart-climate-schedule-card — extends base with schedule-specific options. */
+class SmartClimateScheduleCardEditor extends SmartClimateBaseEditor {
+  get _schema() {
+    return [
+      ...super._schema,
+      {
+        name: "show_history",
+        selector: { boolean: {} },
+      },
+      {
+        name: "show_yesterday",
+        selector: { boolean: {} },
+      },
+      {
+        name: "show_presence",
+        selector: { boolean: {} },
+      },
+      {
+        name: "temp_sensor",
+        selector: { entity: { domain: ["sensor", "climate"] } },
+      },
+    ];
+  }
+
+  _computeLabel(schema) {
+    const labels = {
+      show_history: "Show today's temperature history",
+      show_yesterday: "Show yesterday's temperature history",
+      show_presence: "Show presence bar",
+      temp_sensor: "Optional temperature sensor overlay",
+    };
+    return labels[schema.name] ?? super._computeLabel(schema);
+  }
+}
 
 customElements.define("smart-climate-schedule-card-editor", SmartClimateScheduleCardEditor);
 
