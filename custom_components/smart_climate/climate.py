@@ -190,7 +190,7 @@ class SmartClimateEntity(ClimateEntity):
                     # Someone came home
                     await self._cancel_away_delay()
                     self._presence = "home"
-                    if self._mode == MODE_OVERRIDE_TIMER and self._interruptible:
+                    if self._mode in (MODE_OVERRIDE_TIMER, MODE_OVERRIDE_INFINITY, MODE_OVERRIDE_NEXT_NODE) and self._interruptible:
                         self._mode = MODE_AUTO
             except ValueError:
                 pass
@@ -312,7 +312,7 @@ class SmartClimateEntity(ClimateEntity):
                 # Someone came home
                 await self._cancel_away_delay()
                 self._presence = "home"
-                if self._mode == MODE_OVERRIDE_TIMER and self._interruptible:
+                if self._mode in (MODE_OVERRIDE_TIMER, MODE_OVERRIDE_INFINITY, MODE_OVERRIDE_NEXT_NODE) and self._interruptible:
                     self._mode = MODE_AUTO
             else:
                 # Everyone left
@@ -323,7 +323,7 @@ class SmartClimateEntity(ClimateEntity):
     def _transition_to_away(self):
         """Transition presence to away and interrupt override if needed."""
         self._presence = "away"
-        if self._mode == MODE_OVERRIDE_TIMER and self._interruptible:
+        if self._mode in (MODE_OVERRIDE_TIMER, MODE_OVERRIDE_INFINITY, MODE_OVERRIDE_NEXT_NODE) and self._interruptible:
             self._mode = MODE_AUTO
 
     async def _start_away_delay(self):
