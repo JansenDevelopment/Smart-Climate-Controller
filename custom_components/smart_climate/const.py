@@ -1,10 +1,11 @@
 DOMAIN = "smart_climate"
-PLATFORMS = ["climate"]
+PLATFORMS = ["climate", "sensor"]
 
 # Modes
 MODE_AUTO = "auto"
 MODE_OVERRIDE_TIMER = "override_timer"
 MODE_OVERRIDE_INFINITY = "override_infinity"
+MODE_OVERRIDE_NEXT_NODE = "override_next_node"
 
 # Config keys
 CONF_WRAPPED_CLIMATE = "wrapped_climate"
@@ -27,5 +28,16 @@ ATTR_OVERRIDE_TEMPERATURE = "override_temperature"
 # Services
 SERVICE_SET_OVERRIDE_TIMER = "set_override_timer"
 SERVICE_SET_OVERRIDE_INFINITY = "set_override_infinity"
+SERVICE_SET_OVERRIDE_NEXT_NODE = "set_override_next_node"
 SERVICE_CLEAR_OVERRIDE = "clear_override"
 SERVICE_SET_INTERRUPTIBLE = "set_interruptible"
+SERVICE_SET_AUTO_TEMPERATURE = "set_auto_temperature"
+SERVICE_SET_AWAY_TEMPERATURE = "set_away_temperature"
+SERVICE_SET_AWAY_DELAY = "set_away_delay"
+SERVICE_SET_DEFAULT_OVERRIDE_MODE = "set_default_override_mode"
+SERVICE_SET_SCHEDULE = "set_schedule"
+
+# Schedule modes
+SCHEDULE_MODE_DAILY = "daily"
+SCHEDULE_MODE_52 = "5/2"
+SCHEDULE_MODE_INDIVIDUAL = "individual"
