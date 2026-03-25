@@ -24,6 +24,7 @@ ATTR_INTERRUPTIBLE = "interruptible"
 ATTR_ZONE_HOME_COUNT = "zone_home_count"
 ATTR_AWAY_DELAY_SECONDS_REMAINING = "away_delay_seconds_remaining"
 ATTR_OVERRIDE_TEMPERATURE = "override_temperature"
+ATTR_WRAPPED_CLIMATE = "wrapped_climate"
 
 # Services
 SERVICE_SET_OVERRIDE_TIMER = "set_override_timer"

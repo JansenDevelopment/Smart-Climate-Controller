@@ -27,6 +27,7 @@ from .const import (
     ATTR_INTERRUPTIBLE,
     ATTR_AWAY_DELAY_SECONDS_REMAINING,
     ATTR_OVERRIDE_TEMPERATURE,
+    ATTR_WRAPPED_CLIMATE,
 )
 from . import schedule_helper
 from .services import async_register_services
@@ -396,4 +397,5 @@ class SmartClimateEntity(ClimateEntity):
             ATTR_INTERRUPTIBLE: self._interruptible,
             ATTR_OVERRIDE_TEMPERATURE: self._override_temperature,
             ATTR_AWAY_DELAY_SECONDS_REMAINING: int(self._away_delay_remaining),
+            ATTR_WRAPPED_CLIMATE: self._wrapped_climate,
         }
