@@ -60,7 +60,7 @@ class SmartClimateConfigFlow(ConfigFlow, domain=DOMAIN):
                 ),
                 vol.Optional(CONF_INTERRUPTIBLE, default=True): selector.BooleanSelector(),
                 vol.Optional(CONF_DEFAULT_OVERRIDE_MODE, default="timer"): selector.SelectSelector(
-                    selector.SelectSelectorConfig(options=["timer", "infinity"])
+                    selector.SelectSelectorConfig(options=["timer", "infinity", "next_node"])
                 ),
                 vol.Optional(CONF_DEFAULT_OVERRIDE_DURATION, default=30): selector.NumberSelector(
                     selector.NumberSelectorConfig(min=1, max=1440, step=1, unit_of_measurement="min", mode=selector.NumberSelectorMode.BOX)

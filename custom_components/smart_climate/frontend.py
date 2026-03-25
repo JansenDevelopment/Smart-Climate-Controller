@@ -9,9 +9,9 @@ from homeassistant.components.lovelace import MODE_STORAGE
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.event import async_call_later
 
-_LOGGER = logging.getLogger(__name__)
+from .const import DOMAIN
 
-DOMAIN = "smart_climate"
+_LOGGER = logging.getLogger(__name__)
 CARD_NAME = "smart-climate-card"
 HACS_PATH = "www/community/smart-climate-card"
 RESOURCE_URL = "/hacsfiles/smart-climate-card/smart-climate-card.js"
@@ -54,9 +54,9 @@ class SmartClimateCardRegistration:
             await self.hass.async_add_executor_job(
                 shutil.copy2, source, dest
             )
-            _LOGGER.debug(f"Copied {CARD_NAME}.js to {dest}")
+            _LOGGER.debug("Copied %s to %s", CARD_NAME, dest)
         except Exception as e:
-            _LOGGER.error(f"Failed to copy card: {e}")
+            _LOGGER.error("Failed to copy card: %s", e)
 
     async def _async_wait_for_lovelace_resources(self) -> None:
         """Wait for lovelace resources to load."""
@@ -89,7 +89,7 @@ class SmartClimateCardRegistration:
             # Update if hash changed
             existing = resources[0]
             if existing["url"].split("?")[0] == RESOURCE_URL:
-                _LOGGER.debug(f"Updating {CARD_NAME} resource")
+                _LOGGER.debug("Updating %s resource", CARD_NAME)
                 await self.lovelace.resources.async_update_item(
                     existing["id"],
                     {"res_type": "module", "url": url}
