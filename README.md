@@ -24,16 +24,56 @@ No YAML configuration is required. After installation and restart, add the integ
 
 All settings can be changed later via **Settings** → **Devices & Services** → Smart Climate → **Configure**.
 
-## Lovelace Card Usage
+## Lovelace Cards
 
-The integration ships with a built-in config card. Add it to any dashboard:
+The integration ships with three built-in custom cards. Add them to any dashboard via the Lovelace card picker or manually in YAML.
+
+### Smart Climate Card
+
+The main control card — displays current and target temperatures, operating mode, override status, and provides controls for temperature and timer overrides.
+
+```yaml
+type: custom:smart-climate-card
+entity: climate.living_room
+```
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `entity` | Yes | The Smart Climate entity ID (e.g. `climate.living_room`). |
+
+### Smart Climate Config Card
+
+A settings card — lets you adjust the auto temperature, away temperature, away delay, default override mode, and interruptible flag directly from the dashboard without editing YAML.
 
 ```yaml
 type: custom:smart-climate-config-card
 entity: climate.living_room
 ```
 
-The card lets you adjust the auto temperature, away temperature, away delay, and override behaviour directly from the dashboard without editing YAML.
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `entity` | Yes | The Smart Climate entity ID (e.g. `climate.living_room`). |
+
+### Smart Climate Schedule Card
+
+An interactive schedule editor — shows a temperature schedule graph with drag-and-drop nodes, optional temperature history, and presence detection overlay.
+
+```yaml
+type: custom:smart-climate-schedule-card
+entity: climate.living_room
+show_history: true
+show_yesterday: true
+show_presence: true
+temp_sensor: sensor.living_room_temperature
+```
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `entity` | Yes | — | The Smart Climate entity ID (e.g. `climate.living_room`). |
+| `show_history` | No | `true` | Show today's temperature history on the graph. |
+| `show_yesterday` | No | `true` | Show yesterday's temperature history on the graph. |
+| `show_presence` | No | `true` | Show presence detection overlay bar on the graph. |
+| `temp_sensor` | No | — | Entity ID of an external temperature sensor to display on the graph (e.g. `sensor.living_room_temperature`). |
 
 ## HVAC Mode
 
