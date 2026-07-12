@@ -143,6 +143,27 @@ if mode == auto:
     else:                       -> {idle}
 ```
 
+### Conflict prevention (no device heats while another cools)
+
+This is guaranteed structurally, not by coordination between devices:
+
+1. **Single global intent.** `decide()` returns exactly one intent per
+   evaluation for the whole instance; `route()` applies that one intent to all
+   actuators. There is no path that demands heat and cool in the same tick.
+2. **Deadband.** Since `heat_target < cool_limit`, temperatures below the band
+   heat, above the band cool, and inside the band are idle — no single room
+   temperature satisfies both, so the system never *wants* both.
+3. **Idle is not conditioning.** A `both` device at idle goes to `fan_only` /
+   neutral (§6 idle rule), so it is not cooling in the background while a heater
+   runs.
+
+**Guard against misconfiguration:** validate — in the config/Options flow *and*
+defensively in `decide()` — that `cool_limit >= heat_target + max(min_gap,
+hysteresis)` for every schedule node and for the flat home/away setpoints
+(suggested `min_gap` = 1°C). If a node violates it, reject on input; if it ever
+slips through, `decide()` clamps `cool_limit = heat_target + min_gap` and logs a
+warning so cooling can never be asked for below the heating target.
+
 Routing the intent to actuators (has HA side effects):
 
 ```
@@ -234,6 +255,10 @@ integration-driven auto, and per-device role `select`s (Phase 3 polish).
   override, including hysteresis edges.
 - `route(...)` — with mock devices of each role, assert which get heat/cool/off
   and that no redundant calls are issued.
+- **Conflict-prevention invariant** — property-style test: for any devices +
+  room temp + band, the routed commands never contain both a `heat` and a `cool`
+  action; and an overlapping band (`cool_limit <= heat_target`) is clamped, never
+  routed as simultaneous heat+cool.
 - Migration — old `wrapped_climate` entry yields one `both` device.
 
 ## 14. Phasing (after this design is signed off)
