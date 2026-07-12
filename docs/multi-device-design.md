@@ -1,10 +1,9 @@
 # Design: multi-device coordination, per-node band, and integration-driven auto
 
-Status: **proposed** — for review before implementation.
+Status: **decisions locked** — ready to implement (see §14 phasing).
 
 This document designs three interlocking features and, importantly, the
-foundational change they share. Decisions marked **[OPEN]** need sign-off; the
-rest are recommendations with rationale.
+foundational change they share. All five open questions are resolved (§15).
 
 ## 1. Goals
 
@@ -48,7 +47,10 @@ one device or five.
     { "entity_id": "climate.radiator", "role": "heat" },
     { "entity_id": "climate.qlima",    "role": "both" }
   ],
-  "temperature_sensor": "sensor.living_room_temp",   // optional override
+  "temperature_source": "mean",                       // sensor | primary | mean
+  "temperature_sensor": "sensor.living_room_temp",    // used when source = sensor
+  "primary_device": "climate.qlima",                  // used when source = primary
+  "hysteresis": 0.3,                                   // °C, anti-flap deadband
   "integration_driven_auto": true,                    // per-instance toggle
 
   // heating setpoints (existing)
@@ -78,22 +80,22 @@ one device or five.
 - `ATTR_WRAPPED_CLIMATE` stays for one-device instances; add a `devices`
   attribute (list) for the general case.
 
-## 4. Config UX  **[OPEN]**
+## 4. Config UX  — **decided: raise HA floor, use config subentries**
 
-HA **config subentries** would be the natural fit but require a newer HA than
-our current floor (`hacs.json` → `2023.1.0`). Recommendation:
+The HA floor moves to a current release (`hacs.json` / `manifest.json`
+`min_version`) so we can use **config subentries**, the idiomatic way to attach a
+variable-length set of things to an entry.
 
-- **Initial config flow** (unchanged shape): name, home zone, **one** device
-  (defaults to role `both`), and the existing optional defaults.
-- **Options flow** manages everything after: a menu to **add device / edit
-  device / remove device** (entity picker + role select), set the optional
-  temperature sensor, and toggle integration-driven auto.
+- **Initial config flow**: name, home zone, room-temperature source (see §8),
+  and the existing optional defaults.
+- **Actuator devices are subentries** — each subentry is one device: an entity
+  picker (`domain: climate`) + a role select (`heat` / `cool` / `both`). Add /
+  edit / remove devices from the entry's **Subentries** UI.
+- Instance-level tunables (temperature-source choice, hysteresis,
+  integration-driven-auto toggle) live in an **Options flow**.
 
-Alternative if we raise the HA floor: model each actuator as a **config
-subentry**. Cleaner device/entity association, but drops <2024.x support.
-
-→ **Decision needed:** keep the 2023.1 floor + Options-flow list, or raise the
-floor and use subentries.
+The `devices` list in §3 is the runtime projection of the device subentries.
+Migration (§3) still applies for pre-subentry single-device entries.
 
 ## 5. Schedule: per-node band
 
@@ -155,8 +157,16 @@ route(decision, devices):
 ```
 
 Notes:
-- A small **hysteresis** `H` (e.g. 0.3°C) around switch points prevents rapid
-  heat/cool flapping. **[OPEN]** default value / make it configurable?
+- **Hysteresis** `H` around switch points prevents rapid heat/cool flapping.
+  **Decided:** configurable per instance (Options flow), **default 0.3°C**.
+- **Idle never powers a device off** (that kills the airflow on an airco).
+  **Decided** idle actuation, per device:
+  - device supports `fan_only` → set `hvac_mode = fan_only` (airflow, no
+    heat/cool);
+  - else (e.g. a radiator) → set a **neutral setpoint**: for a heat-capable
+    device, the heat_target (so it coasts without overshooting); it is not
+    turned off.
+  Explicit coordinator `off` is the only path that actually powers devices off.
 - Only issue a device call when the desired (mode, target) differs from the
   device's current state, to avoid command spam every 10 s.
 
@@ -167,24 +177,26 @@ Notes:
 - `hvac_action` = last intent → `off` / `idle` / `heating` / `cooling` (exposed
   so cards show what it's actually doing).
 - `current_temperature` = room temp (see §8).
-- `target_temperature` = the acting target (heat_target while heating/idle,
-  cool_limit while cooling); both `heat_target` and `cool_limit` also published
-  as attributes. **[OPEN]** alternatively advertise `TARGET_TEMPERATURE_RANGE`
-  and expose `target_temp_low/high` in auto so the native card renders the band.
+- `target_temperature` = **single** acting target (heat_target while
+  heating/idle, cool_limit while cooling). **Decided:** one target, not a range;
+  `heat_target` and `cool_limit` are also published as attributes so the schedule
+  card can render the band itself.
 - `min_temp`/`max_temp`/`step` = tightest common range across actuators
   (fallback 5 / 35 / 0.5).
 
-## 8. Room temperature source
+## 8. Room temperature source — **decided: selectable**
 
-Per the chosen option: **configured sensor if set, else the devices'
-`current_temperature`.** With multiple devices, "the devices" resolves as:
+A per-instance **temperature-source** setting (config/Options flow) chooses how
+the room temperature is measured:
 
-1. `temperature_sensor` entity if configured, else
-2. the mean of the actuators' `current_temperature` (ignoring `None`), else
-3. `None` → integration-driven auto can't decide → hold last intent and warn.
+- **`sensor`** — a dedicated `sensor` entity (most accurate).
+- **`primary`** — the `current_temperature` of a chosen primary actuator.
+- **`mean`** — the mean of all actuators' `current_temperature` (default;
+  zero extra config).
 
-**[OPEN]** mean vs a designated "primary device" for step 2 (mean chosen for
-zero extra config).
+Resolution falls through to the next available option if the selected source
+yields no value; if nothing is available, integration-driven auto holds the last
+intent and logs a warning.
 
 ## 9. Overrides
 
@@ -234,13 +246,13 @@ integration-driven auto, and per-device role `select`s (Phase 3 polish).
 3. **Schedule card** — dual-line (heat/cool) band editing on the timeline.
 4. **Polish** — hvac_action in cards, per-device role selects, docs.
 
-## 15. Open decisions (need sign-off)
+## 15. Resolved decisions
 
-1. **Config UX / HA floor** (§4): keep 2023.1 + Options-flow list, or raise the
-   floor and use config subentries.
-2. **Band target reporting** (§7): single `target_temperature` + attributes, or
-   advertise a temperature *range* (`target_temp_low/high`) in auto.
-3. **Hysteresis** (§6): default value, and configurable or fixed.
-4. **Room temp aggregation** (§8): mean of devices vs a designated primary.
-5. **Idle actuation** (§6): idle = turn actuators fully **off**, or set them to a
-   neutral/eco setpoint (e.g. heat_target for heaters) so recovery is faster.
+1. **Config UX / HA floor** (§4): **raise the floor to a current HA release** and
+   model actuator devices as **config subentries**.
+2. **Band target reporting** (§7): **single `target_temperature`** + band
+   attributes (no range).
+3. **Hysteresis** (§6): **configurable, default 0.3°C**.
+4. **Room temp source** (§8): **selectable** — `sensor` / `primary` / `mean`.
+5. **Idle actuation** (§6): **never power off** — `fan_only` where supported,
+   else a neutral setpoint. Only explicit coordinator `off` powers devices down.
