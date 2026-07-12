@@ -2,27 +2,78 @@
 
 A Home Assistant custom integration that wraps an existing climate entity and adds presence-aware automatic temperature control, timed overrides, and configurable away behaviour.
 
+## How it works
+
+Smart Climate never talks to your heating hardware directly. It creates a new
+`climate.*` entity that *wraps* an existing one and issues standard
+`climate.set_temperature` / `climate.set_hvac_mode` calls to it. On top of the
+wrapped device it adds:
+
+- **Presence-aware control** – reads the occupancy count from a `zone` entity and
+  picks between a **home** and an **away** target temperature. When everyone
+  leaves, an *away delay* runs before the away temperature is applied; coming
+  home cancels it immediately.
+- **Override modes** – a manual temperature change activates an override:
+  **timer** (reverts after a set duration), **infinity** (until cleared), or
+  **next node** (until the next schedule slot). Overrides can optionally be
+  *interruptible* by presence changes.
+- **A time-of-day schedule** – `daily`, `5/2` (weekday/weekend), or `individual`
+  (per-day), edited visually from the schedule card.
+
+There are **no external network calls and no stored credentials** — everything
+runs locally through Home Assistant's service layer.
+
+<!-- Screenshot suggestion: a dashboard showing the three cards side by side.
+     Drop the image in an images/ folder and reference it here, e.g.:
+     ![Smart Climate dashboard](images/dashboard.png) -->
+
 ## Installation
 
-1. Open your Home Assistant dashboard.
-2. Go to **HACS** → **Integrations**.
-3. Search for **Smart Climate Controller** and click **Install**.
-4. Restart Home Assistant.
+### HACS (recommended)
+
+This integration is distributed as a **custom repository** (it is not in the
+HACS default store).
+
+1. In Home Assistant, open **HACS**.
+2. Click the **⋮** menu (top-right) → **Custom repositories**.
+3. Add the repository URL `https://github.com/JansenDevelopment/Smart-Climate-Controller`
+   and select **Integration** as the category, then click **Add**.
+4. Search HACS for **Smart Climate Controller** and click **Download**.
+5. Restart Home Assistant.
+
+### Manual
+
+1. Copy the `custom_components/smart_climate/` folder into your Home Assistant
+   `config/custom_components/` directory.
+2. Restart Home Assistant.
 
 ## Configuration
 
-No YAML configuration is required. After installation and restart, add the integration through the Home Assistant UI:
+No YAML configuration is required. After installing and restarting, add the
+integration through the Home Assistant UI:
 
 1. Go to **Settings** → **Devices & Services** → **Add Integration**.
 2. Search for **Smart Climate** and select it.
-3. Fill in the required fields:
+3. Fill in the setup form:
    - **Name** – a friendly name for this Smart Climate instance.
-   - **Wrapped Climate** – the existing climate entity to control (e.g. `climate.living_room`).
-   - **Zone (home)** – the `zone.home` entity (or equivalent) used for presence detection.
-   - Optional defaults: auto temperature, away temperature, away delay, override mode, etc.
+   - **Wrapped Climate Entity** – the existing climate entity to control (e.g. `climate.living_room`).
+   - **Home Zone** – a `zone` entity whose state is the occupancy count, used for presence detection (e.g. `zone.home`).
+   - **Away Temperature** – target when nobody is home (default `14`).
+   - **Away Delay (minutes)** – how long to wait after everyone leaves before applying the away temperature (default `5`).
+   - **Override is interruptible** – whether a presence change cancels an active override (default on).
+   - **Default Override Mode** – `timer`, `infinity`, or `next_node` (default `timer`).
+   - **Default Override Duration (minutes)** – timer length for timer overrides (default `30`).
 4. Click **Submit**.
 
-All settings can be changed later via **Settings** → **Devices & Services** → Smart Climate → **Configure**.
+The **auto (home) temperature** and the **schedule** are *not* part of the setup
+form — they start at their defaults (`21` °C, no schedule) and are set at runtime
+from the config/schedule cards or the `smart_climate.set_auto_temperature` /
+`smart_climate.set_schedule` services. All runtime settings are saved and
+restored across restarts (see [Persistent Storage](#persistent-storage)).
+
+To change the **wrapped climate** or **home zone** later, use **Settings** →
+**Devices & Services** → Smart Climate → **Configure**. All other settings are
+adjusted from the Lovelace cards or the `smart_climate.*` services.
 
 ## Lovelace Cards
 
@@ -37,6 +88,8 @@ type: custom:smart-climate-card
 entity: climate.living_room
 ```
 
+<!-- ![Control card](images/control-card.png) -->
+
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `entity` | Yes | The Smart Climate entity ID (e.g. `climate.living_room`). |
@@ -49,6 +102,8 @@ A settings card — lets you adjust the auto temperature, away temperature, away
 type: custom:smart-climate-config-card
 entity: climate.living_room
 ```
+
+<!-- ![Config card](images/config-card.png) -->
 
 | Variable | Required | Description |
 |----------|----------|-------------|
@@ -66,6 +121,9 @@ show_yesterday: true
 show_presence: true
 temp_sensor: sensor.living_room_temperature
 ```
+
+<!-- ![Schedule card](images/schedule-card.png) -->
+
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
