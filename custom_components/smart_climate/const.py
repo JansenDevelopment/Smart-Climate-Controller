@@ -58,6 +58,10 @@ ATTR_AWAY_TEMPERATURE = "away_temperature"
 ATTR_AWAY_DELAY_MINUTES = "away_delay_minutes"
 ATTR_DEFAULT_OVERRIDE_MODE = "default_override_mode"
 ATTR_DEFAULT_OVERRIDE_DURATION = "default_override_duration"
+ATTR_HEAT_TARGET = "heat_target"
+ATTR_COOL_LIMIT = "cool_limit"
+ATTR_INTENT = "intent"
+ATTR_DEVICES = "devices"
 
 # Services
 SERVICE_SET_OVERRIDE_TIMER = "set_override_timer"
