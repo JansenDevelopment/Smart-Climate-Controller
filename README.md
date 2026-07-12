@@ -113,6 +113,8 @@ entity: climate.living_room
 
 An interactive schedule editor — shows a temperature schedule graph with drag-and-drop nodes, optional temperature history, and presence detection overlay.
 
+Toggle **❄ Cooling** in the card header to edit a **comfort band**: each schedule node then has a 🔥 *heat-to* handle and a ❄ *cool-above* handle, with the idle band shaded between them. Drag either handle (or edit both in the node panel); the card keeps the cool limit at least 1 °C above the heat target. Heat-only users can leave the toggle off and the card behaves exactly as before. The band is what `auto` mode follows (heat below the lower line, cool above the upper line, idle in between).
+
 ```yaml
 type: custom:smart-climate-schedule-card
 entity: climate.living_room

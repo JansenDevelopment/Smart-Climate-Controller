@@ -14,6 +14,10 @@ const VW = 600;  // viewBox width
 const VH = 292;  // viewBox height
 const NR = 8;    // node radius
 const MIN_NODE_DISTANCE_HOURS = 0.25; // minimum 15 minutes between nodes
+const COOL_GAP_DEFAULT = 4;   // default °C between heat target and cool limit
+const MIN_BAND_GAP = 1;       // minimum °C the cool limit must sit above heat
+const HEAT_COLOR = "var(--accent-color, #f5a623)";
+const COOL_COLOR = "#4aa8ff";
 // Friendly-name suffix used to identify a presence sensor when the derived ID
 // (sensor.<name>_presence) is not found in hass.states.
 const PRESENCE_FRIENDLY_NAME_SUFFIX = " Presence";
@@ -33,6 +37,7 @@ class SmartClimateScheduleCard extends LitElement {
     _saved: { state: true },
     _dirty: { state: true },
     _selectedIdx: { state: true },
+    _showCooling: { state: true },
   };
 
   static getConfigElement() {
@@ -91,6 +96,27 @@ class SmartClimateScheduleCard extends LitElement {
       this._scheduleMode === "5/2" ? "weekday"
       : this._scheduleMode === "individual" ? "monday"
       : "daily";
+
+    // Show the cooling band by default when the device can cool, or the
+    // schedule already carries cool limits; heat-only users start without it.
+    if (this._showCooling === undefined) {
+      const modes = entity.attributes.hvac_modes || [];
+      const hasCoolNode = Object.values(this._schedule || {}).some(
+        (v) => Array.isArray(v) && v.some((n) => n && n.cool_temp != null)
+      );
+      this._showCooling = modes.includes("cool") || hasCoolNode;
+    }
+  }
+
+  /** The cool limit for a node, defaulting to a band above its heat target. */
+  _coolOf(node) {
+    if (node?.cool_temp != null) return node.cool_temp;
+    return Math.min(TMAX, (node?.temp ?? 21) + COOL_GAP_DEFAULT);
+  }
+
+  _toggleCooling() {
+    this._showCooling = !this._showCooling;
+    this._selectedIdx = null;
   }
 
   async _fetchHistory() {
@@ -223,15 +249,31 @@ class SmartClimateScheduleCard extends LitElement {
     this._schedule = { ...(this._schedule ?? {}), [key]: nodes };
   }
 
-  _onNodePointerDown(e, idx) {
+  _onNodePointerDown(e, idx, field = "temp") {
     e.stopPropagation();
     // Do NOT call e.preventDefault() here — it suppresses click/dblclick synthesis
     this._draggingIdx = idx;
+    this._dragField = field;
     this._dragStartX = e.clientX;
     this._dragStartY = e.clientY;
     this._dragMoved = false;
     const svgEl = this.shadowRoot?.querySelector("svg.graph");
     if (svgEl) svgEl.setPointerCapture(e.pointerId);
+  }
+
+  /** Apply a drag to a node, updating time and the dragged handle (heat/cool). */
+  _dragUpdate(node, x, y) {
+    const time = this._hourToTime(this._fromX(x));
+    const val = this._fromY(y);
+    if (this._dragField === "cool_temp") {
+      // Cool limit can't drop below heat + gap.
+      const cool = Math.max(val, (node.temp ?? TMIN) + MIN_BAND_GAP);
+      return { ...node, time, cool_temp: cool };
+    }
+    // Heat target can't rise above cool limit − gap (when a limit exists).
+    const cool = node.cool_temp;
+    const heat = cool != null ? Math.min(val, cool - MIN_BAND_GAP) : val;
+    return { ...node, time, temp: heat };
   }
 
   _onSvgPointerMove(e) {
@@ -241,9 +283,7 @@ class SmartClimateScheduleCard extends LitElement {
     if (Math.abs(dx) > 4 || Math.abs(dy) > 4) this._dragMoved = true;
     const { x, y } = this._svgCoords(e);
     const nodes = this._getNodes().map((n, i) =>
-      i === this._draggingIdx
-        ? { time: this._hourToTime(this._fromX(x)), temp: this._fromY(y) }
-        : n
+      i === this._draggingIdx ? this._dragUpdate(n, x, y) : n
     );
     this._setNodes(nodes);
   }
@@ -287,10 +327,14 @@ class SmartClimateScheduleCard extends LitElement {
       return Math.min(diff, 24 - diff) < MIN_NODE_DISTANCE_HOURS;
     });
     if (tooClose) return;
-    const newNodes = [
-      ...nodes,
-      { time: this._hourToTime(newHour), temp: this._fromY(y) },
-    ].sort((a, b) => this._timeToHour(a.time) - this._timeToHour(b.time));
+    const temp = this._fromY(y);
+    const node = { time: this._hourToTime(newHour), temp };
+    if (this._showCooling) {
+      node.cool_temp = Math.min(TMAX, temp + COOL_GAP_DEFAULT);
+    }
+    const newNodes = [...nodes, node].sort(
+      (a, b) => this._timeToHour(a.time) - this._timeToHour(b.time)
+    );
     this._setNodes(newNodes);
     this._selectedIdx = null;
     this._dirty = true;
@@ -307,9 +351,22 @@ class SmartClimateScheduleCard extends LitElement {
   async _saveSchedule() {
     if (!this.hass) return;
     try {
+      let schedule = { ...(this._schedule ?? {}), mode: this._scheduleMode ?? "daily" };
+      // When cooling is enabled, make every node's cool limit explicit so the
+      // backend band is fully defined (no reliance on the flat fallback).
+      if (this._showCooling) {
+        schedule = Object.fromEntries(
+          Object.entries(schedule).map(([k, v]) =>
+            Array.isArray(v)
+              ? [k, v.map((n) => (n.cool_temp != null ? n : { ...n, cool_temp: this._coolOf(n) }))]
+              : [k, v]
+          )
+        );
+        this._schedule = schedule;
+      }
       await this.hass.callService("smart_climate", "set_schedule", {
         entity_id: this.config.entity,
-        schedule: { ...(this._schedule ?? {}), mode: this._scheduleMode ?? "daily" },
+        schedule,
       });
       this._dirty = false;
       this._saved = true;
@@ -344,8 +401,25 @@ class SmartClimateScheduleCard extends LitElement {
   _editNodeTemp(idx, newTemp) {
     const raw = parseFloat(newTemp);
     if (isNaN(raw)) return;
-    const t = Math.max(TMIN, Math.min(TMAX, raw));
-    const nodes = this._getNodes().map((n, i) => i === idx ? { ...n, temp: t } : n);
+    let t = Math.max(TMIN, Math.min(TMAX, raw));
+    const nodes = this._getNodes().map((n, i) => {
+      if (i !== idx) return n;
+      // Keep heat target at least MIN_BAND_GAP below any cool limit.
+      if (n.cool_temp != null) t = Math.min(t, n.cool_temp - MIN_BAND_GAP);
+      return { ...n, temp: t };
+    });
+    this._setNodes(nodes);
+    this._dirty = true;
+  }
+
+  _editNodeCoolTemp(idx, newTemp) {
+    const raw = parseFloat(newTemp);
+    if (isNaN(raw)) return;
+    const nodes = this._getNodes().map((n, i) => {
+      if (i !== idx) return n;
+      const t = Math.max((n.temp ?? TMIN) + MIN_BAND_GAP, Math.min(TMAX, raw));
+      return { ...n, cool_temp: t };
+    });
     this._setNodes(nodes);
     this._dirty = true;
   }
@@ -400,19 +474,47 @@ class SmartClimateScheduleCard extends LitElement {
    * @param {Array<{time: string, temp: number}>} nodes
    * @returns {string}
    */
-  _stepPath(nodes) {
+  _stepPath(nodes, valueOf = (n) => n.temp) {
     if (!nodes?.length) return "";
     const s = [...nodes].sort((a, b) => this._timeToHour(a.time) - this._timeToHour(b.time));
-    const lastT = s[s.length - 1].temp;
+    const lastT = valueOf(s[s.length - 1]);
     const d = [`M${this._toX(0)},${this._toY(lastT)}`];
     for (let i = 0; i < s.length; i++) {
       const h = this._timeToHour(s[i].time);
-      const prevT = i === 0 ? lastT : s[i - 1].temp;
+      const prevT = i === 0 ? lastT : valueOf(s[i - 1]);
       d.push(`L${this._toX(h)},${this._toY(prevT)}`);
-      d.push(`L${this._toX(h)},${this._toY(s[i].temp)}`);
+      d.push(`L${this._toX(h)},${this._toY(valueOf(s[i]))}`);
     }
-    d.push(`L${this._toX(24)},${this._toY(s[s.length - 1].temp)}`);
+    d.push(`L${this._toX(24)},${this._toY(valueOf(s[s.length - 1]))}`);
     return d.join(" ");
+  }
+
+  /** Filled area between the heat step line and the cool step line (the band). */
+  _bandPath(nodes) {
+    if (!nodes?.length) return "";
+    const s = [...nodes].sort((a, b) => this._timeToHour(a.time) - this._timeToHour(b.time));
+    const heat = [];
+    const cool = [];
+    const lastHeat = s[s.length - 1].temp;
+    const lastCool = this._coolOf(s[s.length - 1]);
+    heat.push(`M${this._toX(0)},${this._toY(lastHeat)}`);
+    for (let i = 0; i < s.length; i++) {
+      const h = this._timeToHour(s[i].time);
+      const prevHeat = i === 0 ? lastHeat : s[i - 1].temp;
+      heat.push(`L${this._toX(h)},${this._toY(prevHeat)}`);
+      heat.push(`L${this._toX(h)},${this._toY(s[i].temp)}`);
+    }
+    heat.push(`L${this._toX(24)},${this._toY(lastHeat)}`);
+    // walk the cool line back from x=24 to x=0
+    cool.push(`L${this._toX(24)},${this._toY(lastCool)}`);
+    for (let i = s.length - 1; i >= 0; i--) {
+      const h = this._timeToHour(s[i].time);
+      const coolT = this._coolOf(s[i]);
+      cool.push(`L${this._toX(h)},${this._toY(coolT)}`);
+      const prevCool = i === 0 ? lastCool : this._coolOf(s[i - 1]);
+      cool.push(`L${this._toX(h)},${this._toY(prevCool)}`);
+    }
+    return heat.join(" ") + " " + cool.join(" ") + " Z";
   }
 
   /**
@@ -542,6 +644,8 @@ class SmartClimateScheduleCard extends LitElement {
     };
 
     const stepPathD = this._stepPath(nodes);
+    const coolPathD = this._showCooling ? this._stepPath(nodes, (n) => this._coolOf(n)) : "";
+    const bandPathD = this._showCooling ? this._bandPath(nodes) : "";
     const histPathD = this.config.show_history !== false ? this._historyPath() : "";
     const yesterdayHistPathD = this.config.show_yesterday !== false ? this._yesterdayHistoryPath() : "";
     const tempSensorPathD = this.config.temp_sensor ? this._tempSensorPath() : "";
@@ -561,6 +665,10 @@ class SmartClimateScheduleCard extends LitElement {
               📅 Schedule${activeDay !== "daily" ? ` (${dayLabel[activeDay] ?? activeDay})` : ""}
             </div>
             <div class="header-actions">
+              <button class="cool-toggle ${this._showCooling ? "cool-toggle--on" : ""}"
+                title="Show heating + cooling band" @click=${this._toggleCooling}>
+                ❄ Cooling
+              </button>
               ${this._dirty ? html`<span class="unsaved-badge">● Unsaved</span>` : ""}
               ${this._saved ? html`<span class="saved-badge">✓ Saved</span>` : ""}
               <button class="save-btn ${this._dirty ? "save-btn--dirty" : ""}"
@@ -656,10 +764,22 @@ class SmartClimateScheduleCard extends LitElement {
                   stroke="rgba(100,200,255,0.75)" stroke-width="1.5" stroke-linejoin="round"/>
               ` : ""}
 
-              <!-- schedule step path -->
+              <!-- comfort band fill (between heat and cool) -->
+              ${bandPathD ? svg`
+                <path d="${bandPathD}" fill="${COOL_COLOR}" opacity="0.08"
+                  stroke="none"/>
+              ` : ""}
+
+              <!-- cooling step path -->
+              ${coolPathD ? svg`
+                <path d="${coolPathD}" fill="none"
+                  stroke="${COOL_COLOR}" stroke-width="2.5" stroke-linejoin="round"/>
+              ` : ""}
+
+              <!-- heating step path -->
               ${stepPathD ? svg`
                 <path d="${stepPathD}" fill="none"
-                  stroke="var(--accent-color, #f5a623)" stroke-width="2.5" stroke-linejoin="round"/>
+                  stroke="${HEAT_COLOR}" stroke-width="2.5" stroke-linejoin="round"/>
               ` : ""}
 
               <!-- current time marker -->
@@ -676,6 +796,8 @@ class SmartClimateScheduleCard extends LitElement {
                 const r = isNext ? NR + 3 : NR;
                 const lblY = cy - r - 3;
                 const timeY = cy + r + 11;
+                const coolT = this._coolOf(node);
+                const coolY = this._toY(coolT);
                 return svg`
                   <g class="node-g">
                     ${isNext ? svg`
@@ -687,12 +809,21 @@ class SmartClimateScheduleCard extends LitElement {
                       <circle cx="${cx}" cy="${cy}" r="${r + 5}"
                         fill="none" stroke="white" stroke-width="2" opacity="0.6"/>
                     ` : ""}
+                    ${this._showCooling ? svg`
+                      <line x1="${cx}" y1="${coolY}" x2="${cx}" y2="${cy}"
+                        stroke="${COOL_COLOR}" stroke-width="1" opacity="0.35"/>
+                      <circle class="node-c node-c--cool ${isSelected ? "node-c--selected" : ""}"
+                        cx="${cx}" cy="${coolY}" r="${NR - 1}"
+                        @pointerdown=${(e) => this._onNodePointerDown(e, idx, "cool_temp")}
+                      />
+                      <text x="${cx}" y="${coolY - NR - 1}" text-anchor="middle" class="node-cool-lbl">${coolT}°</text>
+                    ` : ""}
                     <circle class="node-c ${isNext ? "node-c--next" : ""} ${isSelected ? "node-c--selected" : ""}"
                       cx="${cx}" cy="${cy}" r="${r}"
                       @pointerdown=${(e) => this._onNodePointerDown(e, idx)}
                     />
-                    <text x="${cx}" y="${lblY}" text-anchor="middle" class="node-lbl">${node.temp}°C</text>
-                    <text x="${cx}" y="${timeY}" text-anchor="middle" class="node-time">${node.time}</text>
+                    <text x="${cx}" y="${this._showCooling ? cy + r + 11 : lblY}" text-anchor="middle" class="node-lbl">${node.temp}°C</text>
+                    <text x="${cx}" y="${this._showCooling ? cy + r + 22 : timeY}" text-anchor="middle" class="node-time">${node.time}</text>
                     ${isNext ? svg`
                       <text x="${cx}" y="${cy + 4}" text-anchor="middle" class="next-badge">▶</text>
                     ` : ""}
@@ -711,11 +842,19 @@ class SmartClimateScheduleCard extends LitElement {
                   @input=${(e) => this._editNodeTime(this._selectedIdx, e.target.value)} />
               </label>
               <label class="edit-field">
-                <span>Temp (°C)</span>
+                <span>🔥 Heat to (°C)</span>
                 <input type="number" class="edit-input" min="${TMIN}" max="${TMAX}" step="0.5"
                   .value=${String(selectedNode.temp)}
                   @input=${(e) => this._editNodeTemp(this._selectedIdx, e.target.value)} />
               </label>
+              ${this._showCooling ? html`
+                <label class="edit-field">
+                  <span>❄ Cool above (°C)</span>
+                  <input type="number" class="edit-input" min="${TMIN}" max="${TMAX}" step="0.5"
+                    .value=${String(this._coolOf(selectedNode))}
+                    @input=${(e) => this._editNodeCoolTemp(this._selectedIdx, e.target.value)} />
+                </label>
+              ` : ""}
               <button class="edit-remove-btn"
                 @click=${() => this._removeNode(null, this._selectedIdx)}>
                 🗑 Remove
@@ -750,7 +889,24 @@ class SmartClimateScheduleCard extends LitElement {
             </div>
           ` : ""}
 
-          <div class="hint">Double-click to add node • Drag to move • Select then remove to delete</div>
+          ${this._showCooling ? html`
+            <div class="presence-legend">
+              <span class="presence-legend-item">
+                <span class="presence-dot" style="background:${HEAT_COLOR}"></span>🔥 Heat to
+              </span>
+              <span class="presence-legend-item">
+                <span class="presence-dot" style="background:${COOL_COLOR}"></span>❄ Cool above
+              </span>
+              <span class="presence-legend-item">
+                <span class="presence-dot" style="background:${COOL_COLOR};opacity:0.25"></span>Idle band
+              </span>
+            </div>
+          ` : ""}
+
+          <div class="hint">
+            Double-click to add • Drag a dot to move
+            ${this._showCooling ? " (🔥 lower, ❄ upper)" : ""} • Select then remove to delete
+          </div>
         </div>
       </ha-card>
     `;
@@ -789,6 +945,24 @@ class SmartClimateScheduleCard extends LitElement {
       font-weight: 600;
       cursor: pointer;
       transition: background 0.2s, border-color 0.2s, color 0.2s;
+    }
+
+    .cool-toggle {
+      background: var(--secondary-background-color);
+      color: var(--secondary-text-color);
+      border: 1px solid var(--divider-color);
+      border-radius: 6px;
+      padding: 4px 10px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s, border-color 0.2s, color 0.2s;
+    }
+
+    .cool-toggle--on {
+      background: rgba(74, 168, 255, 0.15);
+      color: #4aa8ff;
+      border-color: #4aa8ff;
     }
 
     .save-btn:disabled {
@@ -904,10 +1078,14 @@ class SmartClimateScheduleCard extends LitElement {
     }
 
     .node-c {
-      fill: #4fc3f7;
+      fill: var(--accent-color, #f5a623);
       stroke: white;
       stroke-width: 2;
       cursor: grab;
+    }
+
+    .node-c--cool {
+      fill: #4aa8ff;
     }
 
     .node-c--next {
@@ -999,6 +1177,14 @@ class SmartClimateScheduleCard extends LitElement {
     .node-lbl {
       font-size: 13px;
       fill: white;
+      font-weight: 700;
+      font-family: sans-serif;
+      pointer-events: none;
+    }
+
+    .node-cool-lbl {
+      font-size: 12px;
+      fill: #7cc4ff;
       font-weight: 700;
       font-family: sans-serif;
       pointer-events: none;

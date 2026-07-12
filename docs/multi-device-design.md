@@ -280,7 +280,10 @@ integration-driven auto, and per-device role `select`s (Phase 3 polish).
    primary device, hysteresis, and the auto toggle. Tunables are read live from
    `entry.options` (no reload); an update listener reloads only when the resolved
    device list changes, so routine setpoint persistence never reloads.
-3. **Schedule card** — dual-line (heat/cool) band editing on the timeline.
+3. **Schedule card** — ✅ **done.** A "❄ Cooling" toggle reveals a second
+   (cool-limit) handle on each node and shades the idle band between heat and
+   cool; drag either handle, edit both in the panel, save writes explicit
+   `cool_temp` per node. Heat-only users see no change until they toggle it on.
 4. **Polish** — hvac_action in cards, per-device role selects, docs, and the
    `integration_driven_auto=false` passthrough.
 
