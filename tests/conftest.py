@@ -82,8 +82,29 @@ _register_stub(
 # homeassistant.components.lovelace
 _register_stub("homeassistant.components.lovelace", MODE_STORAGE="storage")
 
+# homeassistant.components.number / switch / select
+_register_stub(
+    "homeassistant.components.number",
+    NumberEntity=type("NumberEntity", (), {}),
+    NumberMode=MagicMock(BOX="box", AUTO="auto", SLIDER="slider"),
+)
+_register_stub(
+    "homeassistant.components.switch",
+    SwitchEntity=type("SwitchEntity", (), {}),
+)
+_register_stub(
+    "homeassistant.components.select",
+    SelectEntity=type("SelectEntity", (), {}),
+)
+
 # homeassistant.helpers
 _register_stub("homeassistant.helpers")
+
+# homeassistant.helpers.entity_registry
+_register_stub(
+    "homeassistant.helpers.entity_registry",
+    async_get=MagicMock(),
+)
 
 # homeassistant.helpers.entity_platform
 _register_stub(

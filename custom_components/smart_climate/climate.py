@@ -34,6 +34,11 @@ from .const import (
     ATTR_WRAPPED_CLIMATE,
     ATTR_COOL_AUTO_TEMPERATURE,
     ATTR_COOL_AWAY_TEMPERATURE,
+    ATTR_AUTO_TEMPERATURE,
+    ATTR_AWAY_TEMPERATURE,
+    ATTR_AWAY_DELAY_MINUTES,
+    ATTR_DEFAULT_OVERRIDE_MODE,
+    ATTR_DEFAULT_OVERRIDE_DURATION,
 )
 from . import schedule_helper
 from .services import async_register_services
@@ -540,6 +545,16 @@ class SmartClimateEntity(ClimateEntity):
         return 21
 
     @property
+    def device_info(self):
+        """Group all Smart Climate entities for this entry under one device."""
+        return {
+            "identifiers": {(DOMAIN, self.entry.entry_id)},
+            "name": self._attr_name,
+            "manufacturer": "Smart Climate",
+            "model": "Smart Climate Controller",
+        }
+
+    @property
     def extra_state_attributes(self):
         remaining_minutes = 0
         if self._mode == MODE_OVERRIDE_TIMER and self._override_start_time:
@@ -556,4 +571,9 @@ class SmartClimateEntity(ClimateEntity):
             ATTR_WRAPPED_CLIMATE: self._wrapped_climate,
             ATTR_COOL_AUTO_TEMPERATURE: self._cool_auto_temperature,
             ATTR_COOL_AWAY_TEMPERATURE: self._cool_away_temperature,
+            ATTR_AUTO_TEMPERATURE: self._auto_temperature,
+            ATTR_AWAY_TEMPERATURE: self._away_temperature,
+            ATTR_AWAY_DELAY_MINUTES: self._away_delay_minutes,
+            ATTR_DEFAULT_OVERRIDE_MODE: self._default_override_mode,
+            ATTR_DEFAULT_OVERRIDE_DURATION: self._default_override_duration,
         }

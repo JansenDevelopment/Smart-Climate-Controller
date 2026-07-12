@@ -1,5 +1,5 @@
 DOMAIN = "smart_climate"
-PLATFORMS = ["climate", "sensor"]
+PLATFORMS = ["climate", "sensor", "number", "switch", "select"]
 
 # Modes
 MODE_AUTO = "auto"
@@ -31,6 +31,11 @@ ATTR_OVERRIDE_TEMPERATURE = "override_temperature"
 ATTR_WRAPPED_CLIMATE = "wrapped_climate"
 ATTR_COOL_AUTO_TEMPERATURE = "cool_auto_temperature"
 ATTR_COOL_AWAY_TEMPERATURE = "cool_away_temperature"
+ATTR_AUTO_TEMPERATURE = "auto_temperature"
+ATTR_AWAY_TEMPERATURE = "away_temperature"
+ATTR_AWAY_DELAY_MINUTES = "away_delay_minutes"
+ATTR_DEFAULT_OVERRIDE_MODE = "default_override_mode"
+ATTR_DEFAULT_OVERRIDE_DURATION = "default_override_duration"
 
 # Services
 SERVICE_SET_OVERRIDE_TIMER = "set_override_timer"
