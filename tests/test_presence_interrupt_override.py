@@ -46,18 +46,16 @@ def _make_entity(interruptible: bool = True, mode: str = MODE_AUTO) -> "object":
         name="Test Climate",
         wrapped_climate="climate.wrapped",
         zone_home="zone.home",
-        auto_temp=21.0,
         away_temp=14.0,
         away_delay_minutes=0,
         interruptible=interruptible,
         default_override_mode="timer",
         default_override_duration=30,
-        schedule=None,
     )
     entity._mode = mode
     entity._presence = "away"
+    entity._auto_temperature = 21.0
     entity._override_temperature = 22.0
-    entity._last_written_temperature = 22.0
 
     # Patch write_ha_state to be a no-op
     entity.async_write_ha_state = MagicMock()

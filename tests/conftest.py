@@ -1,5 +1,6 @@
 """Pytest configuration: register HA stub modules before any collection occurs."""
 
+import datetime as _datetime
 import sys
 import types
 from unittest.mock import MagicMock
@@ -30,6 +31,7 @@ _register_stub("homeassistant")
 _register_stub(
     "homeassistant.core",
     HomeAssistant=type("HomeAssistant", (), {}),
+    ServiceCall=type("ServiceCall", (), {}),
     callback=lambda f: f,
 )
 
@@ -46,6 +48,12 @@ _register_stub(
     ConfigEntry=type("ConfigEntry", (), {}),
 )
 
+# homeassistant.util + homeassistant.util.dt (climate.py: `from homeassistant.util import dt`)
+_dt_stub = types.ModuleType("homeassistant.util.dt")
+_dt_stub.now = lambda: _datetime.datetime.now()
+_register_stub("homeassistant.util", dt=_dt_stub)
+sys.modules["homeassistant.util.dt"] = _dt_stub
+
 # homeassistant.components
 _register_stub("homeassistant.components")
 
@@ -54,15 +62,49 @@ _ClimateEntity = type("ClimateEntity", (), {"async_write_ha_state": MagicMock()}
 _register_stub(
     "homeassistant.components.climate",
     ClimateEntity=_ClimateEntity,
-    ClimateEntityFeature=MagicMock(TARGET_TEMPERATURE=1, PRESET_MODE=2),
-    HVACMode=MagicMock(OFF="off", HEAT="heat"),
+    ClimateEntityFeature=MagicMock(
+        TARGET_TEMPERATURE=1,
+        FAN_MODE=8,
+        PRESET_MODE=16,
+        TURN_OFF=128,
+        TURN_ON=256,
+    ),
+    HVACMode=MagicMock(
+        OFF="off",
+        HEAT="heat",
+        COOL="cool",
+        AUTO="auto",
+        FAN_ONLY="fan_only",
+        DRY="dry",
+    ),
 )
 
 # homeassistant.components.lovelace
 _register_stub("homeassistant.components.lovelace", MODE_STORAGE="storage")
 
+# homeassistant.components.number / switch / select
+_register_stub(
+    "homeassistant.components.number",
+    NumberEntity=type("NumberEntity", (), {}),
+    NumberMode=MagicMock(BOX="box", AUTO="auto", SLIDER="slider"),
+)
+_register_stub(
+    "homeassistant.components.switch",
+    SwitchEntity=type("SwitchEntity", (), {}),
+)
+_register_stub(
+    "homeassistant.components.select",
+    SelectEntity=type("SelectEntity", (), {}),
+)
+
 # homeassistant.helpers
 _register_stub("homeassistant.helpers")
+
+# homeassistant.helpers.entity_registry
+_register_stub(
+    "homeassistant.helpers.entity_registry",
+    async_get=MagicMock(),
+)
 
 # homeassistant.helpers.entity_platform
 _register_stub(

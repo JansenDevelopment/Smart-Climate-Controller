@@ -75,5 +75,15 @@ class SmartClimatePresenceSensor(SensorEntity):
             self.async_write_ha_state()
 
     @property
+    def device_info(self):
+        """Group all Smart Climate entities for this entry under one device."""
+        return {
+            "identifiers": {(DOMAIN, self._entry.entry_id)},
+            "name": self._entry.data.get("name", "Smart Climate"),
+            "manufacturer": "Smart Climate",
+            "model": "Smart Climate Controller",
+        }
+
+    @property
     def native_value(self) -> str | None:
         return self._native_value

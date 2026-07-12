@@ -12,6 +12,8 @@ from .const import (
     CONF_INTERRUPTIBLE,
     CONF_DEFAULT_OVERRIDE_MODE,
     CONF_DEFAULT_OVERRIDE_DURATION,
+    CONF_COOL_AUTO_TEMPERATURE,
+    CONF_COOL_AWAY_TEMPERATURE,
 )
 from .frontend import SmartClimateCardRegistration
 import voluptuous as vol
@@ -27,9 +29,11 @@ CONFIG_SCHEMA = vol.Schema(
                         vol.Required(CONF_WRAPPED_CLIMATE): cv.entity_id,
                         vol.Required(CONF_ZONE_HOME): cv.entity_id,
                         vol.Optional(CONF_AWAY_TEMPERATURE, default=14): vol.Coerce(float),
+                        vol.Optional(CONF_COOL_AUTO_TEMPERATURE, default=24): vol.Coerce(float),
+                        vol.Optional(CONF_COOL_AWAY_TEMPERATURE, default=28): vol.Coerce(float),
                         vol.Optional(CONF_AWAY_DELAY_MINUTES, default=5): vol.Coerce(int),
                         vol.Optional(CONF_INTERRUPTIBLE, default=True): cv.boolean,
-                        vol.Optional(CONF_DEFAULT_OVERRIDE_MODE, default="timer"): vol.In(["timer", "infinity"]),
+                        vol.Optional(CONF_DEFAULT_OVERRIDE_MODE, default="timer"): vol.In(["timer", "infinity", "next_node"]),
                         vol.Optional(CONF_DEFAULT_OVERRIDE_DURATION, default=30): vol.Coerce(int),
                     }
                 )
@@ -68,8 +72,28 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data[DOMAIN].setdefault("entities", {})
     hass.data[DOMAIN][entry.entry_id] = entry.data
 
+    # Reload when the actuator device list changes (a device subentry added,
+    # edited, or removed). Routine setpoint persistence writes entry.data but
+    # never changes the device list, so it does not trigger a reload.
+    entry.async_on_unload(entry.add_update_listener(_async_entry_updated))
+
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
+
+
+async def _async_entry_updated(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Reload the entry only when its resolved device list changed."""
+    from .climate import SmartClimateEntity
+
+    wrapped = entry.data.get(CONF_WRAPPED_CLIMATE)
+    new_devices = SmartClimateEntity._build_devices(entry, wrapped)
+    for ent in list(hass.data.get(DOMAIN, {}).get("entities", {}).values()):
+        if getattr(ent, "entry", None) is entry:
+            if ent._devices != new_devices:
+                await hass.config_entries.async_reload(entry.entry_id)
+            return
+    # Coordinator entity not found yet — reload to pick up the change.
+    await hass.config_entries.async_reload(entry.entry_id)
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
