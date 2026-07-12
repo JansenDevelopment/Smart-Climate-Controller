@@ -21,6 +21,8 @@ from .const import (
     CONF_INTERRUPTIBLE,
     CONF_DEFAULT_OVERRIDE_MODE,
     CONF_DEFAULT_OVERRIDE_DURATION,
+    CONF_AUTO_TEMPERATURE,
+    CONF_SCHEDULE,
     ATTR_MODE,
     ATTR_PRESENCE,
     ATTR_REMAINING_MINUTES,
@@ -103,11 +105,12 @@ class SmartClimateEntity(ClimateEntity):
         self._default_override_mode = default_override_mode
         self._default_override_duration = default_override_duration
 
-        # State
+        # State — auto_temperature and schedule are not constructor args; they are
+        # restored from persisted config-entry storage (see async_set_* setters).
         self._mode = MODE_AUTO
         self._presence = "away"  # Start as away
         self._interruptible = interruptible
-        self._auto_temperature = 21
+        self._auto_temperature = entry.data.get(CONF_AUTO_TEMPERATURE, 21)
         self._override_temperature = 21
         self._override_start_time = None
         self._override_duration_minutes = 0
@@ -115,7 +118,7 @@ class SmartClimateEntity(ClimateEntity):
         self._away_delay_task = None
         self._away_delay_start = None
         self._away_delay_remaining = 0
-        self._schedule = None
+        self._schedule = entry.data.get(CONF_SCHEDULE, None)
 
     async def async_added_to_hass(self):
         """Initialize after added to hass."""
@@ -264,6 +267,18 @@ class SmartClimateEntity(ClimateEntity):
             },
         )
 
+    def _persist(self, **changes) -> None:
+        """Persist runtime-changeable settings to config-entry storage.
+
+        Writes the given config keys into the entry's ``data`` so the values
+        survive a Home Assistant restart (the constructor and
+        ``async_setup_entry`` read them back on startup).  ``async_update_entry``
+        is a synchronous callback despite the ``async_`` prefix.
+        """
+        self.hass.config_entries.async_update_entry(
+            self.entry, data={**self.entry.data, **changes}
+        )
+
     async def async_set_override_timer(self, minutes: int, temperature: float):
         """Set override timer mode."""
         self._mode = MODE_OVERRIDE_TIMER
@@ -309,34 +324,43 @@ class SmartClimateEntity(ClimateEntity):
     async def async_set_interruptible(self, interruptible: bool):
         """Set interruptible mode."""
         self._interruptible = interruptible
+        self._persist(**{CONF_INTERRUPTIBLE: interruptible})
         self.async_write_ha_state()
 
     async def async_set_auto_temperature(self, temperature: float):
         """Set the target temperature used in auto/home mode."""
         self._auto_temperature = temperature
+        self._persist(**{CONF_AUTO_TEMPERATURE: temperature})
         await self._update_target_temperature()
         self.async_write_ha_state()
 
     async def async_set_away_temperature(self, temperature: float):
         """Set the target temperature used in away mode."""
         self._away_temperature = temperature
+        self._persist(**{CONF_AWAY_TEMPERATURE: temperature})
         await self._update_target_temperature()
         self.async_write_ha_state()
 
     async def async_set_away_delay(self, minutes: int):
         """Set the delay before switching to away mode."""
         self._away_delay_minutes = minutes
+        self._persist(**{CONF_AWAY_DELAY_MINUTES: minutes})
         self.async_write_ha_state()
 
     async def async_set_default_override_mode(self, mode: str, duration: int):
         """Set the default mode used when a temperature override is triggered."""
         self._default_override_mode = mode
         self._default_override_duration = duration
+        self._persist(**{
+            CONF_DEFAULT_OVERRIDE_MODE: mode,
+            CONF_DEFAULT_OVERRIDE_DURATION: duration,
+        })
         self.async_write_ha_state()
 
     async def async_set_schedule(self, schedule):
         """Set the temperature schedule used in auto/home mode."""
         self._schedule = schedule
+        self._persist(**{CONF_SCHEDULE: schedule})
         await self._update_target_temperature()
         self.async_write_ha_state()
 
