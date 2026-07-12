@@ -3,10 +3,11 @@
     "step": {
       "user": {
         "title": "Smart Climate Instellen",
-        "description": "Configureer Smart Climate Controller",
+        "description": "Configureer Smart Climate Controller. Je kunt later meer apparaten toevoegen.",
         "data": {
           "name": "Naam",
-          "wrapped_climate": "Gekoppeld Klimaatapparaat",
+          "entity_id": "Klimaatapparaat",
+          "role": "Rol",
           "zone_home": "Thuiszone",
           "away_temperature": "Weg Temperatuur",
           "cool_auto_temperature": "Koelen Thuis Temperatuur",
@@ -17,7 +18,8 @@
           "default_override_duration": "Standaard Overschrijfduur (minuten)"
         },
         "data_description": {
-          "wrapped_climate": "Het klimaatapparaat om te beheren",
+          "entity_id": "Het eerste klimaatapparaat om te beheren (voeg er later meer toe via het apparatenmenu)",
+          "role": "Of dit apparaat kan verwarmen, koelen of beide",
           "zone_home": "De zone die gebruikt wordt voor aanwezigheidsdetectie",
           "away_temperature": "Doeltemperatuur wanneer niemand thuis is (verwarmen)",
           "cool_auto_temperature": "Doeltemperatuur wanneer thuis en het apparaat koelt",
@@ -27,11 +29,83 @@
           "default_override_mode": "Overschrijfmodus bij het aanpassen van de temperatuur (timer, oneindig of volgend moment)",
           "default_override_duration": "Standaardduur in minuten voor timer-overschrijfmodus"
         }
+      },
+      "reconfigure": {
+        "title": "Herconfigureren",
+        "data": {
+          "zone_home": "Thuiszone"
+        }
       }
     },
     "error": {},
     "abort": {
-      "already_configured": "Apparaat is al geconfigureerd"
+      "already_configured": "Apparaat is al geconfigureerd",
+      "reconfigure_successful": "Herconfiguratie opgeslagen"
+    }
+  },
+  "config_subentries": {
+    "device": {
+      "initiate_flow": {
+        "user": "Apparaat toevoegen",
+        "reconfigure": "Apparaat bewerken"
+      },
+      "entry_type": "Apparaat",
+      "step": {
+        "user": {
+          "title": "Klimaatapparaat toevoegen",
+          "data": {
+            "entity_id": "Klimaatapparaat",
+            "role": "Rol"
+          },
+          "data_description": {
+            "role": "Of dit apparaat kan verwarmen, koelen of beide"
+          }
+        },
+        "reconfigure": {
+          "title": "Klimaatapparaat bewerken",
+          "data": {
+            "entity_id": "Klimaatapparaat",
+            "role": "Rol"
+          }
+        }
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Smart Climate opties",
+        "data": {
+          "temperature_source": "Bron kamertemperatuur",
+          "temperature_sensor": "Temperatuursensor",
+          "primary_device": "Primair apparaat",
+          "hysteresis": "Hysterese (°C)",
+          "integration_driven_auto": "Auto door integratie gestuurd"
+        },
+        "data_description": {
+          "temperature_source": "Hoe de kamertemperatuur wordt gemeten: gemiddelde van apparaten, een primair apparaat, of een aparte sensor",
+          "temperature_sensor": "Gebruikt wanneer de bron 'Aparte sensor' is",
+          "primary_device": "Gebruikt wanneer de bron 'Primair apparaat' is",
+          "hysteresis": "Dode band rond de schakelpunten om snel wisselen tussen verwarmen/koelen te voorkomen",
+          "integration_driven_auto": "Laat Smart Climate in auto zelf verwarmen vs koelen bepalen (aanbevolen, vereist bij meerdere apparaten)"
+        }
+      }
+    }
+  },
+  "selector": {
+    "device_role": {
+      "options": {
+        "heat": "Alleen verwarmen",
+        "cool": "Alleen koelen",
+        "both": "Verwarmen & koelen"
+      }
+    },
+    "temperature_source": {
+      "options": {
+        "mean": "Gemiddelde van apparaten",
+        "primary": "Primair apparaat",
+        "sensor": "Aparte sensor"
+      }
     }
   },
   "entity": {

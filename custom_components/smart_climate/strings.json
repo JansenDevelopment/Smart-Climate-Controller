@@ -3,10 +3,11 @@
     "step": {
       "user": {
         "title": "Smart Climate Setup",
-        "description": "Configure Smart Climate Controller",
+        "description": "Configure Smart Climate Controller. You can add more devices afterwards.",
         "data": {
           "name": "Name",
-          "wrapped_climate": "Wrapped Climate Entity",
+          "entity_id": "Climate device",
+          "role": "Role",
           "zone_home": "Home Zone",
           "away_temperature": "Away Temperature",
           "cool_auto_temperature": "Cooling Home Temperature",
@@ -17,7 +18,8 @@
           "default_override_duration": "Default Override Duration (minutes)"
         },
         "data_description": {
-          "wrapped_climate": "The climate entity to wrap and control",
+          "entity_id": "The first climate device to control (add more later via the device menu)",
+          "role": "Whether this device can heat, cool, or both",
           "zone_home": "The zone entity used for presence detection",
           "away_temperature": "Target temperature when nobody is home (heating)",
           "cool_auto_temperature": "Target temperature when home and the device is cooling",
@@ -27,11 +29,83 @@
           "default_override_mode": "Override mode used when adjusting temperature (timer, infinity, or next_node)",
           "default_override_duration": "Default duration in minutes for timer override mode"
         }
+      },
+      "reconfigure": {
+        "title": "Reconfigure",
+        "data": {
+          "zone_home": "Home Zone"
+        }
       }
     },
     "error": {},
     "abort": {
-      "already_configured": "Device is already configured"
+      "already_configured": "Device is already configured",
+      "reconfigure_successful": "Reconfiguration saved"
+    }
+  },
+  "config_subentries": {
+    "device": {
+      "initiate_flow": {
+        "user": "Add device",
+        "reconfigure": "Edit device"
+      },
+      "entry_type": "Device",
+      "step": {
+        "user": {
+          "title": "Add actuator device",
+          "data": {
+            "entity_id": "Climate device",
+            "role": "Role"
+          },
+          "data_description": {
+            "role": "Whether this device can heat, cool, or both"
+          }
+        },
+        "reconfigure": {
+          "title": "Edit actuator device",
+          "data": {
+            "entity_id": "Climate device",
+            "role": "Role"
+          }
+        }
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Smart Climate options",
+        "data": {
+          "temperature_source": "Room temperature source",
+          "temperature_sensor": "Temperature sensor",
+          "primary_device": "Primary device",
+          "hysteresis": "Hysteresis (°C)",
+          "integration_driven_auto": "Integration-driven auto"
+        },
+        "data_description": {
+          "temperature_source": "How the room temperature is measured: mean of devices, a primary device, or a dedicated sensor",
+          "temperature_sensor": "Used when the source is 'Dedicated sensor'",
+          "primary_device": "Used when the source is 'Primary device'",
+          "hysteresis": "Deadband around the switch points to avoid rapid heat/cool flapping",
+          "integration_driven_auto": "In auto, let Smart Climate decide heat vs cool (recommended, required for multiple devices)"
+        }
+      }
+    }
+  },
+  "selector": {
+    "device_role": {
+      "options": {
+        "heat": "Heat only",
+        "cool": "Cool only",
+        "both": "Heat & cool"
+      }
+    },
+    "temperature_source": {
+      "options": {
+        "mean": "Mean of devices",
+        "primary": "Primary device",
+        "sensor": "Dedicated sensor"
+      }
     }
   },
   "entity": {

@@ -228,3 +228,45 @@ def test_devices_list_from_entry():
     )
     assert {d["entity_id"] for d in entity._devices} == {"climate.rad", "climate.ac"}
     assert entity._devices[0]["role"] == "heat"
+
+
+class _Sub:
+    def __init__(self, subentry_type, data):
+        self.subentry_type = subentry_type
+        self.data = data
+
+
+def test_build_devices_merges_subentries_and_data():
+    from custom_components.smart_climate.climate import SmartClimateEntity
+
+    entry = MagicMock()
+    entry.subentries = {
+        "s1": _Sub("device", {"entity_id": "climate.a", "role": "heat"}),
+        "s2": _Sub("other", {"entity_id": "climate.ignored"}),
+    }
+    entry.data = {CONF_DEVICES: [{"entity_id": "climate.b", "role": "cool"}]}
+    devices = SmartClimateEntity._build_devices(entry, None)
+    ids = [d["entity_id"] for d in devices]
+    assert "climate.a" in ids and "climate.b" in ids
+    assert "climate.ignored" not in ids
+
+
+def test_build_devices_dedupes_by_entity_id():
+    from custom_components.smart_climate.climate import SmartClimateEntity
+
+    entry = MagicMock()
+    entry.subentries = {"s1": _Sub("device", {"entity_id": "climate.a", "role": "heat"})}
+    entry.data = {CONF_DEVICES: [{"entity_id": "climate.a", "role": "cool"}]}
+    devices = SmartClimateEntity._build_devices(entry, None)
+    assert len(devices) == 1
+    assert devices[0]["role"] == "heat"  # subentry wins (added first)
+
+
+def test_build_devices_migrates_wrapped_when_no_list():
+    from custom_components.smart_climate.climate import SmartClimateEntity
+
+    entry = MagicMock()
+    entry.subentries = {}
+    entry.data = {}
+    devices = SmartClimateEntity._build_devices(entry, "climate.legacy")
+    assert devices == [{"entity_id": "climate.legacy", "role": "both"}]

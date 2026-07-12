@@ -32,6 +32,11 @@ CONF_INTEGRATION_DRIVEN_AUTO = "integration_driven_auto"
 ROLE_HEAT = "heat"
 ROLE_COOL = "cool"
 ROLE_BOTH = "both"
+CONF_ROLE = "role"
+CONF_ENTITY_ID = "entity_id"
+
+# Config subentry type for an actuator device
+SUBENTRY_TYPE_DEVICE = "device"
 
 # Room-temperature sources
 TEMP_SOURCE_SENSOR = "sensor"

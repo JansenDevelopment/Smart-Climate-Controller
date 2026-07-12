@@ -1,3 +1,4 @@
+from collections.abc import Mapping
 from datetime import timedelta
 from homeassistant.components.climate import ClimateEntity, ClimateEntityFeature, HVACMode
 from homeassistant.const import UnitOfTemperature, CONF_NAME
@@ -31,8 +32,8 @@ from .const import (
     CONF_TEMPERATURE_SENSOR,
     CONF_PRIMARY_DEVICE,
     CONF_HYSTERESIS,
-    CONF_INTEGRATION_DRIVEN_AUTO,
     ROLE_BOTH,
+    SUBENTRY_TYPE_DEVICE,
     TEMP_SOURCE_SENSOR,
     TEMP_SOURCE_PRIMARY,
     TEMP_SOURCE_MEAN,
@@ -140,13 +141,10 @@ class SmartClimateEntity(ClimateEntity):
         # Back-compat single-device attribute (first device, or None).
         self._wrapped_climate = self._devices[0]["entity_id"] if self._devices else None
 
-        # Coordinator-owned HVAC mode + tunables (restored from entry.data).
+        # Coordinator-owned HVAC mode (persisted to entry.data). The instance
+        # tunables (temp source, hysteresis, auto toggle) are read *live* via
+        # _conf() so Options-flow changes take effect without a reload.
         self._hvac_mode = entry.data.get(CONF_HVAC_MODE, HVACMode.HEAT)
-        self._temperature_source = entry.data.get(CONF_TEMPERATURE_SOURCE, TEMP_SOURCE_MEAN)
-        self._temperature_sensor = entry.data.get(CONF_TEMPERATURE_SENSOR)
-        self._primary_device = entry.data.get(CONF_PRIMARY_DEVICE)
-        self._hysteresis = entry.data.get(CONF_HYSTERESIS, DEFAULT_HYSTERESIS)
-        self._integration_driven_auto = entry.data.get(CONF_INTEGRATION_DRIVEN_AUTO, True)
         self._intent = None
         self._heat_target = None
         self._cool_target = None
@@ -171,17 +169,43 @@ class SmartClimateEntity(ClimateEntity):
 
     @staticmethod
     def _build_devices(entry, wrapped_climate):
-        """Return the actuator device list, migrating a single wrapped entity."""
-        devices = entry.data.get(CONF_DEVICES)
-        if devices:
-            return [
-                {"entity_id": d["entity_id"], "role": d.get("role", ROLE_BOTH)}
-                for d in devices
-                if d.get("entity_id")
-            ]
-        if wrapped_climate:
-            return [{"entity_id": wrapped_climate, "role": ROLE_BOTH}]
-        return []
+        """Return the actuator device list from all sources.
+
+        Devices come from (in order) config subentries of type ``device`` and an
+        ``entry.data['devices']`` list; a legacy single ``wrapped_climate`` is
+        migrated to one ``both``-role device when no list is present.
+        """
+        devices = []
+        seen = set()
+
+        def _add(entity_id, role):
+            if entity_id and entity_id not in seen:
+                seen.add(entity_id)
+                devices.append({"entity_id": entity_id, "role": role or ROLE_BOTH})
+
+        subentries = getattr(entry, "subentries", None)
+        if isinstance(subentries, Mapping):
+            for sub in subentries.values():
+                if getattr(sub, "subentry_type", None) == SUBENTRY_TYPE_DEVICE:
+                    data = getattr(sub, "data", {}) or {}
+                    _add(data.get("entity_id"), data.get("role"))
+
+        for d in entry.data.get(CONF_DEVICES, []) or []:
+            _add(d.get("entity_id"), d.get("role"))
+
+        if not devices and wrapped_climate:
+            _add(wrapped_climate, ROLE_BOTH)
+        return devices
+
+    def _conf(self, key, default):
+        """Read a tunable live — entry.options overrides entry.data."""
+        options = getattr(self.entry, "options", None)
+        if isinstance(options, Mapping) and key in options:
+            return options[key]
+        data = self.entry.data
+        if isinstance(data, Mapping) and key in data:
+            return data[key]
+        return default
 
     async def async_added_to_hass(self):
         """Initialize after added to hass."""
@@ -203,8 +227,9 @@ class SmartClimateEntity(ClimateEntity):
         # React to actuator / temperature-sensor changes so control re-evaluates
         # promptly (e.g. a device coming back online, or the room warming up).
         watched = [d["entity_id"] for d in self._devices]
-        if self._temperature_sensor:
-            watched.append(self._temperature_sensor)
+        sensor = self._conf(CONF_TEMPERATURE_SENSOR, None)
+        if sensor:
+            watched.append(sensor)
         if watched:
             self.async_on_remove(
                 async_track_state_change_event(
@@ -345,12 +370,14 @@ class SmartClimateEntity(ClimateEntity):
 
     def _room_temperature(self):
         """Return the room temperature per the selected source, with fallthrough."""
-        if self._temperature_source == TEMP_SOURCE_SENSOR:
-            v = self._numeric_state(self._temperature_sensor)
+        source = self._conf(CONF_TEMPERATURE_SOURCE, TEMP_SOURCE_MEAN)
+        sensor = self._conf(CONF_TEMPERATURE_SENSOR, None)
+        if source == TEMP_SOURCE_SENSOR:
+            v = self._numeric_state(sensor)
             if v is not None:
                 return v
-        if self._temperature_source == TEMP_SOURCE_PRIMARY:
-            v = self._device_current_temp(self._primary_device)
+        if source == TEMP_SOURCE_PRIMARY:
+            v = self._device_current_temp(self._conf(CONF_PRIMARY_DEVICE, None))
             if v is not None:
                 return v
         # mean (default), or fallthrough when the selected source has no value
@@ -358,7 +385,7 @@ class SmartClimateEntity(ClimateEntity):
         temps = [t for t in temps if t is not None]
         if temps:
             return sum(temps) / len(temps)
-        return self._numeric_state(self._temperature_sensor)
+        return self._numeric_state(sensor)
 
     def _numeric_state(self, entity_id):
         if not entity_id:
@@ -410,7 +437,7 @@ class SmartClimateEntity(ClimateEntity):
             cool_target=cool_target,
             override_target=override_target,
             prev_intent=self._intent,
-            hysteresis=self._hysteresis,
+            hysteresis=self._conf(CONF_HYSTERESIS, DEFAULT_HYSTERESIS),
         )
         self._intent = decision.intent
         self._active_target = decision.target

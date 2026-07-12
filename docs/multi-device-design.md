@@ -274,8 +274,12 @@ integration-driven auto, and per-device role `select`s (Phase 3 polish).
    that list is still pending (Phase 2). The `integration_driven_auto=false`
    legacy passthrough is stubbed as a config flag but not yet special-cased
    (currently always integration-driven).
-2. **Config/Options UX** — config subentries for devices + Options flow for the
-   room-temp source, hysteresis, and the auto toggle. *(next)*
+2. **Config/Options UX** — ✅ **done.** Device **config subentries** (add/edit,
+   role select) via `DeviceSubentryFlowHandler`; the initial config flow seeds
+   the first device; an **Options flow** sets the room-temp source, sensor,
+   primary device, hysteresis, and the auto toggle. Tunables are read live from
+   `entry.options` (no reload); an update listener reloads only when the resolved
+   device list changes, so routine setpoint persistence never reloads.
 3. **Schedule card** — dual-line (heat/cool) band editing on the timeline.
 4. **Polish** — hvac_action in cards, per-device role selects, docs, and the
    `integration_driven_auto=false` passthrough.

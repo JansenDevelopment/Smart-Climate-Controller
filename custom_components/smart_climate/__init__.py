@@ -72,8 +72,28 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data[DOMAIN].setdefault("entities", {})
     hass.data[DOMAIN][entry.entry_id] = entry.data
 
+    # Reload when the actuator device list changes (a device subentry added,
+    # edited, or removed). Routine setpoint persistence writes entry.data but
+    # never changes the device list, so it does not trigger a reload.
+    entry.async_on_unload(entry.add_update_listener(_async_entry_updated))
+
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
+
+
+async def _async_entry_updated(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Reload the entry only when its resolved device list changed."""
+    from .climate import SmartClimateEntity
+
+    wrapped = entry.data.get(CONF_WRAPPED_CLIMATE)
+    new_devices = SmartClimateEntity._build_devices(entry, wrapped)
+    for ent in list(hass.data.get(DOMAIN, {}).get("entities", {}).values()):
+        if getattr(ent, "entry", None) is entry:
+            if ent._devices != new_devices:
+                await hass.config_entries.async_reload(entry.entry_id)
+            return
+    # Coordinator entity not found yet — reload to pick up the change.
+    await hass.config_entries.async_reload(entry.entry_id)
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
