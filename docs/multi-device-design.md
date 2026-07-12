@@ -263,15 +263,22 @@ integration-driven auto, and per-device role `select`s (Phase 3 polish).
   routed as simultaneous heat+cool.
 - Migration — old `wrapped_climate` entry yields one `both` device.
 
-## 14. Phasing (after this design is signed off)
+## 14. Phasing
 
-1. **Foundation + decision core** — coordinator owns mode; `devices` model +
-   migration; `get_scheduled_band`; pure `decide`/`route`; wire the control loop;
-   integration-driven auto toggle. (Single or multiple devices already work.)
-2. **Config/Options UX** — the add/edit/remove-device Options flow + sensor +
-   toggle.
+1. **Foundation + decision core** — ✅ **done.** `control.decide`/`plan_routes`
+   (pure core, `test_control.py`); `schedule_helper.get_scheduled_band`;
+   coordinator owns mode; `devices` model + single-device migration; control
+   loop wired through `_apply_control` with change-detection; selectable room-temp
+   source; hysteresis; capability aggregation. Multi-device already works when
+   `devices` is present in the entry (via YAML/storage) — only the *UI* to build
+   that list is still pending (Phase 2). The `integration_driven_auto=false`
+   legacy passthrough is stubbed as a config flag but not yet special-cased
+   (currently always integration-driven).
+2. **Config/Options UX** — config subentries for devices + Options flow for the
+   room-temp source, hysteresis, and the auto toggle. *(next)*
 3. **Schedule card** — dual-line (heat/cool) band editing on the timeline.
-4. **Polish** — hvac_action in cards, per-device role selects, docs.
+4. **Polish** — hvac_action in cards, per-device role selects, docs, and the
+   `integration_driven_auto=false` passthrough.
 
 ## 15. Resolved decisions
 
