@@ -180,14 +180,16 @@ route(decision, devices):
 Notes:
 - **Hysteresis** `H` around switch points prevents rapid heat/cool flapping.
   **Decided:** configurable per instance (Options flow), **default 0.3°C**.
-- **Idle never powers a device off** (that kills the airflow on an airco).
-  **Decided** idle actuation, per device:
-  - device supports `fan_only` → set `hvac_mode = fan_only` (airflow, no
-    heat/cool);
-  - else (e.g. a radiator) → set a **neutral setpoint**: for a heat-capable
-    device, the heat_target (so it coasts without overshooting); it is not
-    turned off.
-  Explicit coordinator `off` is the only path that actually powers devices off.
+- **Parking a device that isn't serving the active intent** (idle, or wrong
+  role — e.g. a radiator while the system is cooling):
+  - device supports `fan_only` → `hvac_mode = fan_only` (an airco keeps its
+    airflow, no heat/cool);
+  - else (no airflow to preserve, e.g. a radiator) → `off`.
+  A device is **never** left in the *opposite* conditioning mode (a radiator is
+  never in `heat` while cooling), which is what keeps heat and cool from ever
+  running together. *(Earlier drafts coasted heaters at a neutral setpoint; that
+  would nominally put a radiator in `heat` during active cooling, so it was
+  dropped in favour of `off`.)*
 - Only issue a device call when the desired (mode, target) differs from the
   device's current state, to avoid command spam every 10 s.
 

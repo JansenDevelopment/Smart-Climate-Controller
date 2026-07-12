@@ -110,6 +110,64 @@ def get_scheduled_temperature(
     return target_temp
 
 
+def get_scheduled_band(
+    schedule: dict | None,
+    now: datetime,
+    heat_fallback: float,
+    cool_fallback: float,
+) -> tuple[float, float]:
+    """Return the ``(heat_target, cool_target)`` band for the current time.
+
+    Uses the same "last node at or before now" resolution as
+    :func:`get_scheduled_temperature` for the heat target (the node's ``temp``).
+    The cool target is the node's optional ``cool_temp``; when a node omits it
+    (or no schedule is configured), *cool_fallback* is used.  The heat target
+    falls back to *heat_fallback*.
+
+    Args:
+        schedule: The schedule dict (may be ``None`` or empty).
+        now: The current datetime used for time comparisons.
+        heat_fallback: Heat target when no node supplies one.
+        cool_fallback: Cool target when a node omits ``cool_temp``.
+
+    Returns:
+        A ``(heat_target, cool_target)`` tuple.
+    """
+    heat_target = get_scheduled_temperature(schedule, now, heat_fallback)
+
+    if not schedule:
+        return heat_target, cool_fallback
+
+    nodes = get_schedule_nodes(schedule, now)
+    if not nodes:
+        return heat_target, cool_fallback
+
+    current_time = now.time().replace(second=0, microsecond=0)
+
+    valid = []
+    for node in nodes:
+        try:
+            t = datetime.strptime(node.get("time", ""), "%H:%M").time()
+        except (ValueError, TypeError):
+            continue
+        valid.append((t, node))
+    if not valid:
+        return heat_target, cool_fallback
+    valid.sort(key=lambda x: x[0])
+
+    active_node = None
+    for t, node in valid:
+        if t <= current_time:
+            active_node = node
+    if active_node is None:
+        active_node = valid[-1][1]  # wrap to previous day's last node
+
+    cool_target = active_node.get("cool_temp", cool_fallback)
+    if not isinstance(cool_target, (int, float)):
+        cool_target = cool_fallback
+    return heat_target, cool_target
+
+
 def compute_next_node_datetime(schedule: dict | None, now: datetime) -> datetime | None:
     """Return the datetime of the next upcoming schedule node.
 

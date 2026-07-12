@@ -19,6 +19,28 @@ CONF_AUTO_TEMPERATURE = "auto_temperature"
 CONF_SCHEDULE = "schedule"
 CONF_COOL_AUTO_TEMPERATURE = "cool_auto_temperature"
 CONF_COOL_AWAY_TEMPERATURE = "cool_away_temperature"
+# Multi-device coordinator (Phase 1)
+CONF_DEVICES = "devices"
+CONF_HVAC_MODE = "hvac_mode"
+CONF_TEMPERATURE_SOURCE = "temperature_source"
+CONF_TEMPERATURE_SENSOR = "temperature_sensor"
+CONF_PRIMARY_DEVICE = "primary_device"
+CONF_HYSTERESIS = "hysteresis"
+CONF_INTEGRATION_DRIVEN_AUTO = "integration_driven_auto"
+
+# Device roles
+ROLE_HEAT = "heat"
+ROLE_COOL = "cool"
+ROLE_BOTH = "both"
+
+# Room-temperature sources
+TEMP_SOURCE_SENSOR = "sensor"
+TEMP_SOURCE_PRIMARY = "primary"
+TEMP_SOURCE_MEAN = "mean"
+
+# Defaults
+DEFAULT_HYSTERESIS = 0.3
+MIN_BAND_GAP = 1.0
 
 # Attributes
 ATTR_MODE = "mode"
