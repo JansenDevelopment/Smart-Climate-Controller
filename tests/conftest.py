@@ -1,5 +1,6 @@
 """Pytest configuration: register HA stub modules before any collection occurs."""
 
+import datetime as _datetime
 import sys
 import types
 from unittest.mock import MagicMock
@@ -30,6 +31,7 @@ _register_stub("homeassistant")
 _register_stub(
     "homeassistant.core",
     HomeAssistant=type("HomeAssistant", (), {}),
+    ServiceCall=type("ServiceCall", (), {}),
     callback=lambda f: f,
 )
 
@@ -45,6 +47,12 @@ _register_stub(
     "homeassistant.config_entries",
     ConfigEntry=type("ConfigEntry", (), {}),
 )
+
+# homeassistant.util + homeassistant.util.dt (climate.py: `from homeassistant.util import dt`)
+_dt_stub = types.ModuleType("homeassistant.util.dt")
+_dt_stub.now = lambda: _datetime.datetime.now()
+_register_stub("homeassistant.util", dt=_dt_stub)
+sys.modules["homeassistant.util.dt"] = _dt_stub
 
 # homeassistant.components
 _register_stub("homeassistant.components")

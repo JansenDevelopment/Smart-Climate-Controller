@@ -9,8 +9,6 @@ from homeassistant.components.lovelace import MODE_STORAGE
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.event import async_call_later
 
-from .const import DOMAIN
-
 _LOGGER = logging.getLogger(__name__)
 CARD_NAME = "smart-climate-card"
 HACS_PATH = "www/community/smart-climate-card"

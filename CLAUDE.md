@@ -162,10 +162,10 @@ pip install ruff
 ruff check custom_components/
 ```
 
-CI (`.github/workflows/ci.yml`) runs both jobs. **Note:** CI is currently
-triggered on the `main` branch only, while the repo's default branch is
-`develop` — pushes/PRs to `develop` will not trigger it as written. Flag this if
-touching CI.
+The async tests rely on `pytest-asyncio` (installed in CI; `asyncio_mode = auto`
+is set in `pytest.ini`, so `async def` tests run without needing a per-test
+mark). CI (`.github/workflows/ci.yml`) runs both jobs on pushes/PRs to `main`
+and `develop`.
 
 ### Manual / integration testing
 
@@ -186,25 +186,23 @@ it from the Lovelace cards or Developer Tools → Services.
 - **Persistence**: runtime-changeable settings are saved to HA's config-entry
   storage (`.storage/core.config_entries`) and survive restarts. Config keys are
   the `CONF_*` values in `const.py`.
-- **Config-flow vs YAML schema drift**: `config_flow.py` offers `next_node` as a
-  default-override option, but the `CONFIG_SCHEMA` in `__init__.py` restricts
-  YAML to `vol.In(["timer", "infinity"])`. Keep these in mind if you change the
-  allowed override modes.
+- **Default-override modes** are `timer`, `infinity`, and `next_node`. Both the
+  UI (`config_flow.py`) and the YAML `CONFIG_SCHEMA` in `__init__.py` accept all
+  three — keep them in sync if you add another mode.
 - **Empty placeholder JS files** (`smart-climate-card.new.js`,
   `smart-climate-card-clean.js`) are intentionally empty scaffolds — don't treat
   them as broken or wire them up unless that's the task.
 
-### ⚠️ Test/constructor signature drift
+### Entity constructor signature
 
-`tests/test_presence_interrupt_override.py` constructs `SmartClimateEntity` with
-keyword args `auto_temp=` and `schedule=` and sets `_last_written_temperature`,
-**none of which exist** in the current `climate.py` constructor
-(`__init__(hass, entry, name, wrapped_climate, zone_home, away_temp,
-away_delay_minutes, interruptible, default_override_mode,
-default_override_duration)`). As written, that test file will raise a
-`TypeError` against the current entity. If you touch this area, reconcile the
-test's `_make_entity` helper with the real constructor signature (or update the
-constructor) rather than assuming the suite is green.
+`SmartClimateEntity.__init__` takes `(hass, entry, name, wrapped_climate,
+zone_home, away_temp, away_delay_minutes, interruptible, default_override_mode,
+default_override_duration)`. `auto_temperature` (default 21) and `schedule`
+(default `None`) are **not** constructor args — they start at their defaults and
+are changed at runtime via the `set_auto_temperature` / `set_schedule` services.
+Tests that build an entity directly (see `_make_entity` in
+`tests/test_presence_interrupt_override.py`) set `_auto_temperature` /
+`_schedule` as attributes after construction rather than passing them in.
 
 ## Where to look first
 
