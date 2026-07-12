@@ -9,6 +9,8 @@
           "wrapped_climate": "Gekoppeld Klimaatapparaat",
           "zone_home": "Thuiszone",
           "away_temperature": "Weg Temperatuur",
+          "cool_auto_temperature": "Koelen Thuis Temperatuur",
+          "cool_away_temperature": "Koelen Weg Temperatuur",
           "away_delay_minutes": "Vertrekvertraging (minuten)",
           "interruptible": "Overschrijving is onderbrekbaar",
           "default_override_mode": "Standaard Overschrijfmodus",
@@ -17,10 +19,12 @@
         "data_description": {
           "wrapped_climate": "Het klimaatapparaat om te beheren",
           "zone_home": "De zone die gebruikt wordt voor aanwezigheidsdetectie",
-          "away_temperature": "Doeltemperatuur wanneer niemand thuis is",
+          "away_temperature": "Doeltemperatuur wanneer niemand thuis is (verwarmen)",
+          "cool_auto_temperature": "Doeltemperatuur wanneer thuis en het apparaat koelt",
+          "cool_away_temperature": "Doeltemperatuur wanneer weg en het apparaat koelt",
           "away_delay_minutes": "Minuten te wachten voordat de weg-temperatuur wordt toegepast",
           "interruptible": "Of een aanwezigheidswijziging een actieve overschrijving kan onderbreken",
-          "default_override_mode": "Overschrijfmodus bij het aanpassen van de temperatuur (timer of oneindig)",
+          "default_override_mode": "Overschrijfmodus bij het aanpassen van de temperatuur (timer, oneindig of volgend moment)",
           "default_override_duration": "Standaardduur in minuten voor timer-overschrijfmodus"
         }
       }

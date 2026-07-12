@@ -11,6 +11,8 @@ from .const import (
     CONF_INTERRUPTIBLE,
     CONF_DEFAULT_OVERRIDE_MODE,
     CONF_DEFAULT_OVERRIDE_DURATION,
+    CONF_COOL_AUTO_TEMPERATURE,
+    CONF_COOL_AWAY_TEMPERATURE,
 )
 
 
@@ -54,6 +56,12 @@ class SmartClimateConfigFlow(ConfigFlow, domain=DOMAIN):
                 ),
                 vol.Optional(CONF_AWAY_TEMPERATURE, default=14): selector.NumberSelector(
                     selector.NumberSelectorConfig(min=5, max=35, step=0.5, unit_of_measurement="°C", mode=selector.NumberSelectorMode.BOX)
+                ),
+                vol.Optional(CONF_COOL_AUTO_TEMPERATURE, default=24): selector.NumberSelector(
+                    selector.NumberSelectorConfig(min=15, max=35, step=0.5, unit_of_measurement="°C", mode=selector.NumberSelectorMode.BOX)
+                ),
+                vol.Optional(CONF_COOL_AWAY_TEMPERATURE, default=28): selector.NumberSelector(
+                    selector.NumberSelectorConfig(min=15, max=35, step=0.5, unit_of_measurement="°C", mode=selector.NumberSelectorMode.BOX)
                 ),
                 vol.Optional(CONF_AWAY_DELAY_MINUTES, default=5): selector.NumberSelector(
                     selector.NumberSelectorConfig(min=0, max=120, step=1, unit_of_measurement="min", mode=selector.NumberSelectorMode.BOX)

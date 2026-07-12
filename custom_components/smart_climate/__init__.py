@@ -12,6 +12,8 @@ from .const import (
     CONF_INTERRUPTIBLE,
     CONF_DEFAULT_OVERRIDE_MODE,
     CONF_DEFAULT_OVERRIDE_DURATION,
+    CONF_COOL_AUTO_TEMPERATURE,
+    CONF_COOL_AWAY_TEMPERATURE,
 )
 from .frontend import SmartClimateCardRegistration
 import voluptuous as vol
@@ -27,6 +29,8 @@ CONFIG_SCHEMA = vol.Schema(
                         vol.Required(CONF_WRAPPED_CLIMATE): cv.entity_id,
                         vol.Required(CONF_ZONE_HOME): cv.entity_id,
                         vol.Optional(CONF_AWAY_TEMPERATURE, default=14): vol.Coerce(float),
+                        vol.Optional(CONF_COOL_AUTO_TEMPERATURE, default=24): vol.Coerce(float),
+                        vol.Optional(CONF_COOL_AWAY_TEMPERATURE, default=28): vol.Coerce(float),
                         vol.Optional(CONF_AWAY_DELAY_MINUTES, default=5): vol.Coerce(int),
                         vol.Optional(CONF_INTERRUPTIBLE, default=True): cv.boolean,
                         vol.Optional(CONF_DEFAULT_OVERRIDE_MODE, default="timer"): vol.In(["timer", "infinity", "next_node"]),

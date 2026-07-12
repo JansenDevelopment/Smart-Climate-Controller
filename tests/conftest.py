@@ -62,8 +62,21 @@ _ClimateEntity = type("ClimateEntity", (), {"async_write_ha_state": MagicMock()}
 _register_stub(
     "homeassistant.components.climate",
     ClimateEntity=_ClimateEntity,
-    ClimateEntityFeature=MagicMock(TARGET_TEMPERATURE=1, PRESET_MODE=2),
-    HVACMode=MagicMock(OFF="off", HEAT="heat"),
+    ClimateEntityFeature=MagicMock(
+        TARGET_TEMPERATURE=1,
+        FAN_MODE=8,
+        PRESET_MODE=16,
+        TURN_OFF=128,
+        TURN_ON=256,
+    ),
+    HVACMode=MagicMock(
+        OFF="off",
+        HEAT="heat",
+        COOL="cool",
+        AUTO="auto",
+        FAN_ONLY="fan_only",
+        DRY="dry",
+    ),
 )
 
 # homeassistant.components.lovelace

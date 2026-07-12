@@ -22,6 +22,8 @@ from .const import (
     SERVICE_SET_INTERRUPTIBLE,
     SERVICE_SET_AUTO_TEMPERATURE,
     SERVICE_SET_AWAY_TEMPERATURE,
+    SERVICE_SET_COOL_AUTO_TEMPERATURE,
+    SERVICE_SET_COOL_AWAY_TEMPERATURE,
     SERVICE_SET_AWAY_DELAY,
     SERVICE_SET_DEFAULT_OVERRIDE_MODE,
     SERVICE_SET_SCHEDULE,
@@ -101,6 +103,16 @@ async def async_register_services(hass: HomeAssistant) -> None:
         if entity:
             await entity.async_set_away_temperature(call.data.get("temperature", 14))
 
+    async def handle_set_cool_auto_temperature(call: ServiceCall) -> None:
+        entity = _get_entity(hass, call)
+        if entity:
+            await entity.async_set_cool_auto_temperature(call.data.get("temperature", 24))
+
+    async def handle_set_cool_away_temperature(call: ServiceCall) -> None:
+        entity = _get_entity(hass, call)
+        if entity:
+            await entity.async_set_cool_away_temperature(call.data.get("temperature", 28))
+
     async def handle_set_away_delay(call: ServiceCall) -> None:
         entity = _get_entity(hass, call)
         if entity:
@@ -137,6 +149,12 @@ async def async_register_services(hass: HomeAssistant) -> None:
     )
     hass.services.async_register(
         DOMAIN, SERVICE_SET_AWAY_TEMPERATURE, handle_set_away_temperature
+    )
+    hass.services.async_register(
+        DOMAIN, SERVICE_SET_COOL_AUTO_TEMPERATURE, handle_set_cool_auto_temperature
+    )
+    hass.services.async_register(
+        DOMAIN, SERVICE_SET_COOL_AWAY_TEMPERATURE, handle_set_cool_away_temperature
     )
     hass.services.async_register(
         DOMAIN, SERVICE_SET_AWAY_DELAY, handle_set_away_delay

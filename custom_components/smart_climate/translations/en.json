@@ -9,6 +9,8 @@
           "wrapped_climate": "Wrapped Climate Entity",
           "zone_home": "Home Zone",
           "away_temperature": "Away Temperature",
+          "cool_auto_temperature": "Cooling Home Temperature",
+          "cool_away_temperature": "Cooling Away Temperature",
           "away_delay_minutes": "Away Delay (minutes)",
           "interruptible": "Override is interruptible",
           "default_override_mode": "Default Override Mode",
@@ -17,10 +19,12 @@
         "data_description": {
           "wrapped_climate": "The climate entity to wrap and control",
           "zone_home": "The zone entity used for presence detection",
-          "away_temperature": "Target temperature when nobody is home",
+          "away_temperature": "Target temperature when nobody is home (heating)",
+          "cool_auto_temperature": "Target temperature when home and the device is cooling",
+          "cool_away_temperature": "Target temperature when away and the device is cooling",
           "away_delay_minutes": "Minutes to wait before applying the away temperature",
           "interruptible": "Whether a presence change can interrupt an active override",
-          "default_override_mode": "Override mode used when adjusting temperature (timer or infinity)",
+          "default_override_mode": "Override mode used when adjusting temperature (timer, infinity, or next_node)",
           "default_override_duration": "Default duration in minutes for timer override mode"
         }
       }

@@ -23,6 +23,8 @@ from .const import (
     CONF_DEFAULT_OVERRIDE_DURATION,
     CONF_AUTO_TEMPERATURE,
     CONF_SCHEDULE,
+    CONF_COOL_AUTO_TEMPERATURE,
+    CONF_COOL_AWAY_TEMPERATURE,
     ATTR_MODE,
     ATTR_PRESENCE,
     ATTR_REMAINING_MINUTES,
@@ -30,6 +32,8 @@ from .const import (
     ATTR_AWAY_DELAY_SECONDS_REMAINING,
     ATTR_OVERRIDE_TEMPERATURE,
     ATTR_WRAPPED_CLIMATE,
+    ATTR_COOL_AUTO_TEMPERATURE,
+    ATTR_COOL_AWAY_TEMPERATURE,
 )
 from . import schedule_helper
 from .services import async_register_services
@@ -73,7 +77,11 @@ async def async_setup_entry(
 class SmartClimateEntity(ClimateEntity):
     """Smart Climate controller entity."""
 
-    _attr_supported_features = ClimateEntityFeature.TARGET_TEMPERATURE
+    # HVAC modes for which the wrapper actively manages the target temperature.
+    # Everything else the wrapped device reports (off, fan_only, dry, …) is
+    # passed through untouched — the wrapper writes no setpoint for those.
+    _HEATING_MODES = (HVACMode.HEAT, HVACMode.AUTO)
+    _COOLING_MODES = (HVACMode.COOL,)
 
     def __init__(
         self,
@@ -93,8 +101,6 @@ class SmartClimateEntity(ClimateEntity):
         self._attr_name = name
         self._attr_unique_id = f"smart_climate_{entry.entry_id}"
         self._attr_temperature_unit = UnitOfTemperature.CELSIUS
-        self._attr_min_temp = 5
-        self._attr_max_temp = 25
         self._attr_should_poll = False
 
         # Config
@@ -111,6 +117,8 @@ class SmartClimateEntity(ClimateEntity):
         self._presence = "away"  # Start as away
         self._interruptible = interruptible
         self._auto_temperature = entry.data.get(CONF_AUTO_TEMPERATURE, 21)
+        self._cool_auto_temperature = entry.data.get(CONF_COOL_AUTO_TEMPERATURE, 24)
+        self._cool_away_temperature = entry.data.get(CONF_COOL_AWAY_TEMPERATURE, 28)
         self._override_temperature = 21
         self._override_start_time = None
         self._override_duration_minutes = 0
@@ -234,12 +242,33 @@ class SmartClimateEntity(ClimateEntity):
         self._away_delay_remaining = 0
 
     async def _update_target_temperature(self):
-        """Calculate and update target temperature to wrapped climate."""
+        """Calculate and push the target temperature to the wrapped climate.
+
+        The wrapper only manages a setpoint while the wrapped device is in a
+        temperature-controlled mode (heat/cool/auto).  When the device is off —
+        or in a mode that has no meaningful setpoint such as ``fan_only`` or
+        ``dry`` — no temperature is written and the device is left untouched.
+        Cooling modes use the dedicated ``cool_*`` setpoints; heat/auto use the
+        heating setpoints and schedule.
+        """
+        wrapped = self.hass.states.get(self._wrapped_climate)
+        if wrapped is None:
+            # Wrapped entity unavailable — nothing we can safely control.
+            return
+        hvac_mode = wrapped.state
+        if hvac_mode not in self._HEATING_MODES and hvac_mode not in self._COOLING_MODES:
+            # off / fan_only / dry / unavailable — pass through, write no setpoint.
+            return
+        cooling = hvac_mode in self._COOLING_MODES
+
         if self._mode in (MODE_OVERRIDE_TIMER, MODE_OVERRIDE_INFINITY, MODE_OVERRIDE_NEXT_NODE):
             target = self._override_temperature
         elif self._mode == MODE_AUTO:
             if self._presence == "home":
-                if self._schedule:
+                if cooling:
+                    # Cooling has no schedule in v1 — use the flat cool setpoint.
+                    target = self._cool_auto_temperature
+                elif self._schedule:
                     target = schedule_helper.get_scheduled_temperature(
                         self._schedule, dt_util.now(), self._auto_temperature
                     )
@@ -253,9 +282,9 @@ class SmartClimateEntity(ClimateEntity):
                 else:
                     target = self._auto_temperature
             else:
-                target = self._away_temperature
+                target = self._cool_away_temperature if cooling else self._away_temperature
         else:
-            target = self._auto_temperature
+            target = self._cool_auto_temperature if cooling else self._auto_temperature
 
         # Set on wrapped climate
         await self.hass.services.async_call(
@@ -341,6 +370,20 @@ class SmartClimateEntity(ClimateEntity):
         await self._update_target_temperature()
         self.async_write_ha_state()
 
+    async def async_set_cool_auto_temperature(self, temperature: float):
+        """Set the target temperature used when home and the device is cooling."""
+        self._cool_auto_temperature = temperature
+        self._persist(**{CONF_COOL_AUTO_TEMPERATURE: temperature})
+        await self._update_target_temperature()
+        self.async_write_ha_state()
+
+    async def async_set_cool_away_temperature(self, temperature: float):
+        """Set the target temperature used when away and the device is cooling."""
+        self._cool_away_temperature = temperature
+        self._persist(**{CONF_COOL_AWAY_TEMPERATURE: temperature})
+        await self._update_target_temperature()
+        self.async_write_ha_state()
+
     async def async_set_away_delay(self, minutes: int):
         """Set the delay before switching to away mode."""
         self._away_delay_minutes = minutes
@@ -386,29 +429,112 @@ class SmartClimateEntity(ClimateEntity):
                 "hvac_mode": hvac_mode,
             },
         )
+        # Re-evaluate the setpoint for the newly selected mode (heat/cool/auto
+        # pick different setpoints; off/fan_only/dry write nothing).
+        await self._update_target_temperature()
         self.async_write_ha_state()
+
+    async def async_set_fan_mode(self, fan_mode: str) -> None:
+        """Delegate fan-mode change to the wrapped climate entity."""
+        await self.hass.services.async_call(
+            "climate",
+            "set_fan_mode",
+            {"entity_id": self._wrapped_climate, "fan_mode": fan_mode},
+        )
+        self.async_write_ha_state()
+
+    async def async_turn_off(self) -> None:
+        """Turn the wrapped climate off."""
+        await self.hass.services.async_call(
+            "climate", "turn_off", {"entity_id": self._wrapped_climate}
+        )
+        self.async_write_ha_state()
+
+    async def async_turn_on(self) -> None:
+        """Turn the wrapped climate on."""
+        await self.hass.services.async_call(
+            "climate", "turn_on", {"entity_id": self._wrapped_climate}
+        )
+        await self._update_target_temperature()
+        self.async_write_ha_state()
+
+    def _wrapped_state(self):
+        """Return the wrapped entity's state object, or ``None``."""
+        return self.hass.states.get(self._wrapped_climate)
+
+    @property
+    def supported_features(self):
+        """Mirror the wrapped device's fan/turn-on/off support."""
+        features = ClimateEntityFeature.TARGET_TEMPERATURE
+        wrapped = self._wrapped_state()
+        if wrapped and (wrapped.attributes.get("supported_features", 0) & ClimateEntityFeature.FAN_MODE):
+            features |= ClimateEntityFeature.FAN_MODE
+        # We can always turn the wrapped device on/off via its hvac mode.
+        features |= ClimateEntityFeature.TURN_ON | ClimateEntityFeature.TURN_OFF
+        return features
 
     @property
     def hvac_modes(self):
-        return [HVACMode.HEAT, HVACMode.OFF]
+        """Mirror the wrapped device's supported HVAC modes."""
+        wrapped = self._wrapped_state()
+        if wrapped:
+            modes = wrapped.attributes.get("hvac_modes")
+            if modes:
+                return list(modes)
+        return [HVACMode.OFF, HVACMode.HEAT, HVACMode.COOL, HVACMode.AUTO]
 
     @property
     def hvac_mode(self):
-        wrapped = self.hass.states.get(self._wrapped_climate)
+        wrapped = self._wrapped_state()
         if wrapped:
             return wrapped.state
         return HVACMode.HEAT
 
     @property
+    def fan_modes(self):
+        wrapped = self._wrapped_state()
+        if wrapped:
+            return wrapped.attributes.get("fan_modes")
+        return None
+
+    @property
+    def fan_mode(self):
+        wrapped = self._wrapped_state()
+        if wrapped:
+            return wrapped.attributes.get("fan_mode")
+        return None
+
+    @property
+    def min_temp(self):
+        wrapped = self._wrapped_state()
+        if wrapped and wrapped.attributes.get("min_temp") is not None:
+            return wrapped.attributes["min_temp"]
+        return 5
+
+    @property
+    def max_temp(self):
+        wrapped = self._wrapped_state()
+        if wrapped and wrapped.attributes.get("max_temp") is not None:
+            return wrapped.attributes["max_temp"]
+        return 35
+
+    @property
+    def target_temperature_step(self):
+        wrapped = self._wrapped_state()
+        if wrapped and wrapped.attributes.get("target_temp_step") is not None:
+            return wrapped.attributes["target_temp_step"]
+        return 0.5
+
+    @property
     def current_temperature(self):
-        wrapped = self.hass.states.get(self._wrapped_climate)
+        wrapped = self._wrapped_state()
         if wrapped:
             return wrapped.attributes.get("current_temperature")
         return None
 
     @property
     def target_temperature(self):
-        wrapped = self.hass.states.get(self._wrapped_climate)
+        wrapped = self._wrapped_state()
         if wrapped:
             return wrapped.attributes.get("temperature")
         return 21
@@ -428,4 +554,6 @@ class SmartClimateEntity(ClimateEntity):
             ATTR_OVERRIDE_TEMPERATURE: self._override_temperature,
             ATTR_AWAY_DELAY_SECONDS_REMAINING: int(self._away_delay_remaining),
             ATTR_WRAPPED_CLIMATE: self._wrapped_climate,
+            ATTR_COOL_AUTO_TEMPERATURE: self._cool_auto_temperature,
+            ATTR_COOL_AWAY_TEMPERATURE: self._cool_away_temperature,
         }
