@@ -133,14 +133,38 @@ temp_sensor: sensor.living_room_temperature
 | `show_presence` | No | `true` | Show presence detection overlay bar on the graph. |
 | `temp_sensor` | No | — | Entity ID of an external temperature sensor to display on the graph (e.g. `sensor.living_room_temperature`). |
 
-## HVAC Mode
+## HVAC Modes
 
-The Smart Climate entity supports two standard HA HVAC modes, controllable from any native climate card or automation:
+The Smart Climate entity **mirrors the HVAC modes of the wrapped device**, so
+whatever your device supports (`heat`, `cool`, `auto`, `fan_only`, `dry`, `off`,
+…) is available from any native climate card or automation. The wrapper's
+min/max temperature, step, and fan modes are also taken from the wrapped device.
+
+How each mode is handled:
 
 | HVAC mode | Behaviour |
 |-----------|-----------|
-| `heat` | Normal operation — auto/schedule mode or active override controls the wrapped climate. |
-| `off` | Turns the wrapped climate off and suspends all temperature writes until `heat` is selected again. |
+| `heat` | Heating setpoints — auto/schedule/away logic (or an active override) drives the wrapped climate. |
+| `auto` | The wrapped device heats or cools toward the smart comfort target (same setpoints/schedule as `heat`). |
+| `cool` | Cooling setpoints — uses the **Cooling Home** / **Cooling Away** temperatures (see below), with presence and overrides applied. |
+| `off` | Turns the wrapped climate off and writes **no** temperature until a heating/cooling mode is selected again. |
+| `fan_only` / `dry` / other | Passed through untouched — the wrapper writes no setpoint. |
+
+### Cooling setpoints
+
+When the wrapped device is in `cool` mode, Smart Climate uses a dedicated pair
+of setpoints instead of the heating temperatures:
+
+| Setting | Default | Applies when |
+|---------|---------|--------------|
+| Cooling Home Temperature | `24` °C | cooling and someone is home |
+| Cooling Away Temperature | `28` °C | cooling and nobody is home |
+
+Set them during initial setup, from the **Cooling Home/Away Temperature** number
+entities, or via the `smart_climate.set_cool_auto_temperature` /
+`smart_climate.set_cool_away_temperature` services. (The time-of-day schedule
+applies to heating only in this version; cooling uses the flat Cooling Home
+temperature when home.)
 
 ## Preset Modes
 
@@ -240,6 +264,28 @@ data:
   temperature: 14
 ```
 
+### `smart_climate.set_cool_auto_temperature`
+
+Set the target temperature used when someone is home and the wrapped device is cooling.
+
+```yaml
+service: smart_climate.set_cool_auto_temperature
+data:
+  entity_id: climate.living_room
+  temperature: 24
+```
+
+### `smart_climate.set_cool_away_temperature`
+
+Set the target temperature used when nobody is home and the wrapped device is cooling.
+
+```yaml
+service: smart_climate.set_cool_away_temperature
+data:
+  entity_id: climate.living_room
+  temperature: 28
+```
+
 ### `smart_climate.set_away_delay`
 
 Set how long (in minutes) to wait after everyone leaves before switching to the away temperature.
@@ -276,9 +322,30 @@ data:
 
 When `mode` is `next_node` the `duration` field is ignored; the override automatically ends at the next schedule node.
 
+## Helper Entities
+
+In addition to the Lovelace cards, every runtime setting is exposed as a
+standard Home Assistant entity, grouped under a single **Smart Climate** device.
+These give you history, dashboards, and automations without the custom cards —
+and can be dropped onto any dashboard with an Entities card.
+
+| Entity | Type | Setting |
+|--------|------|---------|
+| Home Temperature | `number` | Auto/home heating target |
+| Away Temperature | `number` | Away heating target |
+| Cooling Home Temperature | `number` | Home target when cooling |
+| Cooling Away Temperature | `number` | Away target when cooling |
+| Away Delay | `number` | Minutes before applying the away temperature |
+| Default Override Duration | `number` | Timer length for timer overrides |
+| Override Interruptible | `switch` | Whether presence changes cancel an override |
+| Default Override Mode | `select` | `timer` / `infinity` / `next_node` |
+
+Changing any of these calls the matching `smart_climate.*` service, so the value
+is applied immediately and persisted across restarts.
+
 ## Persistent Storage
 
-Configuration values that can be changed at runtime (away temperature, away delay, interruptible flag, default override mode, default override duration, auto temperature, and schedule) are now saved persistently.
+Configuration values that can be changed at runtime (away temperature, cooling home/away temperatures, away delay, interruptible flag, default override mode, default override duration, auto temperature, and schedule) are saved persistently.
 
 When you call any of the configuration services (e.g. `set_away_temperature`, `set_schedule`) or use one of the built-in Lovelace cards, the updated values are written immediately to Home Assistant's config entry storage:
 

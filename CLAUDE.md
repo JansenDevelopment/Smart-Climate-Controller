@@ -28,6 +28,8 @@ custom_components/smart_climate/     # the integration (all backend + frontend a
   __init__.py                        # config-entry + YAML setup, platform forwarding, card registration
   climate.py                         # SmartClimateEntity — core state machine & control loop
   sensor.py                          # SmartClimatePresenceSensor — mirrors presence to a sensor for history
+  number.py / switch.py / select.py  # native helper entities for the runtime settings
+  entity_base.py                     # SmartClimateChildEntity — shared base for the helper entities
   services.py                        # registers all smart_climate.* HA services (idempotent)
   services.yaml                      # service metadata/selectors shown in the HA UI
   config_flow.py                     # UI config + reconfigure flow
@@ -68,11 +70,22 @@ README.md                            # user-facing install/usage docs
 Every path ends in `_update_target_temperature()`, which computes the target and
 issues a `climate.set_temperature` call to the wrapped entity.
 
-**Target-temperature resolution** (in `_update_target_temperature`):
-- Any override mode → `_override_temperature`.
-- Auto + present + schedule set → `schedule_helper.get_scheduled_temperature(...)`.
-- Auto + present + no schedule → `_auto_temperature`.
-- Auto + away → `_away_temperature`.
+**Target-temperature resolution** (in `_update_target_temperature`) is
+**HVAC-mode-aware** — it reads the *wrapped* device's current HVAC mode first:
+- Wrapped is `off` / `fan_only` / `dry`, or unavailable → **write nothing**
+  (pass-through). This is why selecting `off` genuinely stops setpoint writes.
+- Wrapped is `cool` → cooling setpoints: override temp, else `_cool_away_temperature`
+  (away) or `_cool_auto_temperature` (home; no schedule in cool for v1).
+- Wrapped is `heat` / `auto` → heating setpoints (the original logic):
+  - Any override mode → `_override_temperature`.
+  - Auto + present + schedule set → `schedule_helper.get_scheduled_temperature(...)`.
+  - Auto + present + no schedule → `_auto_temperature`.
+  - Auto + away → `_away_temperature`.
+
+The wrapper mirrors the wrapped device's capabilities rather than hardcoding
+them: `hvac_modes`, `min_temp`/`max_temp`/`target_temperature_step`, `fan_mode`
+(only when the device advertises `FAN_MODE`), and `supported_features` are all
+derived from the wrapped entity's state, with sensible fallbacks.
 
 ### Modes (`const.py`)
 
@@ -81,6 +94,12 @@ Internal `_mode` is one of `MODE_AUTO`, `MODE_OVERRIDE_TIMER`,
 modes** (`auto` / `timer` / `infinity` / `next_node`) so the native climate card
 can display and set them, and are *also* published as a custom `mode` extra state
 attribute for backward compatibility — **do not remove the `mode` attribute.**
+
+`_mode` (the preset/override axis) is **orthogonal** to the **HVAC mode**
+(`heat`/`cool`/`auto`/`off`/`fan_only`/`dry`), which comes from the *wrapped*
+device and drives the heating-vs-cooling setpoint family (see the control loop
+above). Setting the HVAC mode delegates to the wrapped entity; the wrapper reads
+it back rather than owning it.
 
 ### Presence & away delay
 
@@ -117,6 +136,24 @@ schedule card draw the home/away bar, `SmartClimatePresenceSensor` mirrors the
 climate entity's `presence` attribute into a dedicated sensor's *state*, which HA
 does record. It finds its paired climate entity via the entity registry using the
 `smart_climate_{entry_id}` unique-id convention.
+
+### Helper entities (`number.py`, `switch.py`, `select.py`, `entity_base.py`)
+
+Every runtime setting is also exposed as a native HA entity so users get
+history, automations, and standard UI control without the custom cards:
+`number` (home/away temp, cooling home/away temp, away delay, default override
+duration), `switch` (interruptible), and `select` (default override mode). They
+all extend `SmartClimateChildEntity` (`entity_base.py`), which — like the
+presence sensor — resolves the paired climate entity via the registry, subscribes
+to its state changes, **reads** the current value from the climate entity's state
+*attributes*, and **writes** changes back through the `smart_climate.*` services.
+This is why the climate entity publishes `auto_temperature`, `away_temperature`,
+`away_delay_minutes`, `default_override_mode/duration`, and the `cool_*` temps as
+extra state attributes — they're the helpers' source of truth. All entities share
+`device_info` (`identifiers = {(DOMAIN, entry_id)}`) so they group under one
+device. The duration `number` and the mode `select` both route through
+`set_default_override_mode` (the backend sets mode+duration together), preserving
+the other value.
 
 ### Services (`services.py` + `services.yaml`)
 
@@ -197,12 +234,23 @@ it from the Lovelace cards or Developer Tools → Services.
 
 `SmartClimateEntity.__init__` takes `(hass, entry, name, wrapped_climate,
 zone_home, away_temp, away_delay_minutes, interruptible, default_override_mode,
-default_override_duration)`. `auto_temperature` (default 21) and `schedule`
-(default `None`) are **not** constructor args — they start at their defaults and
-are changed at runtime via the `set_auto_temperature` / `set_schedule` services.
+default_override_duration)`. `auto_temperature` (default 21), `schedule`
+(default `None`), and the cooling setpoints `cool_auto_temperature` (24) /
+`cool_away_temperature` (28) are **not** constructor args — they are restored
+from `entry.data` on construction and changed at runtime via the
+`set_auto_temperature` / `set_schedule` / `set_cool_*_temperature` services.
 Tests that build an entity directly (see `_make_entity` in
 `tests/test_presence_interrupt_override.py`) set `_auto_temperature` /
 `_schedule` as attributes after construction rather than passing them in.
+
+### Adding a runtime setting
+
+The pattern for a persisted, card- and helper-controllable setting: add the
+`CONF_*` key + `ATTR_*` name + `SERVICE_*` to `const.py`; read it from
+`entry.data` in the constructor; add an `async_set_*` method that calls
+`_persist(...)`; register the service (`services.py` + `services.yaml`); publish
+it in `extra_state_attributes`; and, if it should have a native control, add a
+`number`/`switch`/`select` entry backed by `SmartClimateChildEntity`.
 
 ## Where to look first
 
@@ -211,6 +259,8 @@ Tests that build an entity directly (see `_make_entity` in
 | Target-temperature / presence / override logic | `climate.py` |
 | Schedule math | `schedule_helper.py` |
 | Add/modify a service | `services.py`, `services.yaml`, `const.py` |
+| Heating/cooling setpoint selection | `_update_target_temperature` in `climate.py` |
+| Native number/switch/select controls | `number.py`, `switch.py`, `select.py`, `entity_base.py` |
 | Setup flow / config fields | `config_flow.py`, `strings.json`, `translations/` |
 | Card UI | `smart-climate-*.js`, `frontend.py` |
 | Names/keys/modes | `const.py` |
