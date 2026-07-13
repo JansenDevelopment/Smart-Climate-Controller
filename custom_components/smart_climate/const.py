@@ -81,6 +81,7 @@ SERVICE_SET_COOL_AWAY_TEMPERATURE = "set_cool_away_temperature"
 SERVICE_SET_AWAY_DELAY = "set_away_delay"
 SERVICE_SET_DEFAULT_OVERRIDE_MODE = "set_default_override_mode"
 SERVICE_SET_SCHEDULE = "set_schedule"
+SERVICE_SET_DEVICE_ROLE = "set_device_role"
 
 # Schedule modes
 SCHEDULE_MODE_DAILY = "daily"

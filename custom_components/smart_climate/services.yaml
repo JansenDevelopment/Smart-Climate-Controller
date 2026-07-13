@@ -300,3 +300,32 @@ set_schedule:
       required: true
       selector:
         object:
+
+set_device_role:
+  name: Set Device Role
+  description: Change one actuator device's role (heat, cool, or both)
+  fields:
+    entity_id:
+      name: Entity
+      description: Smart Climate coordinator entity
+      required: true
+      selector:
+        entity:
+          domain: climate
+    device:
+      name: Device
+      description: The actuator climate entity to re-role
+      required: true
+      selector:
+        entity:
+          domain: climate
+    role:
+      name: Role
+      description: What the device may do
+      required: true
+      selector:
+        select:
+          options:
+            - heat
+            - cool
+            - both

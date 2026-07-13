@@ -32,6 +32,10 @@ from .const import (
     CONF_TEMPERATURE_SENSOR,
     CONF_PRIMARY_DEVICE,
     CONF_HYSTERESIS,
+    CONF_ROLE,
+    CONF_ENTITY_ID,
+    ROLE_HEAT,
+    ROLE_COOL,
     ROLE_BOTH,
     SUBENTRY_TYPE_DEVICE,
     TEMP_SOURCE_SENSOR,
@@ -570,6 +574,53 @@ class SmartClimateEntity(ClimateEntity):
         """Set the temperature schedule used in auto/home mode."""
         self._schedule = schedule
         self._persist(**{CONF_SCHEDULE: schedule})
+        await self._apply_control()
+        self.async_write_ha_state()
+
+    def _find_device_subentry(self, entity_id):
+        """Return the device config subentry for *entity_id*, or ``None``."""
+        subentries = getattr(self.entry, "subentries", None)
+        if isinstance(subentries, Mapping):
+            for sub in subentries.values():
+                if getattr(sub, "subentry_type", None) != SUBENTRY_TYPE_DEVICE:
+                    continue
+                if (getattr(sub, "data", {}) or {}).get(CONF_ENTITY_ID) == entity_id:
+                    return sub
+        return None
+
+    async def async_set_device_role(self, device_entity_id: str, role: str) -> None:
+        """Change one actuator device's role (heat/cool/both) at runtime."""
+        if role not in (ROLE_HEAT, ROLE_COOL, ROLE_BOTH):
+            _LOGGER.warning(
+                "Ignoring invalid device role %r for %s", role, device_entity_id
+            )
+            return
+        if not any(d["entity_id"] == device_entity_id for d in self._devices):
+            _LOGGER.warning(
+                "Cannot set role: %s is not an actuator device of %s",
+                device_entity_id,
+                getattr(self, "entity_id", self._attr_name),
+            )
+            return
+
+        # Update in-memory first so the reload-on-device-change listener treats
+        # this as a routine setting change (no reload) — the role lives inside
+        # the device dict, so pre-updating keeps the resolved list equal.
+        self._devices = [
+            {**d, CONF_ROLE: role} if d["entity_id"] == device_entity_id else d
+            for d in self._devices
+        ]
+
+        # Persist to the device's source of truth: its config subentry when it
+        # has one, else the entry.data devices list.
+        subentry = self._find_device_subentry(device_entity_id)
+        if subentry is not None:
+            self.hass.config_entries.async_update_subentry(
+                self.entry, subentry, data={**subentry.data, CONF_ROLE: role}
+            )
+        else:
+            self._persist(**{CONF_DEVICES: [dict(d) for d in self._devices]})
+
         await self._apply_control()
         self.async_write_ha_state()
 

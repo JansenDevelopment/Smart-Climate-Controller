@@ -27,6 +27,7 @@ from .const import (
     SERVICE_SET_AWAY_DELAY,
     SERVICE_SET_DEFAULT_OVERRIDE_MODE,
     SERVICE_SET_SCHEDULE,
+    SERVICE_SET_DEVICE_ROLE,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -131,6 +132,14 @@ async def async_register_services(hass: HomeAssistant) -> None:
         if entity:
             await entity.async_set_schedule(call.data.get("schedule"))
 
+    async def handle_set_device_role(call: ServiceCall) -> None:
+        entity = _get_entity(hass, call)
+        if entity:
+            await entity.async_set_device_role(
+                call.data.get("device"),
+                call.data.get("role"),
+            )
+
     hass.services.async_register(
         DOMAIN, SERVICE_SET_OVERRIDE_TIMER, handle_set_override_timer
     )
@@ -164,4 +173,7 @@ async def async_register_services(hass: HomeAssistant) -> None:
     )
     hass.services.async_register(
         DOMAIN, SERVICE_SET_SCHEDULE, handle_set_schedule
+    )
+    hass.services.async_register(
+        DOMAIN, SERVICE_SET_DEVICE_ROLE, handle_set_device_role
     )
