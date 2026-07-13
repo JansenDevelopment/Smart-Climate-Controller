@@ -142,7 +142,8 @@ does record. It finds its paired climate entity via the entity registry using th
 Every runtime setting is also exposed as a native HA entity so users get
 history, automations, and standard UI control without the custom cards:
 `number` (home/away temp, cooling home/away temp, away delay, default override
-duration), `switch` (interruptible), and `select` (default override mode). They
+duration), `switch` (interruptible), and `select` (default override mode, plus
+one per-actuator-device role select — heat/cool/both — created per device). They
 all extend `SmartClimateChildEntity` (`entity_base.py`), which — like the
 presence sensor — resolves the paired climate entity via the registry, subscribes
 to its state changes, **reads** the current value from the climate entity's state
