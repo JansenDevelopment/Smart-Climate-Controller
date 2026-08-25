@@ -1,22 +1,23 @@
+import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
 from homeassistant.const import CONF_NAME
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers import config_validation as cv
+
 from .const import (
-    DOMAIN,
-    PLATFORMS,
-    CONF_WRAPPED_CLIMATE,
-    CONF_ZONE_HOME,
-    CONF_AWAY_TEMPERATURE,
     CONF_AWAY_DELAY_MINUTES,
-    CONF_INTERRUPTIBLE,
-    CONF_DEFAULT_OVERRIDE_MODE,
-    CONF_DEFAULT_OVERRIDE_DURATION,
+    CONF_AWAY_TEMPERATURE,
     CONF_COOL_AUTO_TEMPERATURE,
     CONF_COOL_AWAY_TEMPERATURE,
+    CONF_DEFAULT_OVERRIDE_DURATION,
+    CONF_DEFAULT_OVERRIDE_MODE,
+    CONF_INTERRUPTIBLE,
+    CONF_WRAPPED_CLIMATE,
+    CONF_ZONE_HOME,
+    DOMAIN,
+    PLATFORMS,
 )
 from .frontend import SmartClimateCardRegistration
-import voluptuous as vol
 
 CONFIG_SCHEMA = vol.Schema(
     {

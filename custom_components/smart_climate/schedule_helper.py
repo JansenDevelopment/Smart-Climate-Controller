@@ -4,12 +4,16 @@ This module provides pure, HA-independent functions for resolving schedule
 nodes and computing target temperatures based on the current time.  All
 functions accept the schedule dict and a ``datetime`` object as arguments
 so they can be unit-tested without a Home Assistant instance.
+
+Node times are parsed as naive wall-clock times (``%H:%M``) and only their
+time-of-day component is ever used, so the ``DTZ007`` suppressions below are
+deliberate -- there is no date or timezone in play.
 """
 
-from datetime import datetime, timedelta
 import logging
+from datetime import datetime, timedelta
 
-from .const import SCHEDULE_MODE_DAILY, SCHEDULE_MODE_52, SCHEDULE_MODE_INDIVIDUAL
+from .const import SCHEDULE_MODE_52, SCHEDULE_MODE_DAILY, SCHEDULE_MODE_INDIVIDUAL
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -70,7 +74,7 @@ def get_scheduled_temperature(
     def _parse_time(t: str):
         """Parse HH:MM time string; return a comparable time object."""
         try:
-            return datetime.strptime(t, "%H:%M").time()
+            return datetime.strptime(t, "%H:%M").time()  # noqa: DTZ007
         except (ValueError, TypeError):
             _LOGGER.warning(
                 "Smart Climate: invalid time format '%s' in schedule node (expected HH:MM)", t
@@ -147,7 +151,7 @@ def get_scheduled_band(
     valid = []
     for node in nodes:
         try:
-            t = datetime.strptime(node.get("time", ""), "%H:%M").time()
+            t = datetime.strptime(node.get("time", ""), "%H:%M").time()  # noqa: DTZ007
         except (ValueError, TypeError):
             continue
         valid.append((t, node))
@@ -189,7 +193,7 @@ def compute_next_node_datetime(schedule: dict | None, now: datetime) -> datetime
 
     def _parse_time(t: str):
         try:
-            return datetime.strptime(t, "%H:%M").time()
+            return datetime.strptime(t, "%H:%M").time()  # noqa: DTZ007
         except (ValueError, TypeError):
             return None
 

@@ -45,8 +45,7 @@ def clamp_band(heat_target: float, cool_target: float, min_gap: float = MIN_BAND
     target), which is the only way the single-intent model could otherwise be
     asked to heat and cool at the same temperature.
     """
-    if cool_target < heat_target + min_gap:
-        cool_target = heat_target + min_gap
+    cool_target = max(cool_target, heat_target + min_gap)
     return heat_target, cool_target
 
 
