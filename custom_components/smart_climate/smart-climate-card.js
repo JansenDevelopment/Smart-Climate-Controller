@@ -31,6 +31,10 @@ class SmartClimateCard extends LitElement {
     const zone = this.hass.states["zone.home"];
     const isHome = Number(zone?.state) > 0;
 
+    // The entity state is the coordinator's HVAC mode; "off" means it drives
+    // nothing at all, so say so instead of showing a setpoint that is not used.
+    const isOff = entity.state === "off";
+
     const attrs = entity.attributes;
     const currentTemp = attrs.current_temperature ?? "—";
     const targetTemp = attrs.temperature ?? 21;
@@ -51,18 +55,30 @@ class SmartClimateCard extends LitElement {
         <div class="content">
           <div class="header">
             <div class="title">SmartClimate</div>
-            <div class="presence" ?away=${!isHome}>
-              ${isHome ? "🏠 Home" : "📍 Away"}
+            <div class="header-right">
+              <div class="presence" ?away=${!isHome}>
+                ${isHome ? "🏠 Home" : "📍 Away"}
+              </div>
+              <button
+                class="power"
+                ?on=${!isOff}
+                title=${isOff ? "Turn on (auto)" : "Turn off"}
+                @click=${this.onPowerClick}
+              >
+                <ha-icon icon="mdi:power"></ha-icon>
+              </button>
             </div>
           </div>
 
-          <div class="temps">
-            ${currentTemp}° → ${targetTemp}°
+          <div class="temps" ?off=${isOff}>
+            ${isOff
+              ? html`${currentTemp}° · <span class="off-label">Off</span>`
+              : html`${currentTemp}° → ${targetTemp}°`}
           </div>
 
           <div class="mode">Mode: ${mode}</div>
 
-          <div class="panel">
+          <div class="panel" ?dimmed=${isOff}>
             <div class="state">
               ${isTimer
                 ? html`<span class="countdown">Remaining: <strong>${this.formatTime(remaining)}</strong></span>`
@@ -90,7 +106,7 @@ class SmartClimateCard extends LitElement {
             </div>
           </div>
 
-          <div class="temp-slider-panel">
+          <div class="temp-slider-panel" ?dimmed=${isOff}>
             <div class="temp-label">Override: <strong>${this._overrideTemp}°</strong></div>
             <input
               type="range"
@@ -111,6 +127,15 @@ class SmartClimateCard extends LitElement {
         </div>
       </ha-card>
     `;
+  }
+
+  onPowerClick() {
+    const entity = this.hass.states[this.config.entity];
+    const isOff = entity?.state === "off";
+    this.hass.callService("climate", "set_hvac_mode", {
+      entity_id: this.config.entity,
+      hvac_mode: isOff ? "auto" : "off",
+    });
   }
 
   onSliderChange(e) {
@@ -178,6 +203,12 @@ class SmartClimateCard extends LitElement {
       font-weight: 600;
     }
 
+    .header-right {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
     .presence {
       font-size: 12px;
       padding: 4px 8px;
@@ -192,9 +223,53 @@ class SmartClimateCard extends LitElement {
       color: #f44336;
     }
 
+    .power {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 32px;
+      height: 32px;
+      padding: 0;
+      border: none;
+      border-radius: 50%;
+      cursor: pointer;
+      background: var(--secondary-background-color);
+      color: var(--secondary-text-color);
+      transition: all 0.2s ease;
+    }
+
+    .power[on] {
+      background: rgba(76, 175, 80, 0.15);
+      color: #4caf50;
+    }
+
+    .power:hover {
+      filter: brightness(1.25);
+    }
+
+    .power ha-icon {
+      --mdc-icon-size: 20px;
+    }
+
     .temps {
       margin-top: 8px;
       font-size: 16px;
+      transition: color 0.3s ease;
+    }
+
+    .temps[off] {
+      color: var(--secondary-text-color);
+    }
+
+    .off-label {
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    /* The coordinator writes nothing while off, so the sliders are inert. */
+    [dimmed] {
+      opacity: 0.45;
     }
 
     .mode {
