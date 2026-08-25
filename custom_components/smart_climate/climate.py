@@ -624,8 +624,14 @@ class SmartClimateEntity(ClimateEntity):
         await self.async_set_hvac_mode(HVACMode.OFF)
 
     async def async_turn_on(self) -> None:
-        """Turn the coordinator on (defaults to heat)."""
-        await self.async_set_hvac_mode(HVACMode.HEAT)
+        """Turn the coordinator on in auto — it owns the heat/cool decision.
+
+        Not ``heat``: pinning a mode here would hand the heat-versus-cool call
+        back to whatever set it, while the whole point of the coordinator is
+        that ``control.decide`` picks the intent from the room temperature and
+        the band, and ``plan_routes`` drives the devices accordingly.
+        """
+        await self.async_set_hvac_mode(HVACMode.AUTO)
 
     # ---- Capability aggregation ------------------------------------------
 

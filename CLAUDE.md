@@ -95,11 +95,17 @@ modes** (`auto` / `timer` / `infinity` / `next_node`) so the native climate card
 can display and set them, and are *also* published as a custom `mode` extra state
 attribute for backward compatibility — **do not remove the `mode` attribute.**
 
-`_mode` (the preset/override axis) is **orthogonal** to the **HVAC mode**
-(`heat`/`cool`/`auto`/`off`/`fan_only`/`dry`), which comes from the *wrapped*
-device and drives the heating-vs-cooling setpoint family (see the control loop
-above). Setting the HVAC mode delegates to the wrapped entity; the wrapper reads
-it back rather than owning it.
+`_mode` (the preset/override axis) is **orthogonal** to the coordinator's own
+**HVAC mode** (`off`/`heat`/`cool`/`auto` — see `_OWN_HVAC_MODES`). That mode is
+**owned here**, not mirrored from a device: it is persisted as `CONF_HVAC_MODE`
+and fed into `control.decide` as an input.
+
+**The coordinator leads.** `decide` resolves a single intent
+(`off`/`idle`/`heat`/`cool`) from the room temperature and the band, and
+`plan_routes` then writes each device's HVAC mode *and* setpoint — so a
+third-party thermostat never gets to pick heating-versus-cooling by itself.
+That is why `async_turn_on` selects `auto` instead of pinning `heat`: pinning a
+mode would hand that decision back to whoever set it.
 
 ### Presence & away delay
 
