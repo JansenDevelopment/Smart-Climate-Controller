@@ -27,8 +27,9 @@ class SmartClimateCard extends LitElement {
       `;
     }
 
+    // The zone's state is its occupancy count, not the string "home".
     const zone = this.hass.states["zone.home"];
-    const isHome = zone?.state === "home";
+    const isHome = Number(zone?.state) > 0;
 
     const attrs = entity.attributes;
     const currentTemp = attrs.current_temperature ?? "—";
