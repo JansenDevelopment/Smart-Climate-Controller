@@ -1,5 +1,6 @@
 """Config, subentry (devices) and options flows for Smart Climate."""
 
+import voluptuous as vol
 from homeassistant.config_entries import (
     ConfigFlow,
     ConfigSubentryFlow,
@@ -8,34 +9,33 @@ from homeassistant.config_entries import (
 from homeassistant.const import CONF_NAME
 from homeassistant.core import callback
 from homeassistant.helpers import selector
-import voluptuous as vol
 
 from .const import (
-    DOMAIN,
-    CONF_ZONE_HOME,
-    CONF_AWAY_TEMPERATURE,
     CONF_AWAY_DELAY_MINUTES,
-    CONF_INTERRUPTIBLE,
-    CONF_DEFAULT_OVERRIDE_MODE,
-    CONF_DEFAULT_OVERRIDE_DURATION,
+    CONF_AWAY_TEMPERATURE,
     CONF_COOL_AUTO_TEMPERATURE,
     CONF_COOL_AWAY_TEMPERATURE,
+    CONF_DEFAULT_OVERRIDE_DURATION,
+    CONF_DEFAULT_OVERRIDE_MODE,
     CONF_DEVICES,
     CONF_ENTITY_ID,
-    CONF_ROLE,
-    CONF_TEMPERATURE_SOURCE,
-    CONF_TEMPERATURE_SENSOR,
-    CONF_PRIMARY_DEVICE,
     CONF_HYSTERESIS,
     CONF_INTEGRATION_DRIVEN_AUTO,
-    ROLE_HEAT,
-    ROLE_COOL,
-    ROLE_BOTH,
-    SUBENTRY_TYPE_DEVICE,
-    TEMP_SOURCE_SENSOR,
-    TEMP_SOURCE_PRIMARY,
-    TEMP_SOURCE_MEAN,
+    CONF_INTERRUPTIBLE,
+    CONF_PRIMARY_DEVICE,
+    CONF_ROLE,
+    CONF_TEMPERATURE_SENSOR,
+    CONF_TEMPERATURE_SOURCE,
+    CONF_ZONE_HOME,
     DEFAULT_HYSTERESIS,
+    DOMAIN,
+    ROLE_BOTH,
+    ROLE_COOL,
+    ROLE_HEAT,
+    SUBENTRY_TYPE_DEVICE,
+    TEMP_SOURCE_MEAN,
+    TEMP_SOURCE_PRIMARY,
+    TEMP_SOURCE_SENSOR,
 )
 
 ROLES = [ROLE_HEAT, ROLE_COOL, ROLE_BOTH]

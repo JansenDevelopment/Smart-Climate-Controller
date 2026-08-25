@@ -1,63 +1,72 @@
+import logging
 from collections.abc import Mapping
 from datetime import timedelta
-from homeassistant.components.climate import ClimateEntity, ClimateEntityFeature, HVACMode
-from homeassistant.const import UnitOfTemperature, CONF_NAME
-from homeassistant.core import HomeAssistant
-from homeassistant.config_entries import ConfigEntry
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.event import async_track_time_interval, async_track_state_change_event
-from homeassistant.util import dt as dt_util
-import logging
+from typing import ClassVar
 
+from homeassistant.components.climate import (
+    ClimateEntity,
+    ClimateEntityFeature,
+    HVACMode,
+)
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import CONF_NAME, UnitOfTemperature
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.event import (
+    async_track_state_change_event,
+    async_track_time_interval,
+)
+from homeassistant.util import dt as dt_util
+
+from . import control, schedule_helper
 from .const import (
-    DOMAIN,
-    MODE_AUTO,
-    MODE_OVERRIDE_TIMER,
-    MODE_OVERRIDE_INFINITY,
-    MODE_OVERRIDE_NEXT_NODE,
-    CONF_WRAPPED_CLIMATE,
-    CONF_ZONE_HOME,
-    CONF_AWAY_TEMPERATURE,
-    CONF_AWAY_DELAY_MINUTES,
-    CONF_INTERRUPTIBLE,
-    CONF_DEFAULT_OVERRIDE_MODE,
-    CONF_DEFAULT_OVERRIDE_DURATION,
-    CONF_AUTO_TEMPERATURE,
-    CONF_SCHEDULE,
-    CONF_COOL_AUTO_TEMPERATURE,
-    CONF_COOL_AWAY_TEMPERATURE,
-    CONF_DEVICES,
-    CONF_HVAC_MODE,
-    CONF_TEMPERATURE_SOURCE,
-    CONF_TEMPERATURE_SENSOR,
-    CONF_PRIMARY_DEVICE,
-    CONF_HYSTERESIS,
-    ROLE_BOTH,
-    SUBENTRY_TYPE_DEVICE,
-    TEMP_SOURCE_SENSOR,
-    TEMP_SOURCE_PRIMARY,
-    TEMP_SOURCE_MEAN,
-    DEFAULT_HYSTERESIS,
-    ATTR_MODE,
-    ATTR_PRESENCE,
-    ATTR_REMAINING_MINUTES,
-    ATTR_INTERRUPTIBLE,
+    ATTR_AUTO_TEMPERATURE,
+    ATTR_AWAY_DELAY_MINUTES,
     ATTR_AWAY_DELAY_SECONDS_REMAINING,
-    ATTR_OVERRIDE_TEMPERATURE,
-    ATTR_WRAPPED_CLIMATE,
+    ATTR_AWAY_TEMPERATURE,
     ATTR_COOL_AUTO_TEMPERATURE,
     ATTR_COOL_AWAY_TEMPERATURE,
-    ATTR_AUTO_TEMPERATURE,
-    ATTR_AWAY_TEMPERATURE,
-    ATTR_AWAY_DELAY_MINUTES,
-    ATTR_DEFAULT_OVERRIDE_MODE,
-    ATTR_DEFAULT_OVERRIDE_DURATION,
-    ATTR_HEAT_TARGET,
     ATTR_COOL_LIMIT,
-    ATTR_INTENT,
+    ATTR_DEFAULT_OVERRIDE_DURATION,
+    ATTR_DEFAULT_OVERRIDE_MODE,
     ATTR_DEVICES,
+    ATTR_HEAT_TARGET,
+    ATTR_INTENT,
+    ATTR_INTERRUPTIBLE,
+    ATTR_MODE,
+    ATTR_OVERRIDE_TEMPERATURE,
+    ATTR_PRESENCE,
+    ATTR_REMAINING_MINUTES,
+    ATTR_WRAPPED_CLIMATE,
+    CONF_AUTO_TEMPERATURE,
+    CONF_AWAY_DELAY_MINUTES,
+    CONF_AWAY_TEMPERATURE,
+    CONF_COOL_AUTO_TEMPERATURE,
+    CONF_COOL_AWAY_TEMPERATURE,
+    CONF_DEFAULT_OVERRIDE_DURATION,
+    CONF_DEFAULT_OVERRIDE_MODE,
+    CONF_DEVICES,
+    CONF_HVAC_MODE,
+    CONF_HYSTERESIS,
+    CONF_INTERRUPTIBLE,
+    CONF_PRIMARY_DEVICE,
+    CONF_SCHEDULE,
+    CONF_TEMPERATURE_SENSOR,
+    CONF_TEMPERATURE_SOURCE,
+    CONF_WRAPPED_CLIMATE,
+    CONF_ZONE_HOME,
+    DEFAULT_HYSTERESIS,
+    DOMAIN,
+    MODE_AUTO,
+    MODE_OVERRIDE_INFINITY,
+    MODE_OVERRIDE_NEXT_NODE,
+    MODE_OVERRIDE_TIMER,
+    ROLE_BOTH,
+    SUBENTRY_TYPE_DEVICE,
+    TEMP_SOURCE_MEAN,
+    TEMP_SOURCE_PRIMARY,
+    TEMP_SOURCE_SENSOR,
 )
-from . import control, schedule_helper
 from .services import async_register_services
 
 _LOGGER = logging.getLogger(__name__)
@@ -106,7 +115,12 @@ class SmartClimateEntity(ClimateEntity):
     """
 
     # The coordinator's own HVAC modes (not mirrored from a device).
-    _OWN_HVAC_MODES = [HVACMode.OFF, HVACMode.HEAT, HVACMode.COOL, HVACMode.AUTO]
+    _OWN_HVAC_MODES: ClassVar[list[HVACMode]] = [
+        HVACMode.OFF,
+        HVACMode.HEAT,
+        HVACMode.COOL,
+        HVACMode.AUTO,
+    ]
 
     def __init__(
         self,
@@ -293,10 +307,13 @@ class SmartClimateEntity(ClimateEntity):
                 self._override_start_time = None
 
         # Update next-node override
-        if self._mode == MODE_OVERRIDE_NEXT_NODE and self._next_node_datetime:
-            if current_time >= self._next_node_datetime:
-                self._mode = MODE_AUTO
-                self._next_node_datetime = None
+        if (
+            self._mode == MODE_OVERRIDE_NEXT_NODE
+            and self._next_node_datetime
+            and current_time >= self._next_node_datetime
+        ):
+            self._mode = MODE_AUTO
+            self._next_node_datetime = None
 
         # Evaluate the control decision and drive the devices
         await self._apply_control()

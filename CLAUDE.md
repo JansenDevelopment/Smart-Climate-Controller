@@ -195,9 +195,15 @@ imported and tested in isolation.
 pip install pytest
 pytest tests/ --tb=short
 
-pip install ruff
+pip install ruff==0.16.4
 ruff check custom_components/
 ```
+
+**Pin ruff to the version in `ci.yml`** (currently `0.16.4`). Ruff enables new
+rules in its default set as it evolves, so an unpinned install lints against a
+different rule set than CI and can turn CI red on a commit that changed nothing.
+When bumping the pin, fix or suppress whatever the new rules flag in the same
+commit.
 
 The async tests rely on `pytest-asyncio` (installed in CI; `asyncio_mode = auto`
 is set in `pytest.ini`, so `async def` tests run without needing a per-test

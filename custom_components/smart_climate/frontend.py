@@ -53,7 +53,7 @@ class SmartClimateCardRegistration:
                 shutil.copy2, source, dest
             )
             _LOGGER.debug("Copied %s to %s", CARD_NAME, dest)
-        except Exception as e:
+        except OSError as e:
             _LOGGER.error("Failed to copy card: %s", e)
 
     async def _async_wait_for_lovelace_resources(self) -> None:
