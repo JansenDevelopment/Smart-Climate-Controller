@@ -162,3 +162,28 @@ def test_never_heats_and_cools_simultaneously():
         assert not ("heat" in actions and "cool" in actions), (
             f"conflict: mode={mode} room={room} band=({h},{c}) prev={prev} -> {actions}"
         )
+
+
+def test_devices_never_receive_the_coordinators_auto_mode():
+    """``auto`` is ours, never a device's.
+
+    The coordinator may sit in ``auto`` — that is what makes *it* decide heat
+    versus cool. The devices must always be handed an explicit, unambiguous
+    mode, otherwise the third-party thermostat would be making that call on its
+    own thermostat logic and we would no longer be the lead.
+    """
+    devices = [_dev("a", "heat"), _dev("b", "cool", fan=True), _dev("c", "both", fan=True)]
+    allowed = {"off", "heat", "cool", "fan_only"}
+    rooms = [5, 15, 20, 21, 23, 25, 27, 35]
+    bands = [(21, 25), (25, 22), (20, 20), (18, 30)]
+    modes = ["auto", "heat", "cool", "off"]
+    prevs = [None, HEAT, COOL, IDLE]
+    for room, (h, c), mode, prev in itertools.product(rooms, bands, modes, prevs):
+        for override in (None, 19.0):
+            d = decide(mode=mode, room_temp=room, heat_target=h, cool_target=c,
+                       override_target=override, prev_intent=prev)
+            for cmd in plan_routes(d, devices):
+                assert cmd.hvac_mode in allowed, (
+                    f"device got {cmd.hvac_mode!r}: mode={mode} room={room} "
+                    f"band=({h},{c}) override={override} prev={prev}"
+                )
