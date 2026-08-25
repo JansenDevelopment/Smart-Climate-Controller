@@ -18,6 +18,7 @@ from custom_components.smart_climate.const import (
     CONF_AWAY_TEMPERATURE,
     CONF_DEFAULT_OVERRIDE_DURATION,
     CONF_DEFAULT_OVERRIDE_MODE,
+    CONF_HVAC_MODE,
     CONF_INTERRUPTIBLE,
     CONF_SCHEDULE,
 )
@@ -99,6 +100,21 @@ async def test_set_schedule_persists():
     schedule = {"mode": "daily", "daily": [{"time": "06:00", "temp": 21}]}
     await entity.async_set_schedule(schedule)
     assert entry.data[CONF_SCHEDULE] == schedule
+
+
+async def test_turn_on_selects_auto_so_the_coordinator_leads():
+    """turn_on must not pin heat — the band owns the heat/cool decision."""
+    entity, _, entry = _make_entity()
+    await entity.async_turn_on()
+    assert entity._hvac_mode == "auto"
+    assert entry.data[CONF_HVAC_MODE] == "auto"
+
+
+async def test_turn_off_persists_hvac_mode():
+    entity, _, entry = _make_entity()
+    await entity.async_turn_off()
+    assert entity._hvac_mode == "off"
+    assert entry.data[CONF_HVAC_MODE] == "off"
 
 
 def test_constructor_restores_persisted_auto_temperature_and_schedule():
