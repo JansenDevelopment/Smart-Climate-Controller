@@ -41,6 +41,54 @@ export function supportDevices(attrs) {
   return (Array.isArray(attrs?.devices) ? attrs.devices : []).filter((d) => d.tier === "support");
 }
 
+/**
+ * Control mode of one actuator: "auto" (the coordinator drives it), "off" (kept
+ * off, never used) or "manual" (hands off). Backends without `device_modes`
+ * know only "auto". Returns `{ mode, until }` (`until` is an ISO string or null).
+ */
+export function deviceMode(attrs, entityId) {
+  const m = attrs?.device_modes?.[entityId];
+  const mode = m?.mode === "off" || m?.mode === "manual" ? m.mode : "auto";
+  return { mode, until: mode === "auto" ? null : m?.until || null };
+}
+
+/** Wall-clock parts of `date` in `timeZone` (the browser zone if it is missing/unknown). */
+function zonedParts(date, timeZone) {
+  const opts = {
+    hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit",
+  };
+  let fmt;
+  try {
+    fmt = new Intl.DateTimeFormat("en-GB", { ...opts, timeZone: timeZone || undefined });
+  } catch (_) {
+    fmt = new Intl.DateTimeFormat("en-GB", opts);
+  }
+  const p = {};
+  for (const part of fmt.formatToParts(date)) p[part.type] = Number(part.value);
+  return p;
+}
+
+/** "10:00" for an ISO timestamp, in the Home Assistant time zone. Invalid input → "". */
+export function fmtClock(iso, hass) {
+  const d = new Date(iso);
+  if (!iso || Number.isNaN(d.getTime())) return "";
+  const p = zonedParts(d, hass?.config?.time_zone);
+  return `${String(p.hour).padStart(2, "0")}:${String(p.minute).padStart(2, "0")}`;
+}
+
+/**
+ * Whole minutes (rounded up) from `now` until the next `hh:mm` wall-clock time in
+ * the Home Assistant time zone. Sent as `minutes` so the browser's own time zone
+ * never decides when "until 10:00" is.
+ */
+export function minutesUntilClock(hass, hh, mm, now = new Date()) {
+  const p = zonedParts(now, hass?.config?.time_zone);
+  let diff = hh * 60 + mm - (p.hour * 60 + p.minute + p.second / 60);
+  if (diff <= 0) diff += 1440;
+  return Math.ceil(diff);
+}
+
 /** Mode labels for the cooling policy. */
 const COOLING_LABELS = {
   nl: { off: "Uit", auto: "Auto", on: "Aan" },

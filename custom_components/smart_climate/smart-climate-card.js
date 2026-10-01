@@ -6,6 +6,9 @@ import {
   fmtTemp,
   entityName,
   supportDevices,
+  deviceMode,
+  fmtClock,
+  minutesUntilClock,
   coolingInfo,
   coolingLabel,
 } from "./smart-climate-shared.js";
@@ -14,6 +17,11 @@ const OVERRIDE_MIN = 5;
 const OVERRIDE_MAX = 25;
 const OVERRIDE_STEP = 0.5;
 const DEFAULT_SUPPORT_DELTA = 1.5;
+// A support pause that ends within this many minutes counts as "I'm leaving soon"
+// (the longest quick choice is 2 h); a longer or open-ended one as "no CV until morning".
+const LEAVING_MAX_MIN = 125;
+// A temporary device mode shows "N min left" below this, "until HH:MM" above it.
+const REMAINING_SHOW_MIN = 90;
 
 // hvac_action → intent, for backends that do not publish `intent`.
 const ACTION_TO_INTENT = { heating: "heat", cooling: "cool", idle: "idle", off: "off" };
@@ -32,6 +40,11 @@ const TEXT = {
     heating: "{names} verwarmt naar {t}",
     heatingMany: "{names} verwarmen naar {t}",
     heatingAny: "Verwarmt naar {t}",
+    heatNoDevice: "Wil verwarmen naar {t}, maar geen apparaat staat op Auto",
+    coolNoDevice: "Wil koelen naar {t}, maar geen apparaat staat op Auto",
+    paused: "{names} gepauzeerd",
+    allManual: "Alles handmatig: de coördinator stuurt niets aan",
+    noneAuto: "Geen apparaat op Auto: de coördinator stuurt niets aan",
     cooling: "{names} koelt naar {t}",
     coolingMany: "{names} koelen naar {t}",
     coolingAny: "Koelt naar {t}",
@@ -58,6 +71,27 @@ const TEXT = {
     supportTitle: "CV-ondersteuning",
     supportText: "Springt bij als de kamer {d} onder het doel zit",
     supportActive: "Actief",
+    noCvMorning: "Geen CV tot morgenochtend",
+    noCvUntil: "Geen CV tot {t}",
+    noCvOpen: "Geen CV (tot je hem weer aanzet)",
+    leavingSoon: "Ik ga zo weg",
+    cvPaused: "CV gepauzeerd, nog {t}",
+    resume: "Hervat",
+    leavingHint: "De CV warmt traag op; als je binnenkort weg bent doet de airco het werk.",
+    devMode: "Besturing van {name}",
+    devAuto: "Auto",
+    devOff: "Uit",
+    devManual: "Handmatig",
+    devAutoHint: "De coördinator stuurt dit apparaat aan.",
+    devOffHint: "Blijft uit en wordt niet gebruikt, ook niet als ondersteuning.",
+    devManualHint: "Handen af: jij bedient dit apparaat zelf.",
+    devHowLong: "Hoe lang?",
+    devHour1: "1 uur",
+    devUntil: "Tot {t}",
+    devForever: "Blijvend",
+    devUntilShort: "tot {t}",
+    devLeft: "nog {t}",
+    close: "Sluiten",
     tileToday: "Verwacht max vandaag",
     tileTomorrow: "Verwacht max morgen",
     tileMeasured: "Gemeten max 24 uur",
@@ -90,6 +124,11 @@ const TEXT = {
     heating: "{names} heats to {t}",
     heatingMany: "{names} heat to {t}",
     heatingAny: "Heating to {t}",
+    heatNoDevice: "Wants to heat to {t}, but no device is set to Auto",
+    coolNoDevice: "Wants to cool to {t}, but no device is set to Auto",
+    paused: "{names} paused",
+    allManual: "Everything manual: the coordinator drives nothing",
+    noneAuto: "No device on Auto: the coordinator drives nothing",
     cooling: "{names} cools to {t}",
     coolingMany: "{names} cool to {t}",
     coolingAny: "Cooling to {t}",
@@ -116,6 +155,27 @@ const TEXT = {
     supportTitle: "Heat support",
     supportText: "Joins in when the room is {d} below the target",
     supportActive: "Active",
+    noCvMorning: "No CV until tomorrow morning",
+    noCvUntil: "No CV until {t}",
+    noCvOpen: "No CV (until you turn it back on)",
+    leavingSoon: "I'm leaving soon",
+    cvPaused: "CV paused, {t} left",
+    resume: "Resume",
+    leavingHint: "The CV warms up slowly; if you are leaving soon, the airco does the work.",
+    devMode: "Control of {name}",
+    devAuto: "Auto",
+    devOff: "Off",
+    devManual: "Manual",
+    devAutoHint: "The coordinator drives this device.",
+    devOffHint: "Stays off and is not used, not even as support.",
+    devManualHint: "Hands off: you operate this device yourself.",
+    devHowLong: "For how long?",
+    devHour1: "1 hour",
+    devUntil: "Until {t}",
+    devForever: "Permanent",
+    devUntilShort: "until {t}",
+    devLeft: "{t} left",
+    close: "Close",
     tileToday: "Forecast high today",
     tileTomorrow: "Forecast high tomorrow",
     tileMeasured: "Measured max 24 h",
@@ -142,6 +202,7 @@ class SmartClimateCard extends LitElement {
     hass: {},
     config: {},
     _overrideTemp: { state: true },
+    _menu: { state: true }, // { id, mode } while a device's control menu is open
   };
 
   static getConfigElement() {
@@ -166,6 +227,60 @@ class SmartClimateCard extends LitElement {
   disconnectedCallback() {
     super.disconnectedCallback();
     clearTimeout(this._reapplyTimer);
+    this._unlistenMenu();
+  }
+
+  updated(changed) {
+    if (!changed.has("_menu")) return;
+    const prev = changed.get("_menu");
+    if (this._menu) {
+      this._listenMenu();
+      // Move focus into a freshly opened menu (not on every mode pick inside it).
+      if (!prev || prev.id !== this._menu.id) {
+        this.renderRoot.querySelector('.devmenu [aria-checked="true"]')?.focus();
+      }
+    } else {
+      this._unlistenMenu();
+    }
+  }
+
+  // Closing the device menu: Escape or a click anywhere outside the menu and the chips.
+  _listenMenu() {
+    if (this._menuListening) return;
+    this._menuListening = true;
+    document.addEventListener("click", this._onDocClick);
+    document.addEventListener("keydown", this._onDocKey);
+  }
+
+  _unlistenMenu() {
+    if (!this._menuListening) return;
+    this._menuListening = false;
+    document.removeEventListener("click", this._onDocClick);
+    document.removeEventListener("keydown", this._onDocKey);
+  }
+
+  _onDocClick = (e) => {
+    const inside = e
+      .composedPath()
+      .some((el) => el.classList?.contains("devmenu") || el.dataset?.device !== undefined);
+    if (!inside) this._closeMenu();
+  };
+
+  _onDocKey = (e) => {
+    if (e.key === "Escape" && this._menu) this._closeMenu(true);
+  };
+
+  _closeMenu(refocus = false) {
+    const id = this._menu?.id;
+    this._menu = null;
+    if (refocus && id) {
+      this.updateComplete.then(() => {
+        const chip = [...this.renderRoot.querySelectorAll("button.chip[data-device]")].find(
+          (c) => c.dataset.device === id
+        );
+        chip?.focus();
+      });
+    }
   }
 
   willUpdate(changed) {
@@ -249,6 +364,7 @@ class SmartClimateCard extends LitElement {
         </div>
       </div>
       <div class="sentence">${this._sentence(attrs, isOff)}</div>
+      ${this._renderDeviceMenu(attrs)}
     `;
   }
 
@@ -279,49 +395,162 @@ class SmartClimateCard extends LitElement {
 
   _renderDeviceChips(attrs) {
     return this._devices(attrs).map((d) => {
+      const { mode, until } = deviceMode(attrs, d.entity_id);
       const state = this.hass.states[d.entity_id]?.state ?? "unavailable";
-      const label = this._t(`hvac.${state}`);
-      const icon = d.tier === "support" ? "mdi:radiator" : "mdi:air-conditioning";
-      const kind = state === "heat" ? "heat" : state === "cool" ? "cool" : "";
+      const support = d.tier === "support";
+      const kind = mode !== "auto" ? "" : state === "heat" ? "heat" : state === "cool" ? "cool" : "";
+      let icon = support ? "mdi:radiator" : "mdi:air-conditioning";
+      if (mode === "manual") icon = "mdi:hand-back-left";
+      else if (mode === "off") icon = support ? "mdi:radiator-off" : "mdi:snowflake-off";
+      const label = mode === "auto" ? this._t(`hvac.${state}`) : this._modeLabel(mode, until);
+      const open = this._menu?.id === d.entity_id;
       return html`
-        <span class="chip" data-kind=${kind || "device"}>
+        <button
+          class="chip"
+          data-device=${d.entity_id}
+          data-kind=${kind || "device"}
+          data-mode=${mode}
+          aria-haspopup="true"
+          aria-expanded=${open ? "true" : "false"}
+          aria-controls="devmenu"
+          @click=${() => this._toggleMenu(d.entity_id)}
+        >
           <ha-icon icon=${icon}></ha-icon>
-          <span>${entityName(this.hass, d.entity_id)}</span>
-          <span class="chip-sub">${label}</span>
-        </span>
+          <span class="chip-name">${entityName(this.hass, d.entity_id)}</span>
+          <span class="chip-sub" ?strong=${mode !== "auto"}>${label}</span>
+        </button>
       `;
     });
   }
 
-  /** "Airco en CV verwarmen naar 20°" etc. — derived from intent and device states. */
+  /** "Uit", "Handmatig · nog 25 min", "Uit · tot 10:00" for a device that is not on Auto. */
+  _modeLabel(mode, until) {
+    const base = this._t(mode === "off" ? "devOff" : "devManual");
+    const rest = this._untilLabel(until);
+    return rest ? `${base} · ${rest}` : base;
+  }
+
+  /** "nog 25 min" (soon) or "tot 10:00"; "" when the mode has no end. */
+  _untilLabel(until) {
+    if (!until) return "";
+    const end = new Date(until).getTime();
+    if (Number.isNaN(end)) return "";
+    const left = Math.max(1, Math.ceil((end - Date.now()) / 60000));
+    if (left <= REMAINING_SHOW_MIN) return this._t("devLeft", { t: this._minutes(left) });
+    return this._t("devUntilShort", { t: fmtClock(until, this.hass) });
+  }
+
+  /** Compact panel under the header to pick Auto / Off / Manual for one device. */
+  _renderDeviceMenu(attrs) {
+    if (!this._menu) return "";
+    const dev = this._devices(attrs).find((d) => d.entity_id === this._menu.id);
+    if (!dev) return "";
+    const current = deviceMode(attrs, dev.entity_id).mode;
+    const picked = this._menu.mode ?? current;
+    const name = entityName(this.hass, dev.entity_id);
+    const modes = [
+      ["auto", "devAuto"],
+      ["off", "devOff"],
+      ["manual", "devManual"],
+    ];
+    const hint = { auto: "devAutoHint", off: "devOffHint", manual: "devManualHint" }[picked];
+    const until10 = minutesUntilClock(this.hass, 10, 0);
+    return html`
+      <div class="devmenu" id="devmenu" role="group" aria-label=${this._t("devMode", { name })}>
+        <div class="devmenu-head">
+          <span class="devmenu-title">${this._t("devMode", { name })}</span>
+          <button class="close" aria-label=${this._t("close")} @click=${() => this._closeMenu(true)}>
+            <ha-icon icon="mdi:close"></ha-icon>
+          </button>
+        </div>
+        <div class="segmented" role="radiogroup" aria-label=${this._t("devMode", { name })}>
+          ${modes.map(
+            ([m, key]) => html`
+              <button
+                role="radio"
+                aria-checked=${picked === m ? "true" : "false"}
+                ?active=${picked === m}
+                @click=${() => this.onDeviceModePick(dev.entity_id, m)}
+              >
+                ${this._t(key)}
+              </button>
+            `
+          )}
+        </div>
+        <div class="hint"><span>${this._t(hint)}</span></div>
+        ${picked !== "auto"
+          ? html`
+              <div class="devmenu-how">${this._t("devHowLong")}</div>
+              <div class="choices">
+                <button class="choice" @click=${() => this.onDeviceMode(dev.entity_id, picked, 30)}>
+                  ${this._t("min30")}
+                </button>
+                <button class="choice" @click=${() => this.onDeviceMode(dev.entity_id, picked, 60)}>
+                  ${this._t("devHour1")}
+                </button>
+                <button class="choice" @click=${() => this.onDeviceMode(dev.entity_id, picked, until10)}>
+                  ${this._t("devUntil", { t: "10:00" })}
+                </button>
+                <button class="choice" @click=${() => this.onDeviceMode(dev.entity_id, picked)}>
+                  ${this._t("devForever")}
+                </button>
+              </div>
+            `
+          : ""}
+      </div>
+    `;
+  }
+
+  _toggleMenu(id) {
+    this._menu = this._menu?.id === id ? null : { id, mode: null };
+  }
+
+  /** "Airco en CV verwarmen naar 20°" etc. — derived from intent, device states and control modes. */
   _sentence(attrs, isOff) {
     if (isOff) return this._t("stateOff");
     const intent = attrs.intent ?? ACTION_TO_INTENT[attrs.hvac_action];
     const target = fmtTemp(attrs.temperature, this.hass);
     const devices = this._devices(attrs);
 
+    // Devices on Off/Manual are not driven by the coordinator: never named as active.
+    const modeOf = (d) => deviceMode(attrs, d.entity_id).mode;
+    const auto = devices.filter((d) => modeOf(d) === "auto");
+    if (devices.length && !auto.length) {
+      return this._t(devices.every((d) => modeOf(d) === "manual") ? "allManual" : "noneAuto");
+    }
+
     if (intent === "heat" || intent === "cool") {
       const wanted = intent === "heat" ? "heat" : "cool";
-      const active = devices.filter((d) => this.hass.states[d.entity_id]?.state === wanted);
+      const active = auto.filter((d) => this.hass.states[d.entity_id]?.state === wanted);
       let list = active;
       if (!list.length) {
         // Device states may lag behind the decision: fall back to the roles.
-        list = devices.filter(
+        list = auto.filter(
           (d) => (d.role === "both" || d.role === wanted) && d.tier !== "support"
         );
       }
       if (intent === "heat" && attrs.support_active) {
         for (const s of supportDevices(attrs)) {
-          if (!list.includes(s)) list = [...list, s];
+          if (modeOf(s) === "auto" && !list.includes(s)) list = [...list, s];
         }
       }
       const names = list.map((d) => entityName(this.hass, d.entity_id));
       const base = intent === "heat" ? "heating" : "cooling";
-      if (!names.length) return this._t(`${base}Any`, { t: target });
-      return this._t(names.length > 1 ? `${base}Many` : base, {
+      if (!names.length) {
+        const noDevice = intent === "heat" ? "heatNoDevice" : "coolNoDevice";
+        return this._t(devices.some((d) => modeOf(d) !== "auto") ? noDevice : `${base}Any`, {
+          t: target,
+        });
+      }
+      let text = this._t(names.length > 1 ? `${base}Many` : base, {
         names: names.join(this._t("and")),
         t: target,
       });
+      if (intent === "heat" && attrs.support_paused_until != null) {
+        const paused = supportDevices(attrs).map((d) => entityName(this.hass, d.entity_id));
+        if (paused.length) text += ` (${this._t("paused", { names: paused.join(this._t("and")) })})`;
+      }
+      return text;
     }
 
     // idle (or unknown)
@@ -429,7 +658,69 @@ class SmartClimateCard extends LitElement {
             <span class="muted">(${support.map((d) => entityName(this.hass, d.entity_id)).join(", ")})</span>
           </span>
         </div>
+        ${this._renderSupportPause(attrs)}
       </section>
+    `;
+  }
+
+  /** Shortcuts to pause the support heater; hidden on backends without `support_paused_until`. */
+  _renderSupportPause(attrs) {
+    const raw = attrs.support_paused_until;
+    if (raw === undefined) return "";
+    const paused = raw !== null;
+    const end = paused && raw ? new Date(raw).getTime() : NaN;
+    const left = Number.isNaN(end) ? null : Math.max(1, Math.ceil((end - Date.now()) / 60000));
+    // A short pause is the "I'm leaving soon" one; the rest is "no CV until morning".
+    const leaving = paused && left !== null && left <= LEAVING_MAX_MIN;
+    const morning = paused && !leaving;
+
+    let morningText = this._t("noCvMorning");
+    if (morning) {
+      const clock = left !== null ? fmtClock(raw, this.hass) : "";
+      morningText = clock ? this._t("noCvUntil", { t: clock }) : this._t("noCvOpen");
+    }
+
+    return html`
+      <div class="pause">
+        <button
+          class="toggle-chip"
+          aria-pressed=${morning ? "true" : "false"}
+          ?active=${morning}
+          @click=${() => this.onSupportMorning(!morning)}
+        >
+          <ha-icon icon="mdi:radiator-off"></ha-icon>${morningText}
+        </button>
+        <div class="leaving">
+          <div class="leaving-label">
+            <ha-icon icon="mdi:run-fast"></ha-icon>${this._t("leavingSoon")}
+          </div>
+          ${leaving
+            ? html`
+                <div class="leaving-active">
+                  <span>${this._t("cvPaused", { t: this._minutes(left) })}</span>
+                  <button class="choice" @click=${() => this.onSupportResume()}>
+                    <ha-icon icon="mdi:play"></ha-icon>${this._t("resume")}
+                  </button>
+                </div>
+              `
+            : html`
+                <div class="choices">
+                  ${[
+                    [30, "min30"],
+                    [60, "devHour1"],
+                    [120, "hours2"],
+                  ].map(
+                    ([n, key]) => html`
+                      <button class="choice" @click=${() => this.onSupportPause(n)}>
+                        ${this._t(key)}
+                      </button>
+                    `
+                  )}
+                </div>
+              `}
+        </div>
+        <div class="hint"><span>${this._t("leavingHint")}</span></div>
+      </div>
     `;
   }
 
@@ -558,6 +849,47 @@ class SmartClimateCard extends LitElement {
     this.hass.callService("smart_climate", "set_heat_support", {
       entity_id: this.config.entity,
       enabled,
+    });
+  }
+
+  /** Set a device's control mode; `minutes` makes it temporary, without it stays until changed. */
+  onDeviceMode(device, mode, minutes) {
+    const data = { entity_id: this.config.entity, device, mode };
+    if (mode !== "auto" && minutes) data.minutes = minutes;
+    this.hass.callService("smart_climate", "set_device_mode", data);
+    this._menu = null;
+  }
+
+  /** Segmented pick in the device menu: Auto applies at once, Off/Manual ask for a duration. */
+  onDeviceModePick(device, mode) {
+    if (mode === "auto") {
+      this.onDeviceMode(device, "auto");
+    } else {
+      this._menu = { id: device, mode };
+    }
+  }
+
+  onSupportMorning(on) {
+    const entity_id = this.config.entity;
+    this.hass.callService(
+      "smart_climate",
+      "set_support_pause",
+      on ? { entity_id, enabled: true, until_morning: true } : { entity_id, enabled: false }
+    );
+  }
+
+  onSupportPause(minutes) {
+    this.hass.callService("smart_climate", "set_support_pause", {
+      entity_id: this.config.entity,
+      enabled: true,
+      minutes,
+    });
+  }
+
+  onSupportResume() {
+    this.hass.callService("smart_climate", "set_support_pause", {
+      entity_id: this.config.entity,
+      enabled: false,
     });
   }
 
@@ -699,10 +1031,41 @@ class SmartClimateCard extends LitElement {
       gap: 6px;
       max-width: 100%;
       padding: 4px 10px 4px 8px;
-      border-radius: 999px;
+      border-radius: 16px;
       font-size: 13px;
       background: var(--secondary-background-color);
       border: 1px solid var(--divider-color);
+    }
+
+    button.chip {
+      cursor: pointer;
+      text-align: left;
+    }
+
+    button.chip:hover {
+      border-color: var(--primary-color);
+    }
+
+    button.chip[aria-expanded="true"] {
+      border-color: var(--primary-color);
+      box-shadow: 0 0 0 1px var(--primary-color);
+    }
+
+    /* A device the coordinator does not drive (Off / Manual): dashed, orange, easy to spot. */
+    .chip[data-mode="off"],
+    .chip[data-mode="manual"] {
+      border-style: dashed;
+      border-color: var(--warning-color, #ffa600);
+      background: rgba(255, 166, 0, 0.12);
+    }
+
+    .chip[data-mode="off"] ha-icon,
+    .chip[data-mode="manual"] ha-icon {
+      color: var(--warning-color, #ffa600);
+    }
+
+    .chip-name {
+      flex: none;
     }
 
     .chip ha-icon {
@@ -723,7 +1086,137 @@ class SmartClimateCard extends LitElement {
     }
 
     .chip-sub {
+      min-width: 0;
       color: var(--secondary-text-color);
+    }
+
+    .chip-sub[strong] {
+      color: var(--primary-text-color);
+      font-weight: 500;
+    }
+
+    /* Device control menu (inline panel under the header) */
+    .devmenu {
+      margin-top: 12px;
+      padding: 12px;
+      border-radius: var(--sc-radius);
+      background: var(--secondary-background-color);
+      border: 1px solid var(--divider-color);
+    }
+
+    .devmenu-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+
+    .devmenu-title {
+      font-size: 15px;
+      font-weight: 500;
+    }
+
+    .devmenu .close {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 32px;
+      height: 32px;
+      padding: 0;
+      border: none;
+      border-radius: 50%;
+      background: transparent;
+      color: var(--secondary-text-color);
+    }
+
+    .devmenu .close:hover {
+      background: rgba(127, 127, 127, 0.15);
+    }
+
+    .devmenu .segmented {
+      display: flex;
+    }
+
+    .devmenu .segmented button {
+      flex: 1 1 0;
+      min-width: 0;
+    }
+
+    .devmenu-how {
+      margin: 10px 0 6px;
+      font-size: 13px;
+      color: var(--secondary-text-color);
+    }
+
+    /* Support pause shortcuts */
+    .pause {
+      margin-top: 12px;
+      padding-top: 12px;
+      border-top: 1px solid var(--divider-color);
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .pause .hint {
+      margin-top: 0;
+    }
+
+    .toggle-chip {
+      display: inline-flex;
+      align-items: center;
+      align-self: flex-start;
+      gap: 8px;
+      max-width: 100%;
+      padding: 8px 14px;
+      border-radius: 999px;
+      border: 1px solid var(--divider-color);
+      background: var(--card-background-color, var(--ha-card-background, #fff));
+      font-size: 14px;
+      text-align: left;
+    }
+
+    .toggle-chip:hover {
+      border-color: var(--primary-color);
+    }
+
+    .toggle-chip[active] {
+      background: var(--primary-color);
+      border-color: var(--primary-color);
+      color: var(--text-primary-color, #fff);
+    }
+
+    .toggle-chip ha-icon {
+      --mdc-icon-size: 18px;
+    }
+
+    .leaving-label {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 6px;
+      font-size: 14px;
+      font-weight: 500;
+    }
+
+    .leaving-active {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      font-size: 14px;
+    }
+
+    .leaving-active .choice {
+      flex: none;
+    }
+
+    .choice ha-icon {
+      --mdc-icon-size: 18px;
+      margin-right: 4px;
+      vertical-align: middle;
     }
 
     .power {

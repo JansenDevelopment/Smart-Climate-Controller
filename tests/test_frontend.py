@@ -43,3 +43,14 @@ def test_hash_changes_with_any_module(tmp_path):
     before = frontend._modules_hash(tmp_path)
     (tmp_path / "smart-climate-shared.js").write_text("b", encoding="utf-8")
     assert frontend._modules_hash(tmp_path) != before
+
+
+def test_names_imported_from_shared_are_exported():
+    """A card importing a helper that smart-climate-shared.js lacks fails to load in HA."""
+    shared = (INTEGRATION / "smart-climate-shared.js").read_text(encoding="utf-8")
+    exported = set(re.findall(r"export\s+(?:async\s+)?(?:function|const)\s+(\w+)", shared))
+    for name in frontend.MODULE_FILES:
+        source = (INTEGRATION / f"{name}.js").read_text(encoding="utf-8")
+        for block in re.findall(r'import\s*\{([^}]*)\}\s*from\s*"\./smart-climate-shared\.js"', source):
+            wanted = {n.strip().split(" as ")[0] for n in block.split(",") if n.strip()}
+            assert wanted <= exported, f"{name}.js imports missing: {wanted - exported}"

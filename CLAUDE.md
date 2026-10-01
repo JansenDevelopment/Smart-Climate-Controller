@@ -196,6 +196,15 @@ thin clients: they call `smart_climate.*` services and re-render on state change
   part out, never crash. The schedule card reads `attributes.schedule`: if the key
   is absent it shows a warning and disables Save (so defaults can never overwrite
   a real schedule); `schedule: null` means "no schedule saved yet" and is fine.
+- Main card device control: the header device chips are buttons that open an inline menu
+  (Auto / Off / Manual, plus 30 min / 1 h / until 10:00 / permanent for Off and Manual) →
+  `set_device_mode`. State comes from `device_modes` (already effective, so an expired
+  temporary mode reads `auto`). "Until 10:00" is sent as `minutes`, computed in the HA time
+  zone (`minutesUntilClock` in `smart-climate-shared.js`), never from the browser's zone.
+  The heat-support block adds "no CV until morning" (`set_support_pause` `until_morning`) and
+  "I'm leaving soon" (30/60/120 min) when `support_paused_until` exists; a pause ending within
+  125 min counts as "leaving soon", a longer/open-ended one as "until morning" (the backend
+  does not say which was used). The header sentence only names devices on `auto`.
 - Override state shown on the main card comes from the `mode` attribute
   (`override_timer` → remaining time, `override_infinity`, `override_next_node`).
 
