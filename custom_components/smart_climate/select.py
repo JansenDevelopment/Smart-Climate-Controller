@@ -6,8 +6,11 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import (
+    ATTR_COOLING_MODE,
     ATTR_DEFAULT_OVERRIDE_DURATION,
     ATTR_DEFAULT_OVERRIDE_MODE,
+    COOLING_MODES,
+    SERVICE_SET_COOLING_MODE,
     SERVICE_SET_DEFAULT_OVERRIDE_MODE,
 )
 from .entity_base import SmartClimateChildEntity
@@ -21,7 +24,10 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up the Smart Climate select helpers."""
-    async_add_entities([SmartClimateOverrideModeSelect(hass, entry)])
+    async_add_entities([
+        SmartClimateOverrideModeSelect(hass, entry),
+        SmartClimateCoolingModeSelect(hass, entry),
+    ])
 
 
 class SmartClimateOverrideModeSelect(SmartClimateChildEntity, SelectEntity):
@@ -46,3 +52,22 @@ class SmartClimateOverrideModeSelect(SmartClimateChildEntity, SelectEntity):
         await self._call_service(
             SERVICE_SET_DEFAULT_OVERRIDE_MODE, mode=option, duration=int(duration)
         )
+
+
+class SmartClimateCoolingModeSelect(SmartClimateChildEntity, SelectEntity):
+    """Policy for automatic cooling: off, auto (warm periods only) or on."""
+
+    _attr_options = COOLING_MODES
+
+    def __init__(self, hass, entry) -> None:
+        super().__init__(hass, entry, "cooling_mode")
+        self._attr_name = "Cooling"
+        self._attr_icon = "mdi:snowflake-thermometer"
+
+    @property
+    def current_option(self):
+        mode = self._climate_attr(ATTR_COOLING_MODE)
+        return mode if mode in COOLING_MODES else None
+
+    async def async_select_option(self, option: str) -> None:
+        await self._call_service(SERVICE_SET_COOLING_MODE, mode=option)

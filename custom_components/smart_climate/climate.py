@@ -18,7 +18,7 @@ from homeassistant.helpers.event import (
 )
 from homeassistant.util import dt as dt_util
 
-from . import control, schedule_helper
+from . import control, cooling, schedule_helper
 from .const import (
     ATTR_AUTO_TEMPERATURE,
     ATTR_AWAY_DELAY_MINUTES,
@@ -27,45 +27,79 @@ from .const import (
     ATTR_COOL_AUTO_TEMPERATURE,
     ATTR_COOL_AWAY_TEMPERATURE,
     ATTR_COOL_LIMIT,
+    ATTR_COOLING_ALLOWED,
+    ATTR_COOLING_MODE,
     ATTR_DEFAULT_OVERRIDE_DURATION,
     ATTR_DEFAULT_OVERRIDE_MODE,
     ATTR_DEVICES,
+    ATTR_FORECAST_HIGH_TODAY,
+    ATTR_FORECAST_HIGH_TOMORROW,
+    ATTR_HARD_CEILING,
     ATTR_HEAT_TARGET,
     ATTR_INTENT,
     ATTR_INTERRUPTIBLE,
     ATTR_MODE,
+    ATTR_OUTDOOR_MAX_24H,
+    ATTR_OUTDOOR_SENSOR,
     ATTR_OVERRIDE_TEMPERATURE,
     ATTR_PRESENCE,
     ATTR_REMAINING_MINUTES,
+    ATTR_ROOM_TREND,
+    ATTR_SCHEDULE,
+    ATTR_SUPPORT_ACTIVE,
+    ATTR_SUPPORT_DELTA,
+    ATTR_SUPPORT_ENABLED,
+    ATTR_WARM_THRESHOLD,
+    ATTR_WEATHER_ENTITY,
     ATTR_WRAPPED_CLIMATE,
     CONF_AUTO_TEMPERATURE,
     CONF_AWAY_DELAY_MINUTES,
     CONF_AWAY_TEMPERATURE,
     CONF_COOL_AUTO_TEMPERATURE,
     CONF_COOL_AWAY_TEMPERATURE,
+    CONF_COOLING_MODE,
     CONF_DEFAULT_OVERRIDE_DURATION,
     CONF_DEFAULT_OVERRIDE_MODE,
     CONF_DEVICES,
+    CONF_HARD_CEILING,
     CONF_HVAC_MODE,
     CONF_HYSTERESIS,
     CONF_INTERRUPTIBLE,
+    CONF_OUTDOOR_SENSOR,
+    CONF_PARK,
     CONF_PRIMARY_DEVICE,
     CONF_SCHEDULE,
+    CONF_SUPPORT_DELTA,
+    CONF_SUPPORT_ENABLED,
+    CONF_SUPPORT_GRACE,
+    CONF_SUPPORT_MIN_RISE,
     CONF_TEMPERATURE_SENSOR,
     CONF_TEMPERATURE_SOURCE,
+    CONF_TIER,
+    CONF_WARM_THRESHOLD,
+    CONF_WEATHER_ENTITY,
     CONF_WRAPPED_CLIMATE,
     CONF_ZONE_HOME,
+    COOLING_AUTO,
+    COOLING_MODES,
+    DEFAULT_HARD_CEILING,
     DEFAULT_HYSTERESIS,
+    DEFAULT_SUPPORT_DELTA,
+    DEFAULT_SUPPORT_GRACE_MIN,
+    DEFAULT_SUPPORT_MIN_RISE,
+    DEFAULT_WARM_THRESHOLD,
     DOMAIN,
     MODE_AUTO,
     MODE_OVERRIDE_INFINITY,
     MODE_OVERRIDE_NEXT_NODE,
     MODE_OVERRIDE_TIMER,
+    PARK_FAN_ONLY,
     ROLE_BOTH,
     SUBENTRY_TYPE_DEVICE,
     TEMP_SOURCE_MEAN,
     TEMP_SOURCE_PRIMARY,
     TEMP_SOURCE_SENSOR,
+    TIER_PRIMARY,
 )
 from .services import async_register_services
 
@@ -181,6 +215,20 @@ class SmartClimateEntity(ClimateEntity):
         self._away_delay_remaining = 0
         self._schedule = entry.data.get(CONF_SCHEDULE, None)
 
+        # Cooling policy (off / auto / on) and heat support (the CV next to a
+        # more efficient primary heater such as an airco).
+        self._cooling_mode = entry.data.get(CONF_COOLING_MODE, COOLING_AUTO)
+        self._cooling_allowed = False
+        self._support_enabled = entry.data.get(CONF_SUPPORT_ENABLED, True)
+        self._support_active = False
+        self._room_trend = control.RoomTrend()
+        self._heat_since = None
+
+        # Outdoor context for the auto-cooling policy.
+        self._outdoor_tracker = cooling.OutdoorMaxTracker()
+        self._forecast_highs = (None, None)
+        self._forecast_fetched = None
+
     @staticmethod
     def _build_devices(entry, wrapped_climate):
         """Return the actuator device list from all sources.
@@ -192,20 +240,28 @@ class SmartClimateEntity(ClimateEntity):
         devices = []
         seen = set()
 
-        def _add(entity_id, role):
+        def _add(entity_id, role, tier=None, park=None):
             if entity_id and entity_id not in seen:
                 seen.add(entity_id)
-                devices.append({"entity_id": entity_id, "role": role or ROLE_BOTH})
+                devices.append({
+                    "entity_id": entity_id,
+                    "role": role or ROLE_BOTH,
+                    "tier": tier or TIER_PRIMARY,
+                    "park": park or PARK_FAN_ONLY,
+                })
 
         subentries = getattr(entry, "subentries", None)
         if isinstance(subentries, Mapping):
             for sub in subentries.values():
                 if getattr(sub, "subentry_type", None) == SUBENTRY_TYPE_DEVICE:
                     data = getattr(sub, "data", {}) or {}
-                    _add(data.get("entity_id"), data.get("role"))
+                    _add(
+                        data.get("entity_id"), data.get("role"),
+                        data.get(CONF_TIER), data.get(CONF_PARK),
+                    )
 
         for d in entry.data.get(CONF_DEVICES, []) or []:
-            _add(d.get("entity_id"), d.get("role"))
+            _add(d.get("entity_id"), d.get("role"), d.get(CONF_TIER), d.get(CONF_PARK))
 
         if not devices and wrapped_climate:
             _add(wrapped_climate, ROLE_BOTH)
@@ -315,7 +371,8 @@ class SmartClimateEntity(ClimateEntity):
             self._mode = MODE_AUTO
             self._next_node_datetime = None
 
-        # Evaluate the control decision and drive the devices
+        # Outdoor context for the cooling policy, then evaluate + drive devices
+        await self._refresh_outdoor(current_time)
         await self._apply_control()
         self.async_write_ha_state()
 
@@ -425,17 +482,73 @@ class SmartClimateEntity(ClimateEntity):
         return val if isinstance(val, (int, float)) else None
 
     def _device_caps(self):
-        """Return per-device dicts (entity_id, role, supports_fan_only) for routing."""
+        """Return per-device dicts for routing (role, tier, park, capabilities)."""
         caps = []
         for dev in self._devices:
             state = self.hass.states.get(dev["entity_id"])
-            modes = state.attributes.get("hvac_modes") if state else None
+            available = state is not None and state.state not in ("unavailable", "unknown")
+            attrs = state.attributes if state else {}
+            modes = attrs.get("hvac_modes")
+            step = attrs.get("target_temp_step")
             caps.append({
                 "entity_id": dev["entity_id"],
                 "role": dev.get("role", ROLE_BOTH),
+                "tier": dev.get("tier", TIER_PRIMARY),
+                "park": dev.get("park", PARK_FAN_ONLY),
+                "available": available,
                 "supports_fan_only": HVACMode.FAN_ONLY in (modes or []),
+                # Unknown capabilities (no hvac_modes list) are assumed capable.
+                "can_heat": modes is None or HVACMode.HEAT in modes,
+                "can_cool": modes is None or HVACMode.COOL in modes,
+                "step": step if isinstance(step, (int, float)) else None,
             })
         return caps
+
+    # ---- Outdoor context (cooling policy) ---------------------------------
+
+    def _outdoor_temperature(self):
+        """Current outdoor temperature: the dedicated sensor, else the weather entity."""
+        v = self._numeric_state(self._conf(CONF_OUTDOOR_SENSOR, None))
+        if v is not None:
+            return v
+        weather = self.hass.states.get(self._conf(CONF_WEATHER_ENTITY, None) or "")
+        if weather:
+            val = weather.attributes.get("temperature")
+            if isinstance(val, (int, float)):
+                return val
+        return None
+
+    async def _refresh_outdoor(self, now):
+        """Sample the outdoor temperature and refresh the forecast (every 30 min)."""
+        self._outdoor_tracker.record(now, self._outdoor_temperature())
+
+        weather_id = self._conf(CONF_WEATHER_ENTITY, None)
+        if not weather_id:
+            return
+        if self._forecast_fetched and now - self._forecast_fetched < timedelta(minutes=30):
+            return
+        self._forecast_fetched = now  # also throttles retries after a failure
+        try:
+            response = await self.hass.services.async_call(
+                "weather", "get_forecasts",
+                {"entity_id": weather_id, "type": "daily"},
+                blocking=True, return_response=True,
+            )
+        except Exception as err:  # noqa: BLE001 - a flaky weather source must never break control
+            _LOGGER.warning(
+                "%s: could not fetch forecast from %s: %s", self._attr_name, weather_id, err
+            )
+            return
+        forecast = ((response or {}).get(weather_id) or {}).get("forecast")
+        self._forecast_highs = cooling.parse_daily_highs(forecast, now.date())
+
+    def _cooling_highs(self, now):
+        """Known highs for the warm-period test: forecast today/tomorrow + observed 24 h."""
+        today, tomorrow = self._forecast_highs
+        highs = [today, tomorrow, self._outdoor_tracker.max_24h(now)]
+        if all(h is None for h in highs):
+            highs.append(self._outdoor_temperature())
+        return highs
 
     async def _apply_control(self):
         """Resolve the control decision and drive the actuator devices."""
@@ -447,6 +560,14 @@ class SmartClimateEntity(ClimateEntity):
         self._cool_target = cool_target
         room_temp = self._room_temperature()
 
+        self._cooling_allowed = cooling.cooling_permitted(
+            self._cooling_mode,
+            room_temp,
+            highs=self._cooling_highs(dt_util.now()),
+            warm_threshold=self._conf(CONF_WARM_THRESHOLD, DEFAULT_WARM_THRESHOLD),
+            hard_ceiling=self._conf(CONF_HARD_CEILING, DEFAULT_HARD_CEILING),
+        )
+
         decision = control.decide(
             mode=self._hvac_mode,
             room_temp=room_temp,
@@ -455,28 +576,69 @@ class SmartClimateEntity(ClimateEntity):
             override_target=override_target,
             prev_intent=self._intent,
             hysteresis=self._conf(CONF_HYSTERESIS, DEFAULT_HYSTERESIS),
+            cooling_allowed=self._cooling_allowed,
         )
+        now = dt_util.now()
+        if decision.intent == control.HEAT:
+            if self._intent != control.HEAT or self._heat_since is None:
+                self._heat_since = now
+        else:
+            self._heat_since = None
+        self._room_trend.record(now, room_temp)
         self._intent = decision.intent
         self._active_target = decision.target
 
-        commands = control.plan_routes(decision, self._device_caps())
+        # The support heater only ever joins while we are heating, and only
+        # when the user has not switched it off.
+        if self._support_enabled and decision.intent == control.HEAT:
+            self._support_active = control.support_needed(
+                room_temp,
+                decision.target if decision.target is not None else heat_target,
+                self._conf(CONF_SUPPORT_DELTA, DEFAULT_SUPPORT_DELTA),
+                self._support_active,
+                heating_minutes=(
+                    (now - self._heat_since).total_seconds() / 60
+                    if self._heat_since else None
+                ),
+                rise_per_hour=self._room_trend.rise_per_hour(),
+                grace_minutes=self._conf(CONF_SUPPORT_GRACE, DEFAULT_SUPPORT_GRACE_MIN),
+                min_rise=self._conf(CONF_SUPPORT_MIN_RISE, DEFAULT_SUPPORT_MIN_RISE),
+            )
+        else:
+            self._support_active = False
+
+        commands = control.plan_routes(
+            decision, self._device_caps(), support_active=self._support_active
+        )
         for cmd in commands:
             await self._execute(cmd)
 
     async def _execute(self, cmd):
-        """Apply one DeviceCommand, only calling services when state differs."""
+        """Apply one DeviceCommand, only calling services when state differs.
+
+        A device that is missing/unavailable is skipped, and a failing service
+        call is logged instead of raised — one misbehaving device must never
+        abort the control loop (and with it the other devices and the state
+        write).
+        """
         state = self.hass.states.get(cmd.entity_id)
-        if state is None:
-            return  # device unavailable — skip
-        if state.state != cmd.hvac_mode:
-            await self.hass.services.async_call(
-                "climate", "set_hvac_mode",
-                {"entity_id": cmd.entity_id, "hvac_mode": cmd.hvac_mode},
-            )
-        if cmd.temperature is not None and state.attributes.get("temperature") != cmd.temperature:
-            await self.hass.services.async_call(
-                "climate", "set_temperature",
-                {"entity_id": cmd.entity_id, "temperature": cmd.temperature},
+        if state is None or state.state in ("unavailable", "unknown"):
+            return
+        try:
+            if state.state != cmd.hvac_mode:
+                await self.hass.services.async_call(
+                    "climate", "set_hvac_mode",
+                    {"entity_id": cmd.entity_id, "hvac_mode": cmd.hvac_mode},
+                )
+            if cmd.temperature is not None and state.attributes.get("temperature") != cmd.temperature:
+                await self.hass.services.async_call(
+                    "climate", "set_temperature",
+                    {"entity_id": cmd.entity_id, "temperature": cmd.temperature},
+                )
+        except Exception as err:  # noqa: BLE001 - see docstring
+            _LOGGER.warning(
+                "%s: could not drive %s (%s): %s",
+                self._attr_name, cmd.entity_id, cmd.hvac_mode, err,
             )
 
     def _persist(self, **changes) -> None:
@@ -619,6 +781,22 @@ class SmartClimateEntity(ClimateEntity):
             )
         self.async_write_ha_state()
 
+    async def async_set_cooling_mode(self, mode: str):
+        """Set the auto-cooling policy: off / auto / on."""
+        if mode not in COOLING_MODES:
+            return
+        self._cooling_mode = mode
+        self._persist(**{CONF_COOLING_MODE: mode})
+        await self._apply_control()
+        self.async_write_ha_state()
+
+    async def async_set_heat_support(self, enabled: bool):
+        """Enable or disable the support heater (e.g. the CV next to an airco)."""
+        self._support_enabled = bool(enabled)
+        self._persist(**{CONF_SUPPORT_ENABLED: self._support_enabled})
+        await self._apply_control()
+        self.async_write_ha_state()
+
     async def async_turn_off(self) -> None:
         """Turn the coordinator off (powers all actuators down)."""
         await self.async_set_hvac_mode(HVACMode.OFF)
@@ -722,6 +900,11 @@ class SmartClimateEntity(ClimateEntity):
             "model": "Smart Climate Controller",
         }
 
+    def _rounded_trend(self):
+        """Warming rate (°C/h) over the last 30 minutes, or None."""
+        rate = self._room_trend.rise_per_hour()
+        return None if rate is None else round(rate, 2)
+
     @property
     def extra_state_attributes(self):
         remaining_minutes = 0
@@ -748,4 +931,18 @@ class SmartClimateEntity(ClimateEntity):
             ATTR_COOL_LIMIT: self._cool_target,
             ATTR_INTENT: self._intent,
             ATTR_DEVICES: self._devices,
+            ATTR_SCHEDULE: self._schedule,
+            ATTR_COOLING_MODE: self._cooling_mode,
+            ATTR_COOLING_ALLOWED: self._cooling_allowed,
+            ATTR_SUPPORT_ENABLED: self._support_enabled,
+            ATTR_SUPPORT_ACTIVE: self._support_active,
+            ATTR_ROOM_TREND: self._rounded_trend(),
+            ATTR_SUPPORT_DELTA: self._conf(CONF_SUPPORT_DELTA, DEFAULT_SUPPORT_DELTA),
+            ATTR_WARM_THRESHOLD: self._conf(CONF_WARM_THRESHOLD, DEFAULT_WARM_THRESHOLD),
+            ATTR_HARD_CEILING: self._conf(CONF_HARD_CEILING, DEFAULT_HARD_CEILING),
+            ATTR_FORECAST_HIGH_TODAY: self._forecast_highs[0],
+            ATTR_FORECAST_HIGH_TOMORROW: self._forecast_highs[1],
+            ATTR_OUTDOOR_MAX_24H: self._outdoor_tracker.max_24h(dt_util.now()),
+            ATTR_WEATHER_ENTITY: self._conf(CONF_WEATHER_ENTITY, None),
+            ATTR_OUTDOOR_SENSOR: self._conf(CONF_OUTDOOR_SENSOR, None),
         }

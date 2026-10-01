@@ -1,0 +1,90 @@
+<!doctype html>
+<!--
+  Local preview of the Smart Climate cards, without Home Assistant.
+
+    python -m http.server 8123          (from the repo root)
+    http://localhost:8123/tools/card-preview/index.html?card=main&scenario=winter-heat&theme=dark&lang=nl
+
+  Query parameters:
+    card=main|schedule   which card to show (default main)
+    scenario=<name>      see mock.js (default autumn-idle)
+    theme=light|dark     HA default palette (default light)
+    lang=nl|en           hass.language (default nl)
+    w=<px>               card width (default 100%)
+
+  The cards import lit from unpkg, so this needs internet access.
+  `node shoot.mjs` renders the screenshots into shots/.
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Smart Climate card preview</title>
+  <style>
+    body { margin: 0; padding: 16px; font-family: Roboto, system-ui, sans-serif; }
+    #wrap { margin: 0 auto; }
+  </style>
+</head>
+<body>
+  <div id="wrap"></div>
+  <script>
+    // Stand-ins for Home Assistant's own elements (they need a shadow root, because
+    // the cards live in one and document styles do not reach in).
+    const GLYPHS = {
+      "mdi:power": "⏻", "mdi:minus": "−", "mdi:plus": "+", "mdi:home": "⌂",
+      "mdi:home-export-outline": "⇥", "mdi:air-conditioning": "❄", "mdi:radiator": "☰",
+      "mdi:check-circle-outline": "✓", "mdi:cancel": "⊘", "mdi:calendar-clock": "⧖",
+    };
+    customElements.define("ha-icon", class extends HTMLElement {
+      static get observedAttributes() { return ["icon"]; }
+      constructor() {
+        super();
+        this.attachShadow({ mode: "open" }).innerHTML = `<style>
+          :host { display: inline-flex; align-items: center; justify-content: center;
+            width: var(--mdc-icon-size, 24px); height: var(--mdc-icon-size, 24px);
+            font-size: calc(var(--mdc-icon-size, 24px) * 0.85); line-height: 1; }
+        </style><span id="g"></span>`;
+      }
+      attributeChangedCallback() { this.shadowRoot.getElementById("g").textContent = GLYPHS[this.getAttribute("icon")] ?? "□"; }
+    });
+    customElements.define("ha-card", class extends HTMLElement {
+      constructor() {
+        super();
+        this.attachShadow({ mode: "open" }).innerHTML = `<style>
+          :host { display: block; border-radius: 12px; overflow: hidden;
+            background: var(--ha-card-background, var(--card-background-color, #fff));
+            box-shadow: 0 2px 4px rgba(0,0,0,.15); border: 1px solid var(--divider-color); }
+        </style><slot></slot>`;
+      }
+    });
+  </script>
+  <script type="module" src="../../custom_components/smart_climate/smart-climate-card.js"></script>
+  <script type="module" src="../../custom_components/smart_climate/smart-climate-schedule-card.js"></script>
+  <script type="module">
+    import { ENTITY, createHass, applyTheme } from "./mock.js";
+
+    const q = new URLSearchParams(location.search);
+    const kind = q.get("card") === "schedule" ? "smart-climate-schedule-card" : "smart-climate-card";
+    applyTheme(q.get("theme") === "dark" ? "dark" : "light");
+    if (q.get("w")) document.getElementById("wrap").style.width = q.get("w") + "px";
+
+    await Promise.all([
+      customElements.whenDefined("smart-climate-card"),
+      customElements.whenDefined("smart-climate-schedule-card"),
+    ]);
+
+    const card = document.createElement(kind);
+    card.setConfig({ entity: ENTITY });
+    const dark = q.get("theme") === "dark";
+    const hass = createHass(q.get("scenario") ?? "autumn-idle", q.get("lang") ?? "nl", (states) => {
+      // New object each time, like Home Assistant does.
+      card.hass = { ...hass, states };
+    }, dark);
+    card.hass = hass;
+    document.getElementById("wrap").append(card);
+    window.__card = card;
+    window.__hass = hass;
+    window.__ready = true;
+  </script>
+</body>
+</html>

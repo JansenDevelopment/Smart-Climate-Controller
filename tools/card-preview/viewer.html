@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Smart Climate kaart-viewer</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@mdi/font@7.4.47/css/materialdesignicons.min.css">
+<style>
+  :root { color-scheme: light; }
+  body { margin: 0; font-family: Roboto, system-ui, sans-serif; background: var(--primary-background-color); color: var(--primary-text-color); }
+  .theme-light {
+    --primary-background-color: #fafafa; --secondary-background-color: #e5e5e5; --card-background-color: #ffffff;
+    --ha-card-background: #ffffff; --primary-text-color: #212121; --secondary-text-color: #727272;
+    --disabled-text-color: #bdbdbd; --divider-color: rgba(0,0,0,.12); --primary-color: #03a9f4;
+    --accent-color: #ff9800; --text-primary-color: #ffffff; --error-color: #db4437; --success-color: #43a047;
+    --warning-color: #ffa600; --info-color: #039be5; --state-icon-color: #44739e; --ha-card-border-radius: 12px;
+    --ha-card-box-shadow: 0 2px 2px 0 rgba(0,0,0,.14), 0 1px 5px 0 rgba(0,0,0,.12), 0 3px 1px -2px rgba(0,0,0,.2);
+  }
+  .theme-dark {
+    color-scheme: dark;
+    --primary-background-color: #111111; --secondary-background-color: #202020; --card-background-color: #1c1c1c;
+    --ha-card-background: #1c1c1c; --primary-text-color: #e1e1e1; --secondary-text-color: #9b9b9b;
+    --disabled-text-color: #6f6f6f; --divider-color: rgba(225,225,225,.12); --primary-color: #03a9f4;
+    --accent-color: #ff9800; --text-primary-color: #ffffff; --error-color: #ef5350; --success-color: #66bb6a;
+    --warning-color: #ffa726; --info-color: #29b6f6; --state-icon-color: #9aa0a6; --ha-card-border-radius: 12px;
+    --ha-card-box-shadow: none;
+  }
+  header { position: sticky; top: 0; z-index: 5; background: var(--secondary-background-color); border-bottom: 1px solid var(--divider-color); padding: 8px 14px; display: grid; gap: 8px; }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; font-size: 13px; }
+  .row label { display: inline-flex; gap: 5px; align-items: center; color: var(--secondary-text-color); }
+  select, input, button { font: inherit; font-size: 13px; background: var(--card-background-color); color: var(--primary-text-color); border: 1px solid var(--divider-color); border-radius: 6px; padding: 4px 8px; }
+  button { cursor: pointer; }
+  button.on { background: var(--primary-color); color: var(--text-primary-color); border-color: var(--primary-color); }
+  input[type=number] { width: 62px; }
+  input[type=range] { padding: 0; flex: 1; min-width: 220px; }
+  #clock { font-variant-numeric: tabular-nums; min-width: 168px; font-weight: 500; }
+  #notes { color: var(--secondary-text-color); font-size: 12.5px; }
+  main { display: flex; gap: 16px; padding: 16px; align-items: flex-start; flex-wrap: wrap; }
+  .col { display: grid; gap: 16px; align-content: start; }
+  .truth { width: 300px; font-size: 12.5px; background: var(--card-background-color); border-radius: 12px; padding: 12px 14px; border: 1px solid var(--divider-color); }
+  .truth h3 { margin: 0 0 6px; font-size: 13px; font-weight: 500; }
+  .truth table { width: 100%; border-collapse: collapse; }
+  .truth td { padding: 2px 0; }
+  .truth td:last-child { text-align: right; font-variant-numeric: tabular-nums; }
+  .truth ul { list-style: none; padding: 0; margin: 6px 0 0; }
+  .truth pre { white-space: pre-wrap; font-size: 11.5px; color: var(--secondary-text-color); margin: 6px 0 0; }
+  .ok { color: var(--success-color); } .bad { color: var(--error-color); }
+  #toast { position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%); background: #333; color: #fff; padding: 8px 14px; border-radius: 8px; font-size: 13px; opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 20; }
+  #toast.show { opacity: .94; }
+  #err { color: var(--error-color); font-size: 12.5px; }
+</style>
+<script>
+  /* Fake clock: the cards call new Date() for "now", today's history window, etc.
+     The viewer pins it to the simulated moment so the cards agree with the cursor. */
+  (function () {
+    const RD = Date;
+    window.__simNow = null;
+    window.Date = class extends RD {
+      constructor(...a) { if (a.length === 0 && window.__simNow != null) super(window.__simNow); else super(...a); }
+      static now() { return window.__simNow != null ? window.__simNow : RD.now(); }
+    };
+  })();
+</script>
+</head>
+<body class="theme-light">
+<header>
+  <div class="row">
+    <label>Scenario <select id="scenario"></select></label>
+    <span id="notes"></span>
+    <span id="err"></span>
+  </div>
+  <div class="row">
+    <button id="play">▶ Afspelen</button>
+    <label>Snelheid <select id="speed">
+      <option value="1">5 min/s</option><option value="3">15 min/s</option><option value="6" selected>30 min/s</option>
+      <option value="24">2 u/s</option><option value="72">6 u/s</option></select></label>
+    <input type="range" id="slider" min="0" max="0" value="0">
+    <span id="clock"></span>
+  </div>
+  <div class="row">
+    <label>Thema <button id="theme">Licht</button></label>
+    <label>Taal <button id="lang">NL</button></label>
+    <label>Breedte <select id="width"><option value="390">Telefoon</option><option value="760" selected>Tablet</option><option value="1100">Breed</option></select></label>
+    <label><input type="checkbox" id="cfg"> instellingenkaart</label>
+    <span style="flex:1"></span>
+    <label>CV-delta <input type="number" id="p_delta" step="0.5" min="0.5" max="6"></label>
+    <label>wacht (min) <input type="number" id="p_grace" step="5" min="0" max="120"></label>
+    <label>min. stijging <input type="number" id="p_rise" step="0.1" min="0" max="3"></label>
+    <label>warm ≥ <input type="number" id="p_warm" step="0.5" min="10" max="35"></label>
+    <label>plafond <input type="number" id="p_hard" step="0.5" min="20" max="40"></label>
+    <label>hysterese <input type="number" id="p_hys" step="0.1" min="0.1" max="3"></label>
+    <label>apparaten <select id="p_dev"><option value="airco+cv">airco + CV</option><option value="airco">alleen airco</option><option value="cv">alleen CV</option></select></label>
+    <button id="reset">Reset instellingen</button>
+  </div>
+</header>
+<main>
+  <div class="col" id="cards"></div>
+  <div class="truth" id="truth"></div>
+</main>
+<div id="toast"></div>
+
+<script type="module">
+/* ---------- stubs for the HA elements the cards use ---------- */
+class HaCard extends HTMLElement {
+  constructor() { super(); const r = this.attachShadow({ mode: "open" });
+    r.innerHTML = `<style>:host{display:block;background:var(--ha-card-background,var(--card-background-color,#fff));border-radius:var(--ha-card-border-radius,12px);box-shadow:var(--ha-card-box-shadow,none);color:var(--primary-text-color);overflow:hidden}</style><slot></slot>`; }
+}
+class HaIcon extends HTMLElement {
+  static get observedAttributes() { return ["icon"]; }
+  constructor() { super(); this.attachShadow({ mode: "open" }); this._draw(); }
+  set icon(v) { this.setAttribute("icon", v); }
+  get icon() { return this.getAttribute("icon"); }
+  attributeChangedCallback() { this._draw(); }
+  _draw() {
+    const name = (this.getAttribute("icon") || "").replace(/^mdi:/, "");
+    this.shadowRoot.innerHTML = `<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@mdi/font@7.4.47/css/materialdesignicons.min.css"><style>:host{display:inline-flex;width:24px;height:24px;align-items:center;justify-content:center;color:var(--state-icon-color,inherit)}span{font-size:var(--mdc-icon-size,24px);line-height:1}</style><span class="mdi mdi-${name}"></span>`;
+  }
+}
+customElements.define("ha-card", HaCard);
+customElements.define("ha-icon", HaIcon);
+
+/* ---------- state ---------- */
+const $ = (id) => document.getElementById(id);
+const ENTITY = "climate.smart_climate";
+const ui = { scenario: null, data: null, idx: 0, playing: false, lang: "nl", dark: false,
+  params: {}, override: null, histKey: "", cards: {} };
+const DEFAULTS = {};
+
+function toast(msg) { const t = $("toast"); t.textContent = msg; t.classList.add("show"); clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove("show"), 2600); }
+const iso = (d) => d.toISOString();
+const localISO = (d) => { const p = (n) => String(n).padStart(2, "0"); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:00`; };
+
+/* ---------- data ---------- */
+async function loadScenarios() {
+  const list = await (await fetch("/api/scenarios")).json();
+  $("scenario").innerHTML = list.map((s) => `<option value="${s.name}">${s.title}</option>`).join("");
+  ui.scenario = list[0].name;
+}
+
+async function simulate(keepIdx = true) {
+  $("err").textContent = "";
+  const q = new URLSearchParams({ name: ui.scenario, ...ui.params });
+  try {
+    const res = await fetch("/api/simulate?" + q.toString());
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    ui.data = data;
+    if (!keepIdx || ui.idx >= data.series.length) ui.idx = 0;
+    $("slider").max = data.series.length - 1;
+    $("slider").value = ui.idx;
+    $("notes").textContent = data.notes;
+    syncParamInputs(data);
+    ui.histKey = "";
+    render(true);
+  } catch (e) { $("err").textContent = "Simulatie mislukt: " + e.message; }
+}
+
+function syncParamInputs(d) {
+  if (document.activeElement && document.activeElement.tagName === "INPUT" && document.activeElement.type === "number") return;
+  $("p_delta").value = d.support_delta; $("p_grace").value = d.support_grace; $("p_rise").value = d.support_min_rise;
+  $("p_warm").value = d.warm_threshold; $("p_hard").value = d.hard_ceiling; $("p_hys").value = d.hysteresis; $("p_dev").value = d.devices;
+}
+
+/* ---------- mock hass ---------- */
+function buildHass() {
+  const d = ui.data, p = d.series[ui.idx], t = new Date(p.t);
+  const dev = d.devices;
+  const devices = [];
+  if (dev.includes("airco")) devices.push({ entity_id: "climate.airco", role: "both", tier: "primary", park: "off" });
+  if (dev.includes("cv")) devices.push({ entity_id: "climate.cv", role: "heat", tier: dev === "cv" ? "primary" : "support", park: "off" });
+  const off = d.hvac_mode === "off";
+  const o = ui.override;
+  let mode = "auto", remaining = 0, ovT = 21;
+  if (o) {
+    ovT = o.temp;
+    if (o.kind === "timer") {
+      remaining = Math.max(0, Math.round(o.minutes - (t - o.start) / 60000));
+      mode = remaining > 0 ? "override_timer" : "auto";
+    } else mode = o.kind === "infinity" ? "override_infinity" : "override_next_node";
+  }
+  const states = {};
+  const attrs = {
+    friendly_name: "Smart Climate", hvac_modes: ["off", "heat", "cool", "auto"],
+    current_temperature: p.room, temperature: off ? null : (p.intent === "heat" ? p.heat_t : p.intent === "cool" ? p.cool_t : p.heat_t),
+    hvac_action: off ? "off" : p.intent === "heat" ? "heating" : p.intent === "cool" ? "cooling" : "idle",
+    mode, presence: p.presence, remaining_minutes: remaining, interruptible: true, override_temperature: ovT,
+    away_delay_seconds_remaining: 0, wrapped_climate: devices[0]?.entity_id, cool_auto_temperature: d.cool_home,
+    cool_away_temperature: d.cool_away, auto_temperature: d.auto_temp, away_temperature: d.away_temp,
+    away_delay_minutes: 10, default_override_mode: "next_node", default_override_duration: 30,
+    heat_target: p.heat_t, cool_limit: p.cool_t, intent: off ? "off" : p.intent, devices,
+    schedule: ui.schedule || d.schedule, cooling_mode: d.cooling_mode, cooling_allowed: p.allowed,
+    support_enabled: d.support_enabled, support_active: p.support_active, support_delta: d.support_delta,
+    warm_threshold: d.warm_threshold, hard_ceiling: d.hard_ceiling, forecast_high_today: p.fc_today,
+    forecast_high_tomorrow: p.fc_tomorrow, outdoor_max_24h: p.out_max_24h, room_trend: p.rise,
+    weather_entity: "weather.home", outdoor_sensor: null,
+  };
+  states[ENTITY] = { entity_id: ENTITY, state: off ? "off" : "auto", attributes: attrs, last_changed: localISO(t) };
+  if (dev.includes("airco")) states["climate.airco"] = { entity_id: "climate.airco", state: off ? "off" : p.airco, attributes: { friendly_name: "Airco", hvac_modes: ["off", "heat", "cool", "fan_only"], current_temperature: p.room, temperature: p.airco_sp }, last_changed: localISO(t) };
+  if (dev.includes("cv")) states["climate.cv"] = { entity_id: "climate.cv", state: off ? "off" : p.cv, attributes: { friendly_name: "CV woonkamer", hvac_modes: ["off", "heat"], current_temperature: p.room, temperature: p.cv_sp }, last_changed: localISO(t) };
+  states["sensor.smart_climate_presence"] = { entity_id: "sensor.smart_climate_presence", state: p.presence, attributes: { friendly_name: "Smart Climate Presence" } };
+  states["zone.home"] = { entity_id: "zone.home", state: p.presence === "home" ? "2" : "0", attributes: { friendly_name: "Home" } };
+  states["weather.home"] = { entity_id: "weather.home", state: "cloudy", attributes: { temperature: p.out, friendly_name: "Weer" } };
+  return { states, language: ui.lang, locale: { language: ui.lang }, themes: { darkMode: ui.dark }, config: { unit_system: { temperature: "°C" } },
+    callApi: mockApi, callService: mockService, callWS: async () => ({}), formatEntityState: (s) => s.state };
+}
+
+async function mockApi(method, path) {
+  const m = /^history\/period\/([^?]+)\?(.*)$/.exec(path);
+  if (!m) return [];
+  const start = new Date(decodeURIComponent(m[1])), params = new URLSearchParams(m[2]);
+  const cursor = new Date(ui.data.series[ui.idx].t);
+  const end = params.get("end_time") ? new Date(params.get("end_time")) : cursor;
+  const id = params.get("filter_entity_id");
+  const rows = ui.data.series.filter((s) => { const x = new Date(s.t); return x >= start && x <= end && x <= cursor; });
+  const wrapped = ui.data.devices.includes("airco") ? "climate.airco" : "climate.cv";
+  if (id === "sensor.smart_climate_presence") {
+    const out = []; let last = null;
+    for (const r of rows) if (r.presence !== last) { out.push({ state: r.presence, last_changed: localISO(new Date(r.t)) }); last = r.presence; }
+    return [out];
+  }
+  if (id === wrapped || id === ENTITY) {
+    return [rows.map((r) => ({ state: r.airco, attributes: { current_temperature: r.room, temperature: r.heat_t }, last_changed: localISO(new Date(r.t)) }))];
+  }
+  return [[]];
+}
+
+function mockService(domain, service, data) {
+  const key = `${domain}.${service}`;
+  const P = ui.params;
+  console.info("[callService]", key, data);
+  switch (key) {
+    case "smart_climate.set_cooling_mode": P.cooling_mode = data.mode; return simulate();
+    case "smart_climate.set_heat_support": P.support_enabled = String(!!data.enabled); return simulate();
+    case "climate.set_hvac_mode": P.hvac_mode = data.hvac_mode === "off" ? "off" : "auto"; return simulate();
+    case "smart_climate.set_override_timer": ui.override = { kind: "timer", minutes: data.minutes, temp: data.temperature, start: new Date(ui.data.series[ui.idx].t) }; toast(`Override (timer ${data.minutes} min) alleen getoond, niet gesimuleerd`); break;
+    case "smart_climate.set_override_infinity": ui.override = { kind: "infinity", temp: data.temperature }; toast("Override (altijd) alleen getoond, niet gesimuleerd"); break;
+    case "smart_climate.set_override_next_node": ui.override = { kind: "next_node", temp: data.temperature }; toast("Override (tot volgende schakeltijd) alleen getoond, niet gesimuleerd"); break;
+    case "smart_climate.clear_override": ui.override = null; break;
+    case "smart_climate.set_schedule": ui.schedule = data.schedule; toast("Schema alleen lokaal gewijzigd (niet gesimuleerd)"); break;
+    default: toast(`Niet afgehandeld: ${key}`);
+  }
+  render();
+  return Promise.resolve();
+}
+
+/* ---------- cards ---------- */
+async function loadCards() {
+  const base = "/custom_components/smart_climate/";
+  await Promise.all(["smart-climate-card.js", "smart-climate-schedule-card.js", "smart-climate-config-card.js"]
+    .map((f) => import(base + f + "?v=" + Date.now()).catch((e) => { $("err").textContent += ` ${f}: ${e.message}`; })));
+}
+
+function ensureCard(tag, config, host) {
+  let el = ui.cards[tag];
+  if (!el) {
+    el = document.createElement(tag);
+    try { el.setConfig(config); } catch (e) { $("err").textContent = `${tag}: ${e.message}`; return null; }
+    host.appendChild(el); ui.cards[tag] = el;
+  }
+  return el;
+}
+
+function render(forceHistory = false) {
+  if (!ui.data) return;
+  const p = ui.data.series[ui.idx], t = new Date(p.t);
+  window.__simNow = t.getTime();
+  $("clock").textContent = t.toLocaleString(ui.lang === "nl" ? "nl-NL" : "en-GB", { weekday: "short", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+  const host = $("cards");
+  host.style.width = $("width").value + "px";
+  const hass = buildHass();
+  const main = ensureCard("smart-climate-card", { entity: ENTITY }, host);
+  const sched = ensureCard("smart-climate-schedule-card", { entity: ENTITY, show_history: true, show_yesterday: true, show_presence: true }, host);
+  const cfgOn = $("cfg").checked;
+  if (cfgOn) ensureCard("smart-climate-config-card", { entity: ENTITY }, host);
+  if (ui.cards["smart-climate-config-card"]) ui.cards["smart-climate-config-card"].style.display = cfgOn ? "" : "none";
+
+  // Re-fetch the history-driven parts of the schedule card whenever the cursor moved
+  // 30+ simulated minutes (or on a forced refresh); edits are only discarded on a forced refresh.
+  const hk = `${t.toDateString()}|${Math.floor((t.getHours() * 60 + t.getMinutes()) / 30)}`;
+  const refetch = sched && (forceHistory || hk !== ui.histKey);
+  if (refetch) { ui.histKey = hk; if (forceHistory) sched._schedule = undefined; }
+  for (const el of Object.values(ui.cards)) if (el) el.hass = hass;
+  if (refetch) {
+    for (const fn of ["_fetchHistory", "_fetchYesterdayHistory", "_fetchPresenceHistory"]) {
+      try { sched[fn]?.call(sched); } catch (e) { console.warn(fn, e); }
+    }
+  }
+  renderTruth(p);
+}
+
+function renderTruth(p) {
+  const d = ui.data;
+  const row = (a, b) => `<tr><td>${a}</td><td>${b}</td></tr>`;
+  $("truth").innerHTML = `
+    <h3>Simulatie (de waarheid)</h3>
+    <table>
+      ${row("Kamer", p.room.toFixed(1) + "°")}${row("Buiten", p.out.toFixed(1) + "°")}
+      ${row("Stookdoel / koelplafond", p.heat_t + "° / " + p.cool_t + "°")}
+      ${row("Aanwezigheid", p.presence)}${row("Intent", p.intent)}
+      ${row("Airco", p.airco + (p.airco_f ? ` (${Math.round(p.airco_f * 100)}%)` : ""))}
+      ${row("CV", p.cv + (p.cv_f ? " (aan)" : ""))}
+      ${row("CV-ondersteuning actief", p.support_active ? "ja" : "nee")}
+      ${row("Koelen toegestaan", p.allowed ? "ja" : "nee")}
+      ${row("Opwarmsnelheid", p.rise == null ? "—" : p.rise.toFixed(2) + " °C/u")}
+    </table>
+    <h3 style="margin-top:12px">Controles (hele scenario)</h3>
+    <ul>${d.checks.map(([l, ok]) => `<li class="${ok ? "ok" : "bad"}">${ok ? "✓" : "✗"} ${l}</li>`).join("")}</ul>
+    <pre>${d.summary}</pre>`;
+}
+
+/* ---------- controls ---------- */
+const tick = () => { if (!ui.playing) return; const n = ui.data.series.length; ui.idx = (ui.idx + Number($("speed").value)) % n; $("slider").value = ui.idx; render(); };
+setInterval(tick, 250);
+
+$("play").onclick = () => { ui.playing = !ui.playing; $("play").textContent = ui.playing ? "⏸ Pauze" : "▶ Afspelen"; $("play").classList.toggle("on", ui.playing); };
+$("slider").oninput = (e) => { ui.idx = Number(e.target.value); render(); };
+$("scenario").onchange = (e) => { ui.scenario = e.target.value; ui.params = {}; ui.override = null; ui.schedule = null; ui.idx = 0; simulate(false); };
+$("theme").onclick = () => { ui.dark = !ui.dark; document.body.className = ui.dark ? "theme-dark" : "theme-light"; $("theme").textContent = ui.dark ? "Donker" : "Licht"; $("theme").classList.toggle("on", ui.dark); render(); };
+$("lang").onclick = () => { ui.lang = ui.lang === "nl" ? "en" : "nl"; $("lang").textContent = ui.lang.toUpperCase(); render(true); };
+$("width").onchange = () => render();
+$("cfg").onchange = () => render();
+$("reset").onclick = () => { ui.params = {}; ui.override = null; ui.schedule = null; simulate(); };
+const P = { p_delta: "support_delta", p_grace: "support_grace", p_rise: "support_min_rise", p_warm: "warm_threshold", p_hard: "hard_ceiling", p_hys: "hysteresis", p_dev: "devices" };
+for (const [id, key] of Object.entries(P)) $(id).onchange = (e) => { ui.params[key] = e.target.value; ui.cards["smart-climate-schedule-card"] && (ui.cards["smart-climate-schedule-card"]._schedule = undefined); simulate(); };
+
+/* ---------- start ---------- */
+const qs = new URLSearchParams(location.search);
+await loadScenarios();
+if (qs.get("scenario")) ui.scenario = qs.get("scenario");
+$("scenario").value = ui.scenario;
+if (qs.get("dark") === "1") $("theme").click();
+if (qs.get("lang") === "en") $("lang").click();
+if (qs.get("width")) $("width").value = qs.get("width");
+await loadCards();
+await simulate(false);
+if (qs.get("t")) { ui.idx = Math.min(ui.data.series.length - 1, Number(qs.get("t"))); $("slider").value = ui.idx; render(true); }
+window.__viewer = { ui, render, simulate };
+</script>
+</body>
+</html>

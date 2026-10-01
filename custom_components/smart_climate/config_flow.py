@@ -19,16 +19,32 @@ from .const import (
     CONF_DEFAULT_OVERRIDE_MODE,
     CONF_DEVICES,
     CONF_ENTITY_ID,
+    CONF_HARD_CEILING,
     CONF_HYSTERESIS,
     CONF_INTEGRATION_DRIVEN_AUTO,
     CONF_INTERRUPTIBLE,
+    CONF_OUTDOOR_SENSOR,
+    CONF_PARK,
     CONF_PRIMARY_DEVICE,
     CONF_ROLE,
+    CONF_SUPPORT_DELTA,
+    CONF_SUPPORT_GRACE,
+    CONF_SUPPORT_MIN_RISE,
     CONF_TEMPERATURE_SENSOR,
     CONF_TEMPERATURE_SOURCE,
+    CONF_TIER,
+    CONF_WARM_THRESHOLD,
+    CONF_WEATHER_ENTITY,
     CONF_ZONE_HOME,
+    DEFAULT_HARD_CEILING,
     DEFAULT_HYSTERESIS,
+    DEFAULT_SUPPORT_DELTA,
+    DEFAULT_SUPPORT_GRACE_MIN,
+    DEFAULT_SUPPORT_MIN_RISE,
+    DEFAULT_WARM_THRESHOLD,
     DOMAIN,
+    PARK_FAN_ONLY,
+    PARK_OFF,
     ROLE_BOTH,
     ROLE_COOL,
     ROLE_HEAT,
@@ -36,9 +52,13 @@ from .const import (
     TEMP_SOURCE_MEAN,
     TEMP_SOURCE_PRIMARY,
     TEMP_SOURCE_SENSOR,
+    TIER_PRIMARY,
+    TIER_SUPPORT,
 )
 
 ROLES = [ROLE_HEAT, ROLE_COOL, ROLE_BOTH]
+TIERS = [TIER_PRIMARY, TIER_SUPPORT]
+PARKS = [PARK_OFF, PARK_FAN_ONLY]
 
 
 def _device_schema(defaults=None):
@@ -58,8 +78,32 @@ def _device_schema(defaults=None):
                     options=ROLES, translation_key="device_role"
                 )
             ),
+            vol.Required(
+                CONF_TIER, default=defaults.get(CONF_TIER, TIER_PRIMARY)
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=TIERS, translation_key="device_tier"
+                )
+            ),
+            vol.Required(
+                CONF_PARK, default=defaults.get(CONF_PARK, PARK_OFF)
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=PARKS, translation_key="device_park"
+                )
+            ),
         }
     )
+
+
+def _device_data(user_input):
+    """The persisted subentry data for one device."""
+    return {
+        CONF_ENTITY_ID: user_input[CONF_ENTITY_ID],
+        CONF_ROLE: user_input[CONF_ROLE],
+        CONF_TIER: user_input.get(CONF_TIER, TIER_PRIMARY),
+        CONF_PARK: user_input.get(CONF_PARK, PARK_OFF),
+    }
 
 
 class SmartClimateConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -177,10 +221,7 @@ class DeviceSubentryFlowHandler(ConfigSubentryFlow):
         if user_input is not None:
             return self.async_create_entry(
                 title=user_input[CONF_ENTITY_ID],
-                data={
-                    CONF_ENTITY_ID: user_input[CONF_ENTITY_ID],
-                    CONF_ROLE: user_input[CONF_ROLE],
-                },
+                data=_device_data(user_input),
             )
         return self.async_show_form(step_id="user", data_schema=_device_schema())
 
@@ -192,10 +233,7 @@ class DeviceSubentryFlowHandler(ConfigSubentryFlow):
                 self._get_entry(),
                 subentry,
                 title=user_input[CONF_ENTITY_ID],
-                data={
-                    CONF_ENTITY_ID: user_input[CONF_ENTITY_ID],
-                    CONF_ROLE: user_input[CONF_ROLE],
-                },
+                data=_device_data(user_input),
             )
         return self.async_show_form(
             step_id="reconfigure", data_schema=_device_schema(subentry.data)
@@ -238,6 +276,48 @@ class SmartClimateOptionsFlow(OptionsFlow):
                     default=current.get(CONF_HYSTERESIS, DEFAULT_HYSTERESIS),
                 ): selector.NumberSelector(
                     selector.NumberSelectorConfig(min=0.1, max=3.0, step=0.1, unit_of_measurement="°C", mode=selector.NumberSelectorMode.BOX)
+                ),
+                vol.Optional(
+                    CONF_WEATHER_ENTITY,
+                    description={"suggested_value": current.get(CONF_WEATHER_ENTITY)},
+                ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="weather")
+                ),
+                vol.Optional(
+                    CONF_OUTDOOR_SENSOR,
+                    description={"suggested_value": current.get(CONF_OUTDOOR_SENSOR)},
+                ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="sensor", device_class="temperature")
+                ),
+                vol.Optional(
+                    CONF_WARM_THRESHOLD,
+                    default=current.get(CONF_WARM_THRESHOLD, DEFAULT_WARM_THRESHOLD),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(min=10, max=35, step=0.5, unit_of_measurement="°C", mode=selector.NumberSelectorMode.BOX)
+                ),
+                vol.Optional(
+                    CONF_HARD_CEILING,
+                    default=current.get(CONF_HARD_CEILING, DEFAULT_HARD_CEILING),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(min=20, max=40, step=0.5, unit_of_measurement="°C", mode=selector.NumberSelectorMode.BOX)
+                ),
+                vol.Optional(
+                    CONF_SUPPORT_DELTA,
+                    default=current.get(CONF_SUPPORT_DELTA, DEFAULT_SUPPORT_DELTA),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(min=0.5, max=5, step=0.1, unit_of_measurement="°C", mode=selector.NumberSelectorMode.BOX)
+                ),
+                vol.Optional(
+                    CONF_SUPPORT_GRACE,
+                    default=current.get(CONF_SUPPORT_GRACE, DEFAULT_SUPPORT_GRACE_MIN),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(min=0, max=240, step=5, unit_of_measurement="min", mode=selector.NumberSelectorMode.BOX)
+                ),
+                vol.Optional(
+                    CONF_SUPPORT_MIN_RISE,
+                    default=current.get(CONF_SUPPORT_MIN_RISE, DEFAULT_SUPPORT_MIN_RISE),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(min=0, max=3, step=0.1, unit_of_measurement="°C/h", mode=selector.NumberSelectorMode.BOX)
                 ),
                 vol.Optional(
                     CONF_INTEGRATION_DRIVEN_AUTO,

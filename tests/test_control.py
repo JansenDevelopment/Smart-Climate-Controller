@@ -76,11 +76,21 @@ def test_hysteresis_keeps_cooling_until_target_minus_h():
     assert d2.intent == IDLE
 
 
-def test_override_single_target_heats_and_cools():
+def test_override_heats_but_never_cools():
     assert decide(mode="auto", room_temp=18, heat_target=21, cool_target=25,
                   override_target=22).intent == HEAT
-    assert decide(mode="auto", room_temp=26, heat_target=21, cool_target=25,
-                  override_target=22).intent == COOL
+    # Overshoot above the override temperature must not turn into cooling.
+    for room in (22.5, 26, 35):
+        assert decide(mode="auto", room_temp=room, heat_target=21, cool_target=25,
+                      override_target=22).intent == IDLE
+        assert decide(mode="heat", room_temp=room, heat_target=21, cool_target=25,
+                      override_target=22).intent == IDLE
+
+
+def test_override_in_explicit_cool_mode_cools_to_override():
+    d = decide(mode="cool", room_temp=28, heat_target=21, cool_target=25,
+               override_target=23)
+    assert d.intent == COOL and d.target == 23
 
 
 def test_override_ignored_when_off():

@@ -1,5 +1,6 @@
 import { LitElement, html, css, svg } from "https://unpkg.com/lit@3/index.js?module";
 import { SmartClimateBaseEditor } from "./smart-climate-base-editor.js";
+import { translate, fmtTemp, coolingInfo, supportDevices } from "./smart-climate-shared.js";
 
 // SVG graph layout constants (viewBox units)
 const GL = 52;   // graph left x
@@ -21,6 +22,37 @@ const COOL_COLOR = "#4aa8ff";
 // Friendly-name suffix used to identify a presence sensor when the derived ID
 // (sensor.<name>_presence) is not found in hass.states.
 const PRESENCE_FRIENDLY_NAME_SUFFIX = " Presence";
+const CEILING_COLOR = "#ef5350";
+const SUPPORT_COLOR = "var(--sc-support, #9e9e9e)";
+const DEFAULT_SUPPORT_DELTA = 1.5;
+
+// Texts of the policy lines/warnings (the older card texts are English only).
+const TEXT = {
+  nl: {
+    unreadable: "Schema kon niet worden gelezen van de integratie — opslaan uitgeschakeld",
+    unreadableHint: "Werk de Smart Climate-integratie bij en herlaad Home Assistant.",
+    cooling: "Koelen",
+    allowed: "toegestaan",
+    notAllowed: "niet toegestaan",
+    ceilingLabel: "Hard plafond {t}",
+    ceilingLegend: "Hard plafond",
+    supportLabel: "CV springt bij onder {t}",
+    supportLabelShort: "CV onder {t}",
+    supportLegend: "CV-drempel (stookdoel − {d})",
+  },
+  en: {
+    unreadable: "Schedule could not be read from the integration — saving is disabled",
+    unreadableHint: "Update the Smart Climate integration and reload Home Assistant.",
+    cooling: "Cooling",
+    allowed: "allowed",
+    notAllowed: "not allowed",
+    ceilingLabel: "Hard ceiling {t}",
+    ceilingLegend: "Hard ceiling",
+    supportLabel: "CV joins below {t}",
+    supportLabelShort: "CV below {t}",
+    supportLegend: "CV threshold (heat target − {d})",
+  },
+};
 
 class SmartClimateScheduleCard extends LitElement {
   static properties = {
@@ -38,6 +70,7 @@ class SmartClimateScheduleCard extends LitElement {
     _dirty: { state: true },
     _selectedIdx: { state: true },
     _showCooling: { state: true },
+    _scheduleUnreadable: { state: true },
   };
 
   static getConfigElement() {
@@ -58,6 +91,7 @@ class SmartClimateScheduleCard extends LitElement {
   updated(changedProps) {
     if (changedProps.has("hass") && this.hass) {
       if (this._schedule === undefined) this._syncFromEntity();
+      else if (this._scheduleUnreadable && !this._dirty) this._syncFromEntity();
       if (this.config.show_history !== false && this._history === undefined) this._fetchHistory();
       if (this.config.show_yesterday !== false && this._yesterdayHistory === undefined) this._fetchYesterdayHistory();
       if (this.config.show_presence !== false && this._presenceHistory === undefined) this._fetchPresenceHistory();
@@ -81,10 +115,18 @@ class SmartClimateScheduleCard extends LitElement {
   _syncFromEntity() {
     const entity = this.hass?.states[this.config.entity];
     if (!entity) return;
-    const raw = entity.attributes.schedule;
+    const attrs = entity.attributes;
+    // An integration that has never saved a schedule publishes `schedule: null`;
+    // an older one has no `schedule` attribute at all. In that case we cannot
+    // know the real schedule, so never offer defaults that could overwrite it.
+    this._scheduleUnreadable = !("schedule" in attrs);
+    const raw = attrs.schedule;
     if (raw) {
       this._schedule = raw;
       this._scheduleMode = raw.mode || "daily";
+    } else if (this._scheduleUnreadable) {
+      this._scheduleMode = "daily";
+      this._schedule = { mode: "daily", daily: [] };
     } else {
       this._scheduleMode = "daily";
       this._schedule = {
@@ -112,6 +154,72 @@ class SmartClimateScheduleCard extends LitElement {
   _coolOf(node) {
     if (node?.cool_temp != null) return node.cool_temp;
     return Math.min(TMAX, (node?.temp ?? 21) + COOL_GAP_DEFAULT);
+  }
+
+  _t(key, vars) {
+    return translate(TEXT, this.hass, key, vars);
+  }
+
+  /** Home Assistant's own dark-mode flag (the graph colours differ per scheme). */
+  _isDark() {
+    return this.hass?.themes?.darkMode !== false;
+  }
+
+  /**
+   * Find a spot for a line label that does not overlap the nodes or their
+   * labels. `lines` is a list of `{ y, x0, x1, text }` candidates (a horizontal
+   * stretch of the line the label may sit on); `ys` the offsets from the line
+   * to try. The first spot that fits wins; returns null when nothing fits.
+   */
+  _placeLabel(lines, ys, obstacles) {
+    const hit = (r, o) => r[0] < o[2] && r[2] > o[0] && r[1] < o[3] && r[3] > o[1];
+    for (const { x0, x1, text, y: lineY } of lines) {
+      const w = text.length * 6.3 + 4;
+      if (x1 - x0 < w) continue;
+      for (const dy of ys) {
+        const y = lineY + dy;
+        if (y - 12 < GT || y + 4 > GB - PBAR_H) continue;
+        // Try positions starting from the middle of the stretch and moving out.
+        const mid = (x0 + x1 - w) / 2;
+        for (let d = 0; d <= (x1 - x0 - w) / 2 + 1; d += 4) {
+          for (const x of d ? [mid - d, mid + d] : [mid]) {
+            if (x < x0 || x + w > x1) continue;
+            const r = [x - 2, y - 12, x + w, y + 4];
+            if (!obstacles.some((o) => hit(r, o))) return { x, y, text, rect: r };
+          }
+        }
+      }
+    }
+    return null;
+  }
+
+  /** Boxes the policy labels must keep clear of: nodes, node labels, "now" label. */
+  _labelObstacles(sortedNodes, nowX) {
+    const boxes = [[nowX, GT, nowX + 46, GT + 18], [nowX - 2, GT, nowX + 2, GB]];
+    for (const node of sortedNodes) {
+      const cx = this._toX(this._timeToHour(node.time));
+      const cy = this._toY(node.temp);
+      boxes.push([cx - 20, cy - NR - 17, cx + 20, cy + NR + 28]);
+      if (this._showCooling) {
+        const cool = this._toY(this._coolOf(node));
+        boxes.push([cx - 18, cool - NR - 16, cx + 18, cool + NR + 3]);
+      }
+    }
+    return boxes;
+  }
+
+  /** Status line: "Koelen: Auto — niet toegestaan (verwachte max 19°, drempel 22°)". */
+  _coolingStatus(attrs) {
+    const info = coolingInfo(attrs, this.hass);
+    if (!info) return null;
+    let text = `${this._t("cooling")}: ${info.label}`;
+    if (info.mode === "auto" && info.allowed !== null) {
+      const detail = info.allowed
+        ? [info.why, info.facts].filter(Boolean).join(", ")
+        : info.facts;
+      text += ` — ${this._t(info.allowed ? "allowed" : "notAllowed")}${detail ? ` (${detail})` : ""}`;
+    }
+    return { text, allowed: info.mode === "auto" ? info.allowed : info.mode === "on" ? true : null };
   }
 
   _toggleCooling() {
@@ -349,7 +457,7 @@ class SmartClimateScheduleCard extends LitElement {
   }
 
   async _saveSchedule() {
-    if (!this.hass) return;
+    if (!this.hass || this._scheduleUnreadable) return;
     try {
       let schedule = { ...(this._schedule ?? {}), mode: this._scheduleMode ?? "daily" };
       // When cooling is enabled, make every node's cool limit explicit so the
@@ -657,9 +765,46 @@ class SmartClimateScheduleCard extends LitElement {
 
     const selectedNode = this._selectedIdx != null ? sortedNodes[this._selectedIdx] : null;
 
+    // Policy overlays (only when the integration publishes the attributes).
+    const attrs = entity.attributes;
+    const coolingStatus = this._coolingStatus(attrs);
+    const ceiling =
+      typeof attrs.hard_ceiling === "number" && attrs.cooling_mode !== "off" ? attrs.hard_ceiling : null;
+    const supportDelta = attrs.support_delta ?? DEFAULT_SUPPORT_DELTA;
+    const showSupport =
+      attrs.support_enabled === true && supportDevices(attrs).length > 0 && sortedNodes.length > 0;
+    const supportOf = (n) => Math.max(TMIN, (n.temp ?? 21) - supportDelta);
+    const supportPathD = showSupport ? this._stepPath(nodes, supportOf) : "";
+    const isDark = this._isDark();
+
+    // Labels for the policy lines, placed where they overlap nothing.
+    const obstacles = this._labelObstacles(sortedNodes, nowX);
+    let ceilingLabel = null;
+    if (ceiling != null) {
+      const text = this._t("ceilingLabel", { t: fmtTemp(ceiling, this.hass) });
+      ceilingLabel = this._placeLabel([{ x0: GL + 2, x1: GR - 2, y: this._toY(ceiling), text }], [-5, 15], obstacles);
+      if (ceilingLabel) obstacles.push(ceilingLabel.rect);
+    }
+    let supportLabel = null;
+    if (showSupport) {
+      // The label sits on one stretch of the stepped line and names that stretch's value.
+      const xs = sortedNodes.map((n) => this._toX(this._timeToHour(n.time)));
+      const stretches = [{ a: GL, b: xs[0], n: sortedNodes[sortedNodes.length - 1] }];
+      sortedNodes.forEach((n, i) => stretches.push({ a: xs[i], b: i + 1 < xs.length ? xs[i + 1] : GR, n }));
+      const widest = stretches.sort((p, q) => q.b - q.a - (p.b - p.a));
+      for (const variant of ["supportLabel", "supportLabelShort"]) {
+        const lines = widest.map(({ a, b, n }) => ({
+          x0: a + 2, x1: b - 2, y: this._toY(supportOf(n)),
+          text: this._t(variant, { t: fmtTemp(supportOf(n), this.hass) }),
+        }));
+        supportLabel = this._placeLabel(lines, [15, -5], obstacles);
+        if (supportLabel) break;
+      }
+    }
+
     return html`
       <ha-card>
-        <div class="content">
+        <div class="content" data-scheme=${isDark ? "dark" : "light"}>
           <div class="header">
             <div class="title">
               📅 Schedule${activeDay !== "daily" ? ` (${dayLabel[activeDay] ?? activeDay})` : ""}
@@ -671,12 +816,26 @@ class SmartClimateScheduleCard extends LitElement {
               </button>
               ${this._dirty ? html`<span class="unsaved-badge">● Unsaved</span>` : ""}
               ${this._saved ? html`<span class="saved-badge">✓ Saved</span>` : ""}
-              <button class="save-btn ${this._dirty ? "save-btn--dirty" : ""}"
-                @click=${this._saveSchedule} ?disabled=${!this._dirty}>
+              <button class="save-btn ${this._dirty && !this._scheduleUnreadable ? "save-btn--dirty" : ""}"
+                @click=${this._saveSchedule} ?disabled=${!this._dirty || this._scheduleUnreadable}>
                 Save
               </button>
             </div>
           </div>
+
+          ${this._scheduleUnreadable ? html`
+            <div class="warning" role="alert">
+              <strong>${this._t("unreadable")}</strong>
+              <span>${this._t("unreadableHint")}</span>
+            </div>
+          ` : ""}
+
+          ${coolingStatus ? html`
+            <div class="policy-line">
+              <span class="policy-dot ${coolingStatus.allowed === true ? "policy-dot--on" : ""}"></span>
+              ${coolingStatus.text}
+            </div>
+          ` : ""}
 
           <div class="mode-row">
             ${["daily", "5/2", "individual"].map(m => html`
@@ -710,14 +869,14 @@ class SmartClimateScheduleCard extends LitElement {
             >
               <!-- graph background -->
               <rect x="${GL}" y="${GT}" width="${GR - GL}" height="${GB - GT}"
-                fill="rgba(0,0,0,0.25)" rx="3"/>
+                fill="var(--sc-graph-bg)" rx="3"/>
 
               <!-- y grid lines + labels -->
               ${yTicks.map(t => {
                 const gy = this._toY(t);
                 return svg`
                   <line x1="${GL}" y1="${gy}" x2="${GR}" y2="${gy}"
-                    stroke="rgba(255,255,255,0.1)" stroke-width="1"/>
+                    stroke="var(--sc-grid)" stroke-width="1"/>
                   <text x="${GL - 5}" y="${gy + 4}" text-anchor="end" class="ax">${t}°</text>
                 `;
               })}
@@ -727,8 +886,8 @@ class SmartClimateScheduleCard extends LitElement {
                 const gx = this._toX(h);
                 return svg`
                   <line x1="${gx}" y1="${GT}" x2="${gx}" y2="${GB}"
-                    stroke="rgba(255,255,255,0.07)" stroke-width="1"/>
-                  <circle cx="${gx}" cy="${GB + 3}" r="1.5" fill="rgba(255,255,255,0.3)"/>
+                    stroke="var(--sc-grid)" stroke-opacity="0.7" stroke-width="1"/>
+                  <circle cx="${gx}" cy="${GB + 3}" r="1.5" fill="var(--sc-node-sub)"/>
                   <text x="${gx}" y="${GB + 15}" text-anchor="middle" class="ax">${h}</text>
                 `;
               })}
@@ -766,7 +925,7 @@ class SmartClimateScheduleCard extends LitElement {
 
               <!-- comfort band fill (between heat and cool) -->
               ${bandPathD ? svg`
-                <path d="${bandPathD}" fill="${COOL_COLOR}" opacity="0.08"
+                <path d="${bandPathD}" fill="${COOL_COLOR}" opacity="${isDark ? 0.08 : 0.16}"
                   stroke="none"/>
               ` : ""}
 
@@ -780,6 +939,23 @@ class SmartClimateScheduleCard extends LitElement {
               ${stepPathD ? svg`
                 <path d="${stepPathD}" fill="none"
                   stroke="${HEAT_COLOR}" stroke-width="2.5" stroke-linejoin="round"/>
+              ` : ""}
+
+              <!-- hard ceiling: above this the room is always cooled -->
+              ${ceiling != null ? svg`
+                <line x1="${GL}" y1="${this._toY(ceiling)}" x2="${GR}" y2="${this._toY(ceiling)}"
+                  stroke="${CEILING_COLOR}" stroke-width="1.5" stroke-dasharray="1.5,4"
+                  stroke-linecap="round"/>
+                ${ceilingLabel ? svg`<text x="${ceilingLabel.x}" y="${ceilingLabel.y}"
+                  class="line-lbl line-lbl--ceiling">${ceilingLabel.text}</text>` : ""}
+              ` : ""}
+
+              <!-- support (CV) threshold: heat target minus support_delta -->
+              ${supportPathD ? svg`
+                <path d="${supportPathD}" fill="none" stroke="${SUPPORT_COLOR}" stroke-width="1.5"
+                  stroke-dasharray="5,4" stroke-linejoin="round"/>
+                ${supportLabel ? svg`<text x="${supportLabel.x}" y="${supportLabel.y}"
+                  class="line-lbl line-lbl--support">${supportLabel.text}</text>` : ""}
               ` : ""}
 
               <!-- current time marker -->
@@ -903,6 +1079,23 @@ class SmartClimateScheduleCard extends LitElement {
             </div>
           ` : ""}
 
+          ${ceiling != null || showSupport ? html`
+            <div class="presence-legend">
+              ${ceiling != null ? html`
+                <span class="presence-legend-item">
+                  <span class="legend-line" style="border-top:2px dotted ${CEILING_COLOR}"></span>
+                  ${this._t("ceilingLegend")} ${fmtTemp(ceiling, this.hass)}
+                </span>
+              ` : ""}
+              ${showSupport ? html`
+                <span class="presence-legend-item">
+                  <span class="legend-line" style="border-top:2px dashed ${SUPPORT_COLOR}"></span>
+                  ${this._t("supportLegend", { d: fmtTemp(supportDelta, this.hass) })}
+                </span>
+              ` : ""}
+            </div>
+          ` : ""}
+
           <div class="hint">
             Double-click to add • Drag a dot to move
             ${this._showCooling ? " (🔥 lower, ❄ upper)" : ""} • Select then remove to delete
@@ -920,6 +1113,26 @@ class SmartClimateScheduleCard extends LitElement {
 
     .content {
       padding: 10px 12px;
+      /* Graph colours: the dark scheme is the original look, light gets its own set. */
+      --sc-graph-bg: rgba(0, 0, 0, 0.25);
+      --sc-grid: rgba(255, 255, 255, 0.1);
+      --sc-node-text: #fff;
+      --sc-node-sub: rgba(255, 255, 255, 0.7);
+      --sc-cool-text: #7cc4ff;
+      --sc-halo: rgba(0, 0, 0, 0.45);
+      --sc-ceiling: #ff8a80;
+      --sc-support: #d6d6d6;
+    }
+
+    .content[data-scheme="light"] {
+      --sc-graph-bg: rgba(0, 0, 0, 0.05);
+      --sc-grid: rgba(0, 0, 0, 0.13);
+      --sc-node-text: #212121;
+      --sc-node-sub: #616161;
+      --sc-cool-text: #1565c0;
+      --sc-halo: rgba(255, 255, 255, 0.85);
+      --sc-ceiling: #c62828;
+      --sc-support: #4f4f4f;
     }
 
     .header {
@@ -1176,7 +1389,11 @@ class SmartClimateScheduleCard extends LitElement {
 
     .node-lbl {
       font-size: 13px;
-      fill: white;
+      fill: var(--sc-node-text);
+      paint-order: stroke;
+      stroke: var(--sc-halo);
+      stroke-width: 3px;
+      stroke-linejoin: round;
       font-weight: 700;
       font-family: sans-serif;
       pointer-events: none;
@@ -1184,7 +1401,11 @@ class SmartClimateScheduleCard extends LitElement {
 
     .node-cool-lbl {
       font-size: 12px;
-      fill: #7cc4ff;
+      fill: var(--sc-cool-text);
+      paint-order: stroke;
+      stroke: var(--sc-halo);
+      stroke-width: 3px;
+      stroke-linejoin: round;
       font-weight: 700;
       font-family: sans-serif;
       pointer-events: none;
@@ -1192,7 +1413,11 @@ class SmartClimateScheduleCard extends LitElement {
 
     .node-time {
       font-size: 12px;
-      fill: rgba(255, 255, 255, 0.7);
+      fill: var(--sc-node-sub);
+      paint-order: stroke;
+      stroke: var(--sc-halo);
+      stroke-width: 3px;
+      stroke-linejoin: round;
       font-family: sans-serif;
       pointer-events: none;
     }
@@ -1224,6 +1449,65 @@ class SmartClimateScheduleCard extends LitElement {
       height: 8px;
       border-radius: 50%;
       display: inline-block;
+      flex-shrink: 0;
+    }
+
+    .warning {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      margin-bottom: 8px;
+      padding: 8px 12px;
+      border-radius: 8px;
+      font-size: 13px;
+      background: rgba(244, 67, 54, 0.12);
+      border: 1px solid #ef5350;
+      color: var(--primary-text-color);
+    }
+
+    .warning span {
+      font-size: 12px;
+      color: var(--secondary-text-color);
+    }
+
+    .policy-line {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+      font-size: 13px;
+      color: var(--secondary-text-color);
+    }
+
+    .policy-dot {
+      width: 8px;
+      height: 8px;
+      flex-shrink: 0;
+      border-radius: 50%;
+      background: var(--disabled-text-color, #9e9e9e);
+    }
+
+    .policy-dot--on {
+      background: #4aa8ff;
+    }
+
+    .line-lbl {
+      font-size: 12px;
+      font-family: sans-serif;
+      font-weight: 600;
+      pointer-events: none;
+      paint-order: stroke;
+      stroke: var(--sc-halo);
+      stroke-width: 3px;
+      stroke-linejoin: round;
+    }
+
+    .line-lbl--ceiling { fill: var(--sc-ceiling); }
+    .line-lbl--support { fill: var(--sc-support); }
+
+    .legend-line {
+      display: inline-block;
+      width: 18px;
       flex-shrink: 0;
     }
 

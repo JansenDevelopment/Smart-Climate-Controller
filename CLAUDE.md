@@ -34,16 +34,18 @@ custom_components/smart_climate/     # the integration (all backend + frontend a
   services.yaml                      # service metadata/selectors shown in the HA UI
   config_flow.py                     # UI config + reconfigure flow
   schedule_helper.py                 # PURE, HA-independent schedule math (unit-testable)
-  frontend.py                        # copies + registers the main Lovelace card as a resource
+  frontend.py                        # copies all card modules to www/community + registers the 3 cards as resources
   const.py                           # DOMAIN, modes, config keys, attribute names, service names
   manifest.json                      # integration manifest (domain, version, codeowners)
   strings.json / translations/       # en.json, nl.json — config-flow + entity translations
-  smart-climate-card.js              # main control card (LitElement)
+  smart-climate-card.js              # main control card (LitElement), nl/en via hass.language
+  smart-climate-shared.js            # helpers shared by the cards: language, number format, cooling explanation
   smart-climate-config-card.js       # settings card (LitElement) + its editor
   smart-climate-schedule-card.js     # interactive schedule editor card + its editor
   smart-climate-base-editor.js       # shared base class for card GUI editors
   smart-climate-card.new.js          # EMPTY placeholder — future work, ignore
   smart-climate-card-clean.js        # EMPTY placeholder — future work, ignore
+tools/card-preview/                  # local card harness (mock hass + Playwright shots), see "Frontend cards"
 tests/
   conftest.py                        # stubs out homeassistant + voluptuous so tests run without HA
   test_presence_interrupt_override.py
@@ -174,12 +176,39 @@ in `async_added_to_hass`. When adding a service:
 
 ### Frontend cards
 
-`frontend.py` copies `smart-climate-card.js` into HA's HACS community dir and
-registers it as a Lovelace resource with an md5-hash cache-buster. Cards are
+`frontend.py` copies **all** card modules (`MODULE_FILES`: the three cards, the
+base editor and `smart-climate-shared.js`) into HA's HACS community dir and
+registers the three cards as Lovelace resources with one md5-hash cache-buster
+over all modules. While copying it appends `?hacstag=<hash>` to the relative
+imports of the helper modules, otherwise the browser could pair a new card with
+a stale `smart-climate-shared.js`. **A new JS module that a card imports must be
+added to `MODULE_FILES`** (`tests/test_frontend.py` checks this). Cards are
 LitElement classes that `window.customCards.push({...})` to appear in the picker.
-Config/schedule card GUI editors extend `SmartClimateBaseEditor`. Cards are thin
-clients: they call `smart_climate.*` services and re-render on state change — all
-logic stays in the backend.
+Config/schedule/main card GUI editors extend `SmartClimateBaseEditor`. Cards are
+thin clients: they call `smart_climate.*` services and re-render on state change
+— all logic stays in the backend.
+
+- Cards are bilingual: `translate(dict, hass, key)` from `smart-climate-shared.js`
+  picks `nl` when `hass.language` starts with `nl`, otherwise `en`. The schedule
+  card's older texts are still English only; only its new policy texts are bilingual.
+- Cards must **degrade on an older backend**: the new attributes (`cooling_mode`,
+  `support_*`, `forecast_*`, `devices`, `intent`, ...) may be missing — leave that
+  part out, never crash. The schedule card reads `attributes.schedule`: if the key
+  is absent it shows a warning and disables Save (so defaults can never overwrite
+  a real schedule); `schedule: null` means "no schedule saved yet" and is fine.
+- Override state shown on the main card comes from the `mode` attribute
+  (`override_timer` → remaining time, `override_infinity`, `override_next_node`).
+
+**Card preview harness** (`tools/card-preview/`, no HA needed, needs internet for
+lit from unpkg): `index.html?card=main|schedule&scenario=<name>&theme=light|dark&lang=nl|en&w=<px>`
+renders a card against a mock `hass` (`mock.js`: scenarios, stateful `callService`,
+history API). `node tools/card-preview/shoot.mjs [filter]` serves the repo root,
+writes screenshots to `tools/card-preview/shots/`, runs interaction smoke tests and
+prints console/page errors (Playwright is taken from `PLAYWRIGHT_PATH`, default
+`D:/git/Martijn/HomeAssistant/tools/node_modules/playwright`). `viewer.html` +
+`serve.py` (port 8777) run the same cards on the real simulation.
+The harness stubs `ha-card`/`ha-icon` as custom elements with a shadow root
+(document styles do not reach into the cards' shadow DOM).
 
 ## Development workflow
 

@@ -300,3 +300,52 @@ set_schedule:
       required: true
       selector:
         object:
+
+set_cooling_mode:
+  name: Set cooling mode
+  description: >-
+    Policy for automatic cooling. "off" never cools automatically, "on" always
+    allows it, "auto" allows it only in a warm period (a forecast or measured
+    outdoor high at or above the warm threshold) or when the room is above the
+    hard ceiling. Heating overshoot in winter never turns into cooling.
+  fields:
+    entity_id:
+      name: Entity
+      description: The Smart Climate entity.
+      required: true
+      selector:
+        entity:
+          domain: climate
+          integration: smart_climate
+    mode:
+      name: Mode
+      description: off, auto or on.
+      required: true
+      selector:
+        select:
+          options:
+            - "off"
+            - auto
+            - "on"
+
+set_heat_support:
+  name: Set heat support
+  description: >-
+    Enable or disable the support heater (e.g. the CV next to a more efficient
+    primary heater such as an airco). When disabled only the primary heater
+    heats.
+  fields:
+    entity_id:
+      name: Entity
+      description: The Smart Climate entity.
+      required: true
+      selector:
+        entity:
+          domain: climate
+          integration: smart_climate
+    enabled:
+      name: Enabled
+      description: Whether the support heater may join.
+      required: true
+      selector:
+        boolean:

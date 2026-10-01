@@ -167,3 +167,36 @@ def test_device_info_groups_by_entry():
     switch = SmartClimateInterruptibleSwitch(hass, _entry())
     info = switch.device_info
     assert (DOMAIN, "e1") in info["identifiers"]
+
+
+# ---------------------------------------------------------------------------
+# Cooling mode select + heat support switch
+# ---------------------------------------------------------------------------
+
+async def test_cooling_mode_select_mirrors_and_writes_back():
+    from custom_components.smart_climate.const import ATTR_COOLING_MODE, SERVICE_SET_COOLING_MODE
+    from custom_components.smart_climate.select import SmartClimateCoolingModeSelect
+
+    hass = _hass_with_climate({ATTR_COOLING_MODE: "auto"})
+    select = _bind(SmartClimateCoolingModeSelect(hass, _entry()), hass)
+    assert select.current_option == "auto"
+    assert select._attr_options == ["off", "auto", "on"]
+
+    await select.async_select_option("off")
+    args, kwargs = _last_service_call(hass)
+    assert args[0] == DOMAIN and args[1] == SERVICE_SET_COOLING_MODE
+    assert args[2] == {"entity_id": CLIMATE_ID, "mode": "off"}
+
+
+async def test_heat_support_switch_mirrors_and_writes_back():
+    from custom_components.smart_climate.const import ATTR_SUPPORT_ENABLED, SERVICE_SET_HEAT_SUPPORT
+    from custom_components.smart_climate.switch import SmartClimateHeatSupportSwitch
+
+    hass = _hass_with_climate({ATTR_SUPPORT_ENABLED: False})
+    switch = _bind(SmartClimateHeatSupportSwitch(hass, _entry()), hass)
+    assert switch.is_on is False
+
+    await switch.async_turn_on()
+    args, _ = _last_service_call(hass)
+    assert args[1] == SERVICE_SET_HEAT_SUPPORT
+    assert args[2] == {"entity_id": CLIMATE_ID, "enabled": True}
