@@ -25,6 +25,8 @@ from datetime import datetime, timedelta
 
 from .const import (
     DEFAULT_HYSTERESIS,
+    DEVICE_MODE_MANUAL,
+    DEVICE_MODE_OFF,
     MIN_BAND_GAP,
     PARK_FAN_ONLY,
     ROLE_BOTH,
@@ -252,6 +254,10 @@ def plan_routes(
     - ``supports_fan_only`` — whether ``fan_only`` is a valid mode for it
     - ``can_heat`` / ``can_cool`` — whether the device advertises that HVAC mode
     - ``available`` — False if the entity is unavailable right now
+    - ``control`` (``auto`` default, ``off`` or ``manual``) — the user's per-device
+      choice.  ``manual``: hands off — the device is never commanded and never
+      counted as serving.  ``off``: kept off and never used (not even as
+      support), whatever its ``park`` preference.
     - ``step`` — the device's temperature step (setpoints are rounded to it)
 
     Heating: primary devices heat alone; *support* devices join only while
@@ -279,7 +285,9 @@ def plan_routes(
     if decision.intent in (HEAT, COOL):
         candidates = [
             d for d in devices
-            if d.get("available", True) and _serves(d, decision.intent)
+            if d.get("available", True)
+            and d.get("control", "auto") == "auto"
+            and _serves(d, decision.intent)
         ]
         if decision.intent == HEAT:
             primary = [d for d in candidates if d.get("tier", TIER_PRIMARY) == TIER_PRIMARY]
@@ -292,8 +300,11 @@ def plan_routes(
     commands: list[DeviceCommand] = []
     for dev in devices:
         entity_id = dev["entity_id"]
+        control_mode = dev.get("control", "auto")
 
-        if decision.intent == OFF:
+        if control_mode == DEVICE_MODE_MANUAL:
+            continue  # hands off: the user operates this device
+        if decision.intent == OFF or control_mode == DEVICE_MODE_OFF:
             commands.append(DeviceCommand(entity_id, OFF))
         elif entity_id in serving:
             mode = HEAT if decision.intent == HEAT else COOL

@@ -217,7 +217,7 @@ def test_hvac_action_reflects_intent():
 def test_migration_from_single_wrapped_climate():
     entity, _, _ = _make_entity()
     assert entity._devices == [
-        {"entity_id": WRAPPED, "role": "both", "tier": "primary", "park": "fan_only"}
+        {"entity_id": WRAPPED, "role": "both", "tier": "primary", "park": "fan_only", "control": "auto"}
     ]
 
 
@@ -272,5 +272,5 @@ def test_build_devices_migrates_wrapped_when_no_list():
     entry.data = {}
     devices = SmartClimateEntity._build_devices(entry, "climate.legacy")
     assert devices == [
-        {"entity_id": "climate.legacy", "role": "both", "tier": "primary", "park": "fan_only"}
+        {"entity_id": "climate.legacy", "role": "both", "tier": "primary", "park": "fan_only", "control": "auto"}
     ]

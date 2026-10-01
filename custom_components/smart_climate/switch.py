@@ -8,8 +8,10 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .const import (
     ATTR_INTERRUPTIBLE,
     ATTR_SUPPORT_ENABLED,
+    ATTR_SUPPORT_PAUSED_UNTIL,
     SERVICE_SET_HEAT_SUPPORT,
     SERVICE_SET_INTERRUPTIBLE,
+    SERVICE_SET_SUPPORT_PAUSE,
 )
 from .entity_base import SmartClimateChildEntity
 
@@ -23,6 +25,7 @@ async def async_setup_entry(
     async_add_entities([
         SmartClimateInterruptibleSwitch(hass, entry),
         SmartClimateHeatSupportSwitch(hass, entry),
+        SmartClimateSupportPauseSwitch(hass, entry),
     ])
 
 
@@ -62,3 +65,26 @@ class SmartClimateHeatSupportSwitch(SmartClimateChildEntity, SwitchEntity):
 
     async def async_turn_off(self, **kwargs) -> None:
         await self._call_service(SERVICE_SET_HEAT_SUPPORT, enabled=False)
+
+
+class SmartClimateSupportPauseSwitch(SmartClimateChildEntity, SwitchEntity):
+    """Pause the support heater until the next morning (default 10:00)."""
+
+    def __init__(self, hass, entry) -> None:
+        super().__init__(hass, entry, "support_pause")
+        self._attr_name = "Skip Support Until Morning"
+        self._attr_icon = "mdi:radiator-off"
+
+    @property
+    def is_on(self):
+        return self._climate_attr(ATTR_SUPPORT_PAUSED_UNTIL) is not None
+
+    @property
+    def extra_state_attributes(self):
+        return {"until": self._climate_attr(ATTR_SUPPORT_PAUSED_UNTIL) or None}
+
+    async def async_turn_on(self, **kwargs) -> None:
+        await self._call_service(SERVICE_SET_SUPPORT_PAUSE, enabled=True, until_morning=True)
+
+    async def async_turn_off(self, **kwargs) -> None:
+        await self._call_service(SERVICE_SET_SUPPORT_PAUSE, enabled=False)

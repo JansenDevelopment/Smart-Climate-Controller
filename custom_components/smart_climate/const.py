@@ -38,6 +38,10 @@ CONF_SUPPORT_DELTA = "support_delta"
 CONF_SUPPORT_GRACE = "support_grace"
 CONF_SUPPORT_MIN_RISE = "support_min_rise"
 CONF_TIER = "tier"
+CONF_DEVICE_MODES = "device_modes"
+CONF_DEVICE_SEEDED = "device_modes_seeded"
+CONF_CONTROL = "control"
+CONF_SKIP_UNTIL = "skip_until"
 CONF_PARK = "park"
 
 # Device roles
@@ -49,6 +53,14 @@ CONF_ENTITY_ID = "entity_id"
 
 # Config subentry type for an actuator device
 SUBENTRY_TYPE_DEVICE = "device"
+
+# Per-device control: auto = the coordinator drives it, off = kept off and never
+# used, manual = hands off (the user operates it; the coordinator ignores it).
+DEVICE_MODE_AUTO = "auto"
+DEVICE_MODE_OFF = "off"
+DEVICE_MODE_MANUAL = "manual"
+DEVICE_MODES = [DEVICE_MODE_AUTO, DEVICE_MODE_OFF, DEVICE_MODE_MANUAL]
+DEFAULT_SKIP_UNTIL = "10:00"
 
 # Heating tiers: the primary device heats alone; a support device joins only
 # when the room is far enough below the heat target.
@@ -118,6 +130,8 @@ ATTR_SUPPORT_ENABLED = "support_enabled"
 ATTR_SUPPORT_ACTIVE = "support_active"
 ATTR_SUPPORT_DELTA = "support_delta"
 ATTR_ROOM_TREND = "room_trend"
+ATTR_DEVICE_MODES = "device_modes"
+ATTR_SUPPORT_PAUSED_UNTIL = "support_paused_until"
 ATTR_WARM_THRESHOLD = "warm_threshold"
 ATTR_HARD_CEILING = "hard_ceiling"
 ATTR_FORECAST_HIGH_TODAY = "forecast_high_today"
@@ -141,6 +155,8 @@ SERVICE_SET_DEFAULT_OVERRIDE_MODE = "set_default_override_mode"
 SERVICE_SET_SCHEDULE = "set_schedule"
 SERVICE_SET_COOLING_MODE = "set_cooling_mode"
 SERVICE_SET_HEAT_SUPPORT = "set_heat_support"
+SERVICE_SET_DEVICE_MODE = "set_device_mode"
+SERVICE_SET_SUPPORT_PAUSE = "set_support_pause"
 
 # Schedule modes
 SCHEDULE_MODE_DAILY = "daily"

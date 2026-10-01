@@ -51,6 +51,7 @@ _register_stub(
 # homeassistant.util + homeassistant.util.dt (climate.py: `from homeassistant.util import dt`)
 _dt_stub = types.ModuleType("homeassistant.util.dt")
 _dt_stub.now = lambda: _datetime.datetime.now()
+_dt_stub.parse_datetime = lambda value: _datetime.datetime.fromisoformat(value)
 _register_stub("homeassistant.util", dt=_dt_stub)
 sys.modules["homeassistant.util.dt"] = _dt_stub
 

@@ -113,6 +113,9 @@ class Scenario:
     t_amp: float                    # daily amplitude (peak ~15:00)
     sun_kw: float                   # solar gain at noon, kW into the room
     t0: float = 19.0
+    start_hour: float = 0.0         # begin the run at this hour of the first day
+    # per device kind ("airco"/"cv"): (mode, from_iso|None, until_iso|None); mode auto|off|manual
+    device_control: dict = field(default_factory=dict)
     day_offsets: tuple = ()         # per-day outdoor offsets (weather changes)
     cooling_mode: str = "auto"
     hvac_mode: str = "auto"         # coordinator mode: "auto" | "off"
@@ -168,6 +171,19 @@ def daily_high(sc: Scenario, d: date) -> float:
     return sc.t_mean + off + sc.t_amp
 
 
+def control_for(sc: Scenario, kind: str, t: datetime) -> str:
+    """The per-device control mode (auto/off/manual) in effect at time t."""
+    entry = sc.device_control.get(kind)
+    if not entry:
+        return "auto"
+    mode, frm, until = entry
+    if frm and t < datetime.fromisoformat(frm):
+        return "auto"
+    if until and t >= datetime.fromisoformat(until):
+        return "auto"
+    return mode
+
+
 def build_devices(kind: str):
     airco = DeviceSim("Airco", 2.5, "airco", modes=("off", "heat", "cool", "fan_only"), step=1)
     cv = DeviceSim("CV", 6.0, "cv", modes=("off", "heat"), step=0.5)
@@ -189,7 +205,7 @@ def simulate(sc: Scenario) -> dict:
     devs, dev_cfg = build_devices(sc.devices)
     by_id = {("airco" if d.kind == "airco" else "cv"): d for d in devs}
     tracker = cooling.OutdoorMaxTracker()
-    t = datetime.combine(sc.start, datetime.min.time())
+    t = datetime.combine(sc.start, datetime.min.time()) + timedelta(hours=sc.start_hour)
     end = t + timedelta(days=sc.days)
     room = sc.t0
 
@@ -264,7 +280,8 @@ def simulate(sc: Scenario) -> dict:
         caps = []
         for cfg in dev_cfg:
             d = by_id[cfg["entity_id"]]
-            caps.append({**cfg, "supports_fan_only": "fan_only" in d.modes,
+            caps.append({**cfg, "control": control_for(sc, cfg["entity_id"], t),
+                         "supports_fan_only": "fan_only" in d.modes,
                          "can_heat": "heat" in d.modes, "can_cool": "cool" in d.modes,
                          "step": d.step, "available": True})
         for cmd in control.plan_routes(decision, caps, support_active=support_active):
@@ -387,6 +404,15 @@ def scenarios() -> dict[str, Scenario]:
     s["cool_spring_overshoot"] = Scenario(
         "cool_spring_overshoot", "Koude dag, kamer warm (geen warme periode)", date(Y, 3, 15), 3, 7.0, 3.0, 4.6, t0=22.0,
         notes="Lentezon: kamer 25 °C maar buiten 4–10 °C: geen warme periode, dus niet koelen.")
+    s["frost_morning"] = Scenario(
+        "frost_morning", "Vorstochtend, over een uur weg (07:00, 16 °C)", date(Y, 2, 8), 1, -4.0, 2.0, 0.0,
+        t0=16.0, start_hour=7.0,
+        notes="Normaal: Qlima en CV mogen allebei. Je ziet wat de CV in dat uur toevoegt.")
+    s["frost_morning_no_cv"] = Scenario(
+        "frost_morning_no_cv", "Vorstochtend, geen CV tot 10:00", date(Y, 2, 8), 1, -4.0, 2.0, 0.0,
+        t0=16.0, start_hour=7.0,
+        device_control={"cv": ("off", "2027-02-08T07:00:00", "2027-02-08T10:00:00")},
+        notes="'Geen CV tot morgenochtend' / 'Ik ga zo weg': alleen de Qlima werkt, daarna is de CV weer auto.")
     return s
 
 
@@ -525,6 +551,15 @@ def check(r: dict) -> dict:
                           any(p["airco"] == "cool" and p["airco_f"] > 0 and p["t"].hour >= 19
                               and p["out"] < p["room"] - 3 for p in r["series"]))
         res["no_heat"] = ("geen verwarmen in de zomer", r["hours"].get("airco", (0, 0))[0] == 0 and cv_heat == 0)
+    if sc.name == "frost_morning_no_cv":
+        cut = datetime(2027, 2, 8, 10, 0)
+        res["cv_paused"] = ("CV stookt niet zolang de pauze loopt (tot 10:00)",
+                            not any(p["cv"] == "heat" and p["cv_f"] > 0 for p in r["series"] if p["t"] < cut))
+        res["airco_works"] = ("de Qlima doet het stookwerk tijdens de pauze",
+                              any(p["airco"] == "heat" and p["airco_f"] > 0 for p in r["series"] if p["t"] < cut))
+    if sc.name == "frost_morning":
+        res["cv_helps"] = ("zonder pauze springt de CV bij in de vorst",
+                           any(p["cv"] == "heat" and p["cv_f"] > 0 for p in r["series"][:36]))
     if sc.name == "hot_day_off":
         res["no_cool"] = ("met koelen uit wordt nooit gekoeld", a_cool == 0)
     return res
@@ -544,6 +579,7 @@ def export_json(results: list[dict], path: str) -> None:
             "hard_ceiling": sc.hard_ceiling, "auto_temp": AUTO_TEMP, "away_temp": AWAY_TEMP,
             "cool_home": COOL_HOME, "cool_away": COOL_AWAY,
             "start": sc.start.isoformat(), "days": sc.days,
+            "device_control": {k: list(v) for k, v in sc.device_control.items()},
             "summary": summarize(r).split(chr(10), 1)[1],
             "checks": [[label, ok] for label, ok in check(r).values()],
             "series": [{

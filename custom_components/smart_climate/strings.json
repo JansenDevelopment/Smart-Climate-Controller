@@ -57,12 +57,14 @@
             "entity_id": "Climate device",
             "role": "Role",
             "tier": "Heating tier",
-            "park": "When not in use"
+            "park": "When not in use",
+            "control": "Start mode"
           },
           "data_description": {
             "role": "Whether this device can heat, cool, or both",
             "tier": "Primary heats alone; a support device (e.g. the CV) only joins when the room is well below the target",
-            "park": "What this device does when it is not the one serving the current demand"
+            "park": "What this device does when it is not the one serving the current demand",
+            "control": "How this device starts: auto (the coordinator drives it), off (kept off) or manual (hands off). Later changes are made with the device's mode select"
           }
         },
         "reconfigure": {
@@ -71,11 +73,13 @@
             "entity_id": "Climate device",
             "role": "Role",
             "tier": "Heating tier",
-            "park": "When not in use"
+            "park": "When not in use",
+            "control": "Start mode"
           },
           "data_description": {
             "tier": "Primary heats alone; a support device (e.g. the CV) only joins when the room is well below the target",
-            "park": "What this device does when it is not the one serving the current demand"
+            "park": "What this device does when it is not the one serving the current demand",
+            "control": "How this device starts: auto (the coordinator drives it), off (kept off) or manual (hands off). Later changes are made with the device's mode select"
           }
         }
       }
@@ -97,7 +101,8 @@
           "hard_ceiling": "Hard cooling ceiling (°C)",
           "support_delta": "Support heater joins below target by (°C)",
           "support_grace": "Support waits (minutes)",
-          "support_min_rise": "Support joins only below this warming rate (°C/h)"
+          "support_min_rise": "Support joins only below this warming rate (°C/h)",
+          "skip_until": "Skip support until (time)"
         },
         "data_description": {
           "temperature_source": "How the room temperature is measured: mean of devices, a primary device, or a dedicated sensor",
@@ -111,7 +116,8 @@
           "hard_ceiling": "Auto cooling is always allowed when the room is at or above this temperature",
           "support_delta": "The support heater joins when the room is this far below the heat target, and leaves again below half of it",
           "support_grace": "How long the primary heater gets to close the gap before the support heater may join (0 = join immediately)",
-          "support_min_rise": "The support heater only joins when the room warms slower than this. A steady warm-up (e.g. after arriving home) does not need support"
+          "support_min_rise": "The support heater only joins when the room warms slower than this. A steady warm-up (e.g. after arriving home) does not need support",
+          "skip_until": "'Skip support until morning' pauses the support heater until this time (default 10:00)"
         }
       }
     }
@@ -141,6 +147,13 @@
       "options": {
         "off": "Off",
         "fan_only": "Fan only"
+      }
+    },
+    "device_control": {
+      "options": {
+        "auto": "Auto (coordinator drives it)",
+        "off": "Off (kept off, never used)",
+        "manual": "Manual (hands off)"
       }
     }
   },

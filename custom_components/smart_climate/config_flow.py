@@ -13,6 +13,7 @@ from homeassistant.helpers import selector
 from .const import (
     CONF_AWAY_DELAY_MINUTES,
     CONF_AWAY_TEMPERATURE,
+    CONF_CONTROL,
     CONF_COOL_AUTO_TEMPERATURE,
     CONF_COOL_AWAY_TEMPERATURE,
     CONF_DEFAULT_OVERRIDE_DURATION,
@@ -27,6 +28,7 @@ from .const import (
     CONF_PARK,
     CONF_PRIMARY_DEVICE,
     CONF_ROLE,
+    CONF_SKIP_UNTIL,
     CONF_SUPPORT_DELTA,
     CONF_SUPPORT_GRACE,
     CONF_SUPPORT_MIN_RISE,
@@ -38,10 +40,13 @@ from .const import (
     CONF_ZONE_HOME,
     DEFAULT_HARD_CEILING,
     DEFAULT_HYSTERESIS,
+    DEFAULT_SKIP_UNTIL,
     DEFAULT_SUPPORT_DELTA,
     DEFAULT_SUPPORT_GRACE_MIN,
     DEFAULT_SUPPORT_MIN_RISE,
     DEFAULT_WARM_THRESHOLD,
+    DEVICE_MODE_AUTO,
+    DEVICE_MODES,
     DOMAIN,
     PARK_FAN_ONLY,
     PARK_OFF,
@@ -92,6 +97,13 @@ def _device_schema(defaults=None):
                     options=PARKS, translation_key="device_park"
                 )
             ),
+            vol.Required(
+                CONF_CONTROL, default=defaults.get(CONF_CONTROL, DEVICE_MODE_AUTO)
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=DEVICE_MODES, translation_key="device_control"
+                )
+            ),
         }
     )
 
@@ -103,6 +115,7 @@ def _device_data(user_input):
         CONF_ROLE: user_input[CONF_ROLE],
         CONF_TIER: user_input.get(CONF_TIER, TIER_PRIMARY),
         CONF_PARK: user_input.get(CONF_PARK, PARK_OFF),
+        CONF_CONTROL: user_input.get(CONF_CONTROL, DEVICE_MODE_AUTO),
     }
 
 
@@ -319,6 +332,10 @@ class SmartClimateOptionsFlow(OptionsFlow):
                 ): selector.NumberSelector(
                     selector.NumberSelectorConfig(min=0, max=3, step=0.1, unit_of_measurement="°C/h", mode=selector.NumberSelectorMode.BOX)
                 ),
+                vol.Optional(
+                    CONF_SKIP_UNTIL,
+                    default=current.get(CONF_SKIP_UNTIL, DEFAULT_SKIP_UNTIL),
+                ): selector.TimeSelector(),
                 vol.Optional(
                     CONF_INTEGRATION_DRIVEN_AUTO,
                     default=current.get(CONF_INTEGRATION_DRIVEN_AUTO, True),

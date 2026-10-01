@@ -31,6 +31,7 @@ from .const import (
     ATTR_COOLING_MODE,
     ATTR_DEFAULT_OVERRIDE_DURATION,
     ATTR_DEFAULT_OVERRIDE_MODE,
+    ATTR_DEVICE_MODES,
     ATTR_DEVICES,
     ATTR_FORECAST_HIGH_TODAY,
     ATTR_FORECAST_HIGH_TOMORROW,
@@ -49,17 +50,21 @@ from .const import (
     ATTR_SUPPORT_ACTIVE,
     ATTR_SUPPORT_DELTA,
     ATTR_SUPPORT_ENABLED,
+    ATTR_SUPPORT_PAUSED_UNTIL,
     ATTR_WARM_THRESHOLD,
     ATTR_WEATHER_ENTITY,
     ATTR_WRAPPED_CLIMATE,
     CONF_AUTO_TEMPERATURE,
     CONF_AWAY_DELAY_MINUTES,
     CONF_AWAY_TEMPERATURE,
+    CONF_CONTROL,
     CONF_COOL_AUTO_TEMPERATURE,
     CONF_COOL_AWAY_TEMPERATURE,
     CONF_COOLING_MODE,
     CONF_DEFAULT_OVERRIDE_DURATION,
     CONF_DEFAULT_OVERRIDE_MODE,
+    CONF_DEVICE_MODES,
+    CONF_DEVICE_SEEDED,
     CONF_DEVICES,
     CONF_HARD_CEILING,
     CONF_HVAC_MODE,
@@ -69,6 +74,7 @@ from .const import (
     CONF_PARK,
     CONF_PRIMARY_DEVICE,
     CONF_SCHEDULE,
+    CONF_SKIP_UNTIL,
     CONF_SUPPORT_DELTA,
     CONF_SUPPORT_ENABLED,
     CONF_SUPPORT_GRACE,
@@ -84,10 +90,14 @@ from .const import (
     COOLING_MODES,
     DEFAULT_HARD_CEILING,
     DEFAULT_HYSTERESIS,
+    DEFAULT_SKIP_UNTIL,
     DEFAULT_SUPPORT_DELTA,
     DEFAULT_SUPPORT_GRACE_MIN,
     DEFAULT_SUPPORT_MIN_RISE,
     DEFAULT_WARM_THRESHOLD,
+    DEVICE_MODE_AUTO,
+    DEVICE_MODE_OFF,
+    DEVICE_MODES,
     DOMAIN,
     MODE_AUTO,
     MODE_OVERRIDE_INFINITY,
@@ -100,6 +110,7 @@ from .const import (
     TEMP_SOURCE_PRIMARY,
     TEMP_SOURCE_SENSOR,
     TIER_PRIMARY,
+    TIER_SUPPORT,
 )
 from .services import async_register_services
 
@@ -222,6 +233,25 @@ class SmartClimateEntity(ClimateEntity):
         self._support_enabled = entry.data.get(CONF_SUPPORT_ENABLED, True)
         self._support_active = False
         self._room_trend = control.RoomTrend()
+        # Per-device control choice: {entity_id: {"mode": auto|off|manual, "until": iso|None}}
+        self._device_modes = {
+            k: dict(v) for k, v in (entry.data.get(CONF_DEVICE_MODES) or {}).items()
+        }
+        # A device added with a start mode (e.g. "manual") begins in that mode, once:
+        # it is applied in memory now (so the very first evaluation already
+        # respects it) and persisted when the entity is registered.
+        already_seeded = set(entry.data.get(CONF_DEVICE_SEEDED) or [])
+        self._seed_pending = [
+            d["entity_id"] for d in self._devices if d["entity_id"] not in already_seeded
+        ]
+        self._already_seeded = already_seeded
+        for dev in self._devices:
+            if (
+                dev["entity_id"] in self._seed_pending
+                and dev.get("control", DEVICE_MODE_AUTO) != DEVICE_MODE_AUTO
+                and dev["entity_id"] not in self._device_modes
+            ):
+                self._device_modes[dev["entity_id"]] = {"mode": dev["control"], "until": None}
         self._heat_since = None
 
         # Outdoor context for the auto-cooling policy.
@@ -240,7 +270,7 @@ class SmartClimateEntity(ClimateEntity):
         devices = []
         seen = set()
 
-        def _add(entity_id, role, tier=None, park=None):
+        def _add(entity_id, role, tier=None, park=None, control=None):
             if entity_id and entity_id not in seen:
                 seen.add(entity_id)
                 devices.append({
@@ -248,6 +278,7 @@ class SmartClimateEntity(ClimateEntity):
                     "role": role or ROLE_BOTH,
                     "tier": tier or TIER_PRIMARY,
                     "park": park or PARK_FAN_ONLY,
+                    "control": control or DEVICE_MODE_AUTO,
                 })
 
         subentries = getattr(entry, "subentries", None)
@@ -257,11 +288,14 @@ class SmartClimateEntity(ClimateEntity):
                     data = getattr(sub, "data", {}) or {}
                     _add(
                         data.get("entity_id"), data.get("role"),
-                        data.get(CONF_TIER), data.get(CONF_PARK),
+                        data.get(CONF_TIER), data.get(CONF_PARK), data.get(CONF_CONTROL),
                     )
 
         for d in entry.data.get(CONF_DEVICES, []) or []:
-            _add(d.get("entity_id"), d.get("role"), d.get(CONF_TIER), d.get(CONF_PARK))
+            _add(
+                d.get("entity_id"), d.get("role"), d.get(CONF_TIER), d.get(CONF_PARK),
+                d.get(CONF_CONTROL),
+            )
 
         if not devices and wrapped_climate:
             _add(wrapped_climate, ROLE_BOTH)
@@ -286,6 +320,8 @@ class SmartClimateEntity(ClimateEntity):
         self.async_on_remove(
             lambda: self.hass.data.get(DOMAIN, {}).get("entities", {}).pop(self.entity_id, None)
         )
+
+        self._persist_seeded_modes()
 
         # Start listening to zone changes
         self.async_on_remove(
@@ -370,6 +406,8 @@ class SmartClimateEntity(ClimateEntity):
         ):
             self._mode = MODE_AUTO
             self._next_node_datetime = None
+
+        self._expire_device_modes(current_time)
 
         # Outdoor context for the cooling policy, then evaluate + drive devices
         await self._refresh_outdoor(current_time)
@@ -495,6 +533,7 @@ class SmartClimateEntity(ClimateEntity):
                 "role": dev.get("role", ROLE_BOTH),
                 "tier": dev.get("tier", TIER_PRIMARY),
                 "park": dev.get("park", PARK_FAN_ONLY),
+                "control": self._effective_device_mode(dev["entity_id"], dt_util.now()),
                 "available": available,
                 "supports_fan_only": HVACMode.FAN_ONLY in (modes or []),
                 # Unknown capabilities (no hvac_modes list) are assumed capable.
@@ -781,6 +820,117 @@ class SmartClimateEntity(ClimateEntity):
             )
         self.async_write_ha_state()
 
+    # ---- Per-device control ----------------------------------------------
+
+    def _persist_seeded_modes(self):
+        """Persist the start modes of newly added devices (once)."""
+        if not self._seed_pending:
+            return
+        self._persist(**{
+            CONF_DEVICE_MODES: dict(self._device_modes),
+            CONF_DEVICE_SEEDED: sorted(self._already_seeded | set(self._seed_pending)),
+        })
+        self._already_seeded |= set(self._seed_pending)
+        self._seed_pending = []
+
+    def _effective_device_mode(self, entity_id, now):
+        """The device's control mode right now; an expired temporary mode is auto."""
+        entry = self._device_modes.get(entity_id)
+        if not entry:
+            return DEVICE_MODE_AUTO
+        until = entry.get("until")
+        if until:
+            when = dt_util.parse_datetime(until)
+            if when is not None and now >= when:
+                return DEVICE_MODE_AUTO
+        return entry.get("mode", DEVICE_MODE_AUTO)
+
+    def _expire_device_modes(self, now):
+        """Drop temporary device modes whose end time has passed (and persist)."""
+        expired = [
+            eid for eid, entry in self._device_modes.items()
+            if entry.get("until")
+            and (dt_util.parse_datetime(entry["until"]) or now) <= now
+        ]
+        if expired:
+            for eid in expired:
+                self._device_modes.pop(eid, None)
+            self._persist(**{CONF_DEVICE_MODES: dict(self._device_modes)})
+
+    def _next_skip_end(self, now):
+        """The next occurrence of the configured 'skip until' time (default 10:00)."""
+        raw = str(self._conf(CONF_SKIP_UNTIL, DEFAULT_SKIP_UNTIL))
+        try:
+            hh, mm = (int(x) for x in raw.split(":")[:2])
+        except ValueError:
+            hh, mm = 10, 0
+        end = now.replace(hour=hh, minute=mm, second=0, microsecond=0)
+        if end <= now:
+            end += timedelta(days=1)
+        return end
+
+    async def async_set_device_mode(self, device, mode, minutes=None, until=None):
+        """Set a device to auto / off / manual, optionally only for a while."""
+        if mode not in DEVICE_MODES or device not in {d["entity_id"] for d in self._devices}:
+            return
+        now = dt_util.now()
+        end = None
+        if mode != DEVICE_MODE_AUTO:
+            if minutes:
+                end = now + timedelta(minutes=float(minutes))
+            elif until:
+                end = dt_util.parse_datetime(str(until))
+        if mode == DEVICE_MODE_AUTO:
+            self._device_modes.pop(device, None)
+        else:
+            self._device_modes[device] = {
+                "mode": mode, "until": end.isoformat() if end else None,
+            }
+        self._persist(**{CONF_DEVICE_MODES: dict(self._device_modes)})
+        await self._apply_control()
+        self.async_write_ha_state()
+
+    async def async_set_support_pause(self, enabled=True, minutes=None, until_morning=False):
+        """Pause (or resume) every support device — e.g. 'no CV tomorrow morning'.
+
+        ``until_morning`` pauses until the next 'skip until' time (default
+        10:00); ``minutes`` pauses for a fixed time ("I'm leaving soon");
+        without either the pause has no end until it is switched off.
+        """
+        now = dt_util.now()
+        end = None
+        if enabled:
+            if minutes:
+                end = now + timedelta(minutes=float(minutes))
+            elif until_morning:
+                end = self._next_skip_end(now)
+        for dev in self._devices:
+            if dev.get("tier") != TIER_SUPPORT:
+                continue
+            if enabled:
+                self._device_modes[dev["entity_id"]] = {
+                    "mode": DEVICE_MODE_OFF, "until": end.isoformat() if end else None,
+                }
+            else:
+                self._device_modes.pop(dev["entity_id"], None)
+        self._persist(**{CONF_DEVICE_MODES: dict(self._device_modes)})
+        await self._apply_control()
+        self.async_write_ha_state()
+
+    def _support_paused_until(self):
+        """ISO end time of the active support pause ('' if open-ended, None if none)."""
+        ends = []
+        for dev in self._devices:
+            if dev.get("tier") != TIER_SUPPORT:
+                continue
+            entry = self._device_modes.get(dev["entity_id"])
+            if entry and entry.get("mode") == DEVICE_MODE_OFF:
+                ends.append(entry.get("until") or "")
+        if not ends:
+            return None
+        timed = [e for e in ends if e]
+        return min(timed) if timed and len(timed) == len(ends) else ""
+
     async def async_set_cooling_mode(self, mode: str):
         """Set the auto-cooling policy: off / auto / on."""
         if mode not in COOLING_MODES:
@@ -937,6 +1087,14 @@ class SmartClimateEntity(ClimateEntity):
             ATTR_SUPPORT_ENABLED: self._support_enabled,
             ATTR_SUPPORT_ACTIVE: self._support_active,
             ATTR_ROOM_TREND: self._rounded_trend(),
+            ATTR_DEVICE_MODES: {
+                d["entity_id"]: {
+                    "mode": self._effective_device_mode(d["entity_id"], dt_util.now()),
+                    "until": (self._device_modes.get(d["entity_id"]) or {}).get("until"),
+                }
+                for d in self._devices
+            },
+            ATTR_SUPPORT_PAUSED_UNTIL: self._support_paused_until(),
             ATTR_SUPPORT_DELTA: self._conf(CONF_SUPPORT_DELTA, DEFAULT_SUPPORT_DELTA),
             ATTR_WARM_THRESHOLD: self._conf(CONF_WARM_THRESHOLD, DEFAULT_WARM_THRESHOLD),
             ATTR_HARD_CEILING: self._conf(CONF_HARD_CEILING, DEFAULT_HARD_CEILING),

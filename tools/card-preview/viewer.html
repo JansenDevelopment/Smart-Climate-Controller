@@ -178,8 +178,21 @@ function buildHass() {
       mode = remaining > 0 ? "override_timer" : "auto";
     } else mode = o.kind === "infinity" ? "override_infinity" : "override_next_node";
   }
+  const KIND = (eid) => (eid === "climate.airco" ? "airco" : "cv");
+  const nowIso = localISO(t);
+  const deviceModes = {};
+  for (const dv of devices) {
+    const k = KIND(dv.entity_id), P = ui.params;
+    const mode = P["ctl_" + k] || "auto", from = P["ctl_" + k + "_from"], until = P["ctl_" + k + "_until"];
+    const active = mode !== "auto" && (!from || nowIso >= from) && (!until || nowIso < until);
+    deviceModes[dv.entity_id] = { mode: active ? mode : "auto", until: active ? (until || null) : null };
+  }
+  const supportDev = devices.find((dv) => dv.tier === "support");
+  const sm = supportDev && deviceModes[supportDev.entity_id];
+  const pausedUntil = sm && sm.mode === "off" ? (sm.until || "") : null;
   const states = {};
   const attrs = {
+    device_modes: deviceModes, support_paused_until: pausedUntil,
     friendly_name: "Smart Climate", hvac_modes: ["off", "heat", "cool", "auto"],
     current_temperature: p.room, temperature: off ? null : (p.intent === "heat" ? p.heat_t : p.intent === "cool" ? p.cool_t : p.heat_t),
     hvac_action: off ? "off" : p.intent === "heat" ? "heating" : p.intent === "cool" ? "cooling" : "idle",
@@ -232,6 +245,32 @@ function mockService(domain, service, data) {
     case "smart_climate.set_cooling_mode": P.cooling_mode = data.mode; return simulate();
     case "smart_climate.set_heat_support": P.support_enabled = String(!!data.enabled); return simulate();
     case "climate.set_hvac_mode": P.hvac_mode = data.hvac_mode === "off" ? "off" : "auto"; return simulate();
+    case "smart_climate.set_device_mode": {
+      const k = data.device === "climate.airco" ? "airco" : "cv";
+      const cur = localISO(new Date(ui.data.series[ui.idx].t));
+      for (const suffix of ["", "_from", "_until"]) delete P["ctl_" + k + suffix];
+      if (data.mode !== "auto") {
+        P["ctl_" + k] = data.mode; P["ctl_" + k + "_from"] = cur;
+        if (data.minutes) P["ctl_" + k + "_until"] = localISO(new Date(new Date(cur).getTime() + data.minutes * 60000));
+        else if (data.until) P["ctl_" + k + "_until"] = String(data.until).slice(0, 16) + ":00";
+      }
+      return simulate();
+    }
+    case "smart_climate.set_support_pause": {
+      const sup = (ui.data.devices.includes("airco") && ui.data.devices.includes("cv")) ? "cv" : null;
+      if (!sup) { toast("Geen ondersteunend apparaat in deze opstelling"); break; }
+      const cur = new Date(ui.data.series[ui.idx].t), curIso = localISO(cur);
+      for (const suffix of ["", "_from", "_until"]) delete P["ctl_cv" + suffix];
+      if (data.enabled !== false) {
+        P.ctl_cv = "off"; P.ctl_cv_from = curIso;
+        if (data.minutes) P.ctl_cv_until = localISO(new Date(cur.getTime() + data.minutes * 60000));
+        else if (data.until_morning) {
+          const end = new Date(cur); end.setHours(10, 0, 0, 0); if (end <= cur) end.setDate(end.getDate() + 1);
+          P.ctl_cv_until = localISO(end);
+        }
+      }
+      return simulate();
+    }
     case "smart_climate.set_override_timer": ui.override = { kind: "timer", minutes: data.minutes, temp: data.temperature, start: new Date(ui.data.series[ui.idx].t) }; toast(`Override (timer ${data.minutes} min) alleen getoond, niet gesimuleerd`); break;
     case "smart_climate.set_override_infinity": ui.override = { kind: "infinity", temp: data.temperature }; toast("Override (altijd) alleen getoond, niet gesimuleerd"); break;
     case "smart_climate.set_override_next_node": ui.override = { kind: "next_node", temp: data.temperature }; toast("Override (tot volgende schakeltijd) alleen getoond, niet gesimuleerd"); break;

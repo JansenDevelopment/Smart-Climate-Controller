@@ -37,14 +37,24 @@ def run(name: str, params: dict) -> dict:
     if name not in scs:
         raise KeyError(name)
     changes = {}
+    control = {}
     for key, values in params.items():
         v = values[0]
+        if key.startswith("ctl_"):  # ctl_cv=off&ctl_cv_from=ISO&ctl_cv_until=ISO
+            kind, _, part = key[4:].partition("_")
+            entry = control.setdefault(kind, {"mode": "auto", "from": None, "until": None})
+            entry["mode" if not part else part] = v or None
+            continue
         if key in BOOL:
             changes[key] = v.lower() in ("1", "true", "yes", "on")
         elif key in FLOAT:
             changes[key] = float(v)
         elif key in STR:
             changes[key] = v
+    if control:
+        changes["device_control"] = {
+            k: (e["mode"], e["from"], e["until"]) for k, e in control.items() if e["mode"] != "auto"
+        }
     sc = dataclasses.replace(scs[name], **changes)
     result = simulate.simulate(sc)
     tmp = ROOT / "tools" / "card-preview" / ".last-sim.json"

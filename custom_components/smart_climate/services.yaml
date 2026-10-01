@@ -349,3 +349,92 @@ set_heat_support:
       required: true
       selector:
         boolean:
+
+set_device_mode:
+  name: Set device mode
+  description: >-
+    Choose how the coordinator treats one actuator device. "auto" lets the
+    coordinator drive it, "off" keeps it off and never uses it, "manual" is hands
+    off (you operate it yourself). Optionally only for a while: after the given
+    minutes (or at the given time) the device returns to auto.
+  fields:
+    entity_id:
+      name: Entity
+      description: The Smart Climate entity.
+      required: true
+      selector:
+        entity:
+          domain: climate
+          integration: smart_climate
+    device:
+      name: Device
+      description: The actuator climate entity (as listed in the devices attribute).
+      required: true
+      selector:
+        entity:
+          domain: climate
+    mode:
+      name: Mode
+      description: auto, off or manual.
+      required: true
+      selector:
+        select:
+          options:
+            - auto
+            - "off"
+            - manual
+    minutes:
+      name: Minutes
+      description: Return to auto after this many minutes (optional).
+      required: false
+      selector:
+        number:
+          min: 1
+          max: 1440
+          unit_of_measurement: min
+    until:
+      name: Until
+      description: Return to auto at this date and time (optional, ignored when minutes is set).
+      required: false
+      selector:
+        datetime:
+
+set_support_pause:
+  name: Set support pause
+  description: >-
+    Pause (or resume) every support heater, e.g. "no CV tomorrow morning" or
+    "I'm leaving soon". With until_morning the pause lasts until the next 10:00
+    (configurable in the options); with minutes it lasts that long; without
+    either it stays until you resume it.
+  fields:
+    entity_id:
+      name: Entity
+      description: The Smart Climate entity.
+      required: true
+      selector:
+        entity:
+          domain: climate
+          integration: smart_climate
+    enabled:
+      name: Pause
+      description: true to pause, false to resume.
+      required: false
+      default: true
+      selector:
+        boolean:
+    minutes:
+      name: Minutes
+      description: Pause for this many minutes (optional).
+      required: false
+      selector:
+        number:
+          min: 1
+          max: 1440
+          unit_of_measurement: min
+    until_morning:
+      name: Until morning
+      description: Pause until the next skip-until time (default 10:00).
+      required: false
+      default: false
+      selector:
+        boolean:
