@@ -172,13 +172,25 @@ class RoomTrend:
         while self._samples and now - self._samples[0][0] > self._window:
             self._samples.popleft()
 
-    def rise_per_hour(self) -> float | None:
-        """Warming rate over the window, or None if there is too little history."""
-        if len(self._samples) < 2:
+    def rise_per_hour(self, since: datetime | None = None, min_span_minutes: float | None = None) -> float | None:
+        """Warming rate (°C/h), or None if there is too little history.
+
+        ``since`` restricts the estimate to samples taken at/after that moment
+        (e.g. when heating started, so the flat period before it does not dilute
+        the rate).  ``min_span_minutes`` is the minimum time the samples must
+        cover (default: two thirds of the window).
+        """
+        samples = [x for x in self._samples if since is None or x[0] >= since]
+        if len(samples) < 2:
             return None
-        (t0, v0), (t1, v1) = self._samples[0], self._samples[-1]
+        (t0, v0), (t1, v1) = samples[0], samples[-1]
         hours = (t1 - t0).total_seconds() / 3600
-        if hours < self._window.total_seconds() / 3600 * 0.66:
+        need_min = (
+            min_span_minutes
+            if min_span_minutes is not None
+            else self._window.total_seconds() / 60 * 0.66
+        )
+        if hours < need_min / 60:
             return None
         return (v1 - v0) / hours
 
@@ -218,7 +230,11 @@ def support_needed(
         return True
     if heating_minutes is None or heating_minutes < grace_minutes:
         return False
-    return rise_per_hour is None or rise_per_hour < min_rise
+    if rise_per_hour is None:
+        # No trend yet (e.g. just after a restart): do not guess; only join
+        # once the primary heater has had twice the grace period.
+        return heating_minutes >= grace_minutes * 2
+    return rise_per_hour < min_rise
 
 
 @dataclass(frozen=True)
@@ -254,6 +270,8 @@ def plan_routes(
     - ``supports_fan_only`` — whether ``fan_only`` is a valid mode for it
     - ``can_heat`` / ``can_cool`` — whether the device advertises that HVAC mode
     - ``available`` — False if the entity is unavailable right now
+    - ``heating`` — the device currently reports ``heat`` (used for devices on
+      ``manual`` that the user runs by hand)
     - ``control`` (``auto`` default, ``off`` or ``manual``) — the user's per-device
       choice.  ``manual``: hands off — the device is never commanded and never
       counted as serving.  ``off``: kept off and never used (not even as
@@ -292,7 +310,16 @@ def plan_routes(
         if decision.intent == HEAT:
             primary = [d for d in candidates if d.get("tier", TIER_PRIMARY) == TIER_PRIMARY]
             support = [d for d in candidates if d.get("tier", TIER_PRIMARY) == TIER_SUPPORT]
-            chosen = primary + support if (support_active or not primary) else primary
+            # A hand-operated primary that is heating right now counts as "the
+            # primary is doing its job": the support heater then only joins on
+            # real need, not as the sole heater.
+            primary_working = bool(primary) or any(
+                d.get("control") == "manual"
+                and d.get("tier", TIER_PRIMARY) == TIER_PRIMARY
+                and d.get("heating")
+                for d in devices
+            )
+            chosen = primary + support if (support_active or not primary_working) else primary
         else:
             chosen = candidates
         serving = {d["entity_id"] for d in chosen}

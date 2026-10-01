@@ -448,8 +448,10 @@ def test_support_does_not_join_while_the_room_is_warming_steadily():
     assert _joins(45, -0.4) is True
 
 
-def test_support_joins_without_trend_data_after_the_grace_period():
-    assert _joins(45, None) is True
+def test_support_waits_longer_without_trend_data():
+    # No trend yet (e.g. right after a restart): do not guess, wait twice the grace
+    assert _joins(45, None) is False
+    assert _joins(61, None) is True
 
 
 def test_support_still_needs_the_deficit():

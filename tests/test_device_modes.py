@@ -160,10 +160,16 @@ async def test_temporary_device_mode_expires_and_is_persisted():
     assert persisted["device_modes"] == {}
 
 
-async def test_invalid_device_or_mode_is_ignored():
+async def test_invalid_device_or_mode_is_rejected():
+    from homeassistant.exceptions import ServiceValidationError
+
     entity, _, _ = _make()
-    await entity.async_set_device_mode("climate.nope", "off")
-    await entity.async_set_device_mode("climate.cv", "banana")
+    with pytest.raises(ServiceValidationError):
+        await entity.async_set_device_mode("climate.nope", "off")
+    with pytest.raises(ServiceValidationError):
+        await entity.async_set_device_mode("climate.cv", "banana")
+    with pytest.raises(ServiceValidationError):
+        await entity.async_set_device_mode("climate.cv", "off", until="not a date")
     assert entity._device_modes == {}
 
 

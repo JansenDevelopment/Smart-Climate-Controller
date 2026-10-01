@@ -51,7 +51,24 @@ def cooling_permitted(
     return warm_period(highs, warm_threshold)
 
 
-def parse_daily_highs(forecast, today: date) -> tuple[float | None, float | None]:
+def _day_of(raw, to_local=None):
+    """The calendar day of a forecast entry, in local time when possible.
+
+    Weather integrations often give the day as a UTC timestamp
+    (``2026-10-01T22:00:00+00:00`` is 2 October locally), so aware timestamps are
+    converted with ``to_local`` before taking the date.
+    """
+    text = str(raw)
+    try:
+        moment = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return date.fromisoformat(text[:10])
+    if moment.tzinfo is not None and to_local is not None:
+        moment = to_local(moment)
+    return moment.date()
+
+
+def parse_daily_highs(forecast, today: date, to_local=None) -> tuple[float | None, float | None]:
     """Return ``(today_high, tomorrow_high)`` from a ``weather.get_forecasts`` list.
 
     Items are dicts with an ISO ``datetime`` and a ``temperature`` (the day's
@@ -61,7 +78,7 @@ def parse_daily_highs(forecast, today: date) -> tuple[float | None, float | None
     found: dict[date, float] = {}
     for item in forecast or []:
         try:
-            day = date.fromisoformat(str(item.get("datetime", ""))[:10])
+            day = _day_of(item.get("datetime", ""), to_local)
             temp = float(item["temperature"])
         except (KeyError, TypeError, ValueError, AttributeError):
             continue

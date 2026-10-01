@@ -272,7 +272,8 @@ def simulate(sc: Scenario) -> dict:
                 room, decision.target if decision.target is not None else heat_t,
                 sc.support_delta, support_active,
                 heating_minutes=(t - heat_since).total_seconds() / 60 if heat_since else None,
-                rise_per_hour=trend.rise_per_hour(), grace_minutes=sc.support_grace,
+                rise_per_hour=trend.rise_per_hour(since=heat_since, min_span_minutes=10),
+                grace_minutes=sc.support_grace,
                 min_rise=sc.support_min_rise, release_fraction=sc.support_release)
         else:
             support_active = False

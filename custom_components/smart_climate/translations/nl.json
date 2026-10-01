@@ -102,7 +102,8 @@
           "support_delta": "Ondersteuning springt bij onder doel met (°C)",
           "support_grace": "Ondersteuning wacht (minuten)",
           "support_min_rise": "Ondersteuning springt alleen bij onder deze opwarmsnelheid (°C/u)",
-          "skip_until": "Ondersteuning overslaan tot (tijd)"
+          "skip_until": "Ondersteuning overslaan tot (tijd)",
+          "external_takeover": "Handbediening wint"
         },
         "data_description": {
           "temperature_source": "Hoe de kamertemperatuur wordt gemeten: gemiddelde van apparaten, een primair apparaat, of een aparte sensor",
@@ -117,7 +118,8 @@
           "support_delta": "De ondersteuning springt bij als de kamer zoveel onder het stookdoel zit, en gaat weer uit onder de helft",
           "support_grace": "Hoe lang de hoofdverwarming de tijd krijgt om het gat te dichten voordat de ondersteuning mag bijspringen (0 = meteen)",
           "support_min_rise": "De ondersteuning springt alleen bij als de kamer langzamer opwarmt dan dit. Een gestage opwarming (bijv. na thuiskomst) heeft geen ondersteuning nodig",
-          "skip_until": "'Geen ondersteuning tot morgenochtend' pauzeert de ondersteuning tot dit tijdstip (standaard 10:00)"
+          "skip_until": "'Geen ondersteuning tot morgenochtend' pauzeert de ondersteuning tot dit tijdstip (standaard 10:00)",
+          "external_takeover": "Wordt een apparaat buiten de coördinator om bediend (afstandsbediening, eigen app), dan blijft het als 'handmatig' met rust gedurende de standaard override-duur, in plaats van teruggezet te worden"
         }
       }
     }

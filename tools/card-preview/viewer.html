@@ -185,14 +185,18 @@ function buildHass() {
     const k = KIND(dv.entity_id), P = ui.params;
     const mode = P["ctl_" + k] || "auto", from = P["ctl_" + k + "_from"], until = P["ctl_" + k + "_until"];
     const active = mode !== "auto" && (!from || nowIso >= from) && (!until || nowIso < until);
-    deviceModes[dv.entity_id] = { mode: active ? mode : "auto", until: active ? (until || null) : null };
+    deviceModes[dv.entity_id] = { mode: active ? mode : "auto", until: active ? (until || null) : null,
+      source: P["ctl_" + k + "_src"] || "user" };
   }
   const supportDev = devices.find((dv) => dv.tier === "support");
   const sm = supportDev && deviceModes[supportDev.entity_id];
-  const pausedUntil = sm && sm.mode === "off" ? (sm.until || "") : null;
+  const pausedUntil = sm && sm.mode === "off" && sm.source === "pause" ? (sm.until || "") : null;
   const states = {};
   const attrs = {
     device_modes: deviceModes, support_paused_until: pausedUntil,
+    support_pause_kind: pausedUntil === null ? null : (ui.pauseKind || "minutes"),
+    room_temperature_source: { kind: "sensor", entity: "sensor.woonkamer_temperatuur" },
+    external_takeover: true,
     friendly_name: "Smart Climate", hvac_modes: ["off", "heat", "cool", "auto"],
     current_temperature: p.room, temperature: off ? null : (p.intent === "heat" ? p.heat_t : p.intent === "cool" ? p.cool_t : p.heat_t),
     hvac_action: off ? "off" : p.intent === "heat" ? "heating" : p.intent === "cool" ? "cooling" : "idle",
@@ -210,6 +214,7 @@ function buildHass() {
   states[ENTITY] = { entity_id: ENTITY, state: off ? "off" : "auto", attributes: attrs, last_changed: localISO(t) };
   if (dev.includes("airco")) states["climate.airco"] = { entity_id: "climate.airco", state: off ? "off" : p.airco, attributes: { friendly_name: "Airco", hvac_modes: ["off", "heat", "cool", "fan_only"], current_temperature: p.room, temperature: p.airco_sp }, last_changed: localISO(t) };
   if (dev.includes("cv")) states["climate.cv"] = { entity_id: "climate.cv", state: off ? "off" : p.cv, attributes: { friendly_name: "CV woonkamer", hvac_modes: ["off", "heat"], current_temperature: p.room, temperature: p.cv_sp }, last_changed: localISO(t) };
+  states["sensor.woonkamer_temperatuur"] = { entity_id: "sensor.woonkamer_temperatuur", state: String(p.room), attributes: { friendly_name: "Woonkamer temperatuur", unit_of_measurement: "°C" } };
   states["sensor.smart_climate_presence"] = { entity_id: "sensor.smart_climate_presence", state: p.presence, attributes: { friendly_name: "Smart Climate Presence" } };
   states["zone.home"] = { entity_id: "zone.home", state: p.presence === "home" ? "2" : "0", attributes: { friendly_name: "Home" } };
   states["weather.home"] = { entity_id: "weather.home", state: "cloudy", attributes: { temperature: p.out, friendly_name: "Weer" } };
@@ -260,9 +265,11 @@ function mockService(domain, service, data) {
       const sup = (ui.data.devices.includes("airco") && ui.data.devices.includes("cv")) ? "cv" : null;
       if (!sup) { toast("Geen ondersteunend apparaat in deze opstelling"); break; }
       const cur = new Date(ui.data.series[ui.idx].t), curIso = localISO(cur);
-      for (const suffix of ["", "_from", "_until"]) delete P["ctl_cv" + suffix];
+      for (const suffix of ["", "_from", "_until", "_src"]) delete P["ctl_cv" + suffix];
+      ui.pauseKind = null;
       if (data.enabled !== false) {
-        P.ctl_cv = "off"; P.ctl_cv_from = curIso;
+        P.ctl_cv = "off"; P.ctl_cv_from = curIso; P.ctl_cv_src = "pause";
+        ui.pauseKind = data.minutes ? "minutes" : (data.until_morning ? "until_morning" : "open");
         if (data.minutes) P.ctl_cv_until = localISO(new Date(cur.getTime() + data.minutes * 60000));
         else if (data.until_morning) {
           const end = new Date(cur); end.setHours(10, 0, 0, 0); if (end <= cur) end.setDate(end.getDate() + 1);

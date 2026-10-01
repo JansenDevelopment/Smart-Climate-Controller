@@ -11,6 +11,7 @@ from homeassistant.components.climate import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_NAME, UnitOfTemperature
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import (
     async_track_state_change_event,
@@ -33,6 +34,7 @@ from .const import (
     ATTR_DEFAULT_OVERRIDE_MODE,
     ATTR_DEVICE_MODES,
     ATTR_DEVICES,
+    ATTR_EXTERNAL_TAKEOVER,
     ATTR_FORECAST_HIGH_TODAY,
     ATTR_FORECAST_HIGH_TOMORROW,
     ATTR_HARD_CEILING,
@@ -45,11 +47,13 @@ from .const import (
     ATTR_OVERRIDE_TEMPERATURE,
     ATTR_PRESENCE,
     ATTR_REMAINING_MINUTES,
+    ATTR_ROOM_TEMPERATURE_SOURCE,
     ATTR_ROOM_TREND,
     ATTR_SCHEDULE,
     ATTR_SUPPORT_ACTIVE,
     ATTR_SUPPORT_DELTA,
     ATTR_SUPPORT_ENABLED,
+    ATTR_SUPPORT_PAUSE_KIND,
     ATTR_SUPPORT_PAUSED_UNTIL,
     ATTR_WARM_THRESHOLD,
     ATTR_WEATHER_ENTITY,
@@ -66,10 +70,12 @@ from .const import (
     CONF_DEVICE_MODES,
     CONF_DEVICE_SEEDED,
     CONF_DEVICES,
+    CONF_EXTERNAL_TAKEOVER,
     CONF_HARD_CEILING,
     CONF_HVAC_MODE,
     CONF_HYSTERESIS,
     CONF_INTERRUPTIBLE,
+    CONF_OUTDOOR_CACHE,
     CONF_OUTDOOR_SENSOR,
     CONF_PARK,
     CONF_PRIMARY_DEVICE,
@@ -96,25 +102,45 @@ from .const import (
     DEFAULT_SUPPORT_MIN_RISE,
     DEFAULT_WARM_THRESHOLD,
     DEVICE_MODE_AUTO,
+    DEVICE_MODE_MANUAL,
     DEVICE_MODE_OFF,
     DEVICE_MODES,
     DOMAIN,
+    EXTERNAL_SETTLE_SECONDS,
     MODE_AUTO,
     MODE_OVERRIDE_INFINITY,
     MODE_OVERRIDE_NEXT_NODE,
     MODE_OVERRIDE_TIMER,
-    PARK_FAN_ONLY,
+    PARK_OFF,
     ROLE_BOTH,
+    SOURCE_EXTERNAL,
+    SOURCE_PAUSE,
+    SOURCE_USER,
     SUBENTRY_TYPE_DEVICE,
     TEMP_SOURCE_MEAN,
     TEMP_SOURCE_PRIMARY,
     TEMP_SOURCE_SENSOR,
     TIER_PRIMARY,
     TIER_SUPPORT,
+    TOMORROW_FROM_HOUR,
+    UNAVAILABLE_DEBOUNCE_SECONDS,
 )
 from .services import async_register_services
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _parse_dt(value):
+    """Parse a stored/entered datetime into an aware local one (None if unusable).
+
+    Strings without an offset are read as local time, so a naive value can never
+    be compared against the aware ``now``.
+    """
+    try:
+        when = dt_util.parse_datetime(str(value))
+    except (TypeError, ValueError):
+        return None
+    return dt_util.as_local(when) if when is not None else None
 
 
 async def async_setup_entry(
@@ -253,9 +279,16 @@ class SmartClimateEntity(ClimateEntity):
             ):
                 self._device_modes[dev["entity_id"]] = {"mode": dev["control"], "until": None}
         self._heat_since = None
+        self._acting = False
+        self._last_sent = {}
+        self._unavailable_since = {}
 
         # Outdoor context for the auto-cooling policy.
         self._outdoor_tracker = cooling.OutdoorMaxTracker()
+        cache = entry.data.get(CONF_OUTDOOR_CACHE) or {}
+        at = _parse_dt(cache.get('at')) if cache.get('at') else None
+        if at is not None and isinstance(cache.get('value'), (int, float)):
+            self._outdoor_tracker.record(at, cache['value'])
         self._forecast_highs = (None, None)
         self._forecast_fetched = None
 
@@ -277,7 +310,7 @@ class SmartClimateEntity(ClimateEntity):
                     "entity_id": entity_id,
                     "role": role or ROLE_BOTH,
                     "tier": tier or TIER_PRIMARY,
-                    "park": park or PARK_FAN_ONLY,
+                    "park": park or PARK_OFF,
                     "control": control or DEVICE_MODE_AUTO,
                 })
 
@@ -416,6 +449,9 @@ class SmartClimateEntity(ClimateEntity):
 
     async def _on_watched_change(self, event):
         """Re-evaluate control when a device or the temp sensor changes."""
+        data = getattr(event, "data", None) or {}
+        if data.get("entity_id") in {d["entity_id"] for d in self._devices}:
+            self._detect_external_change(data["entity_id"], data.get("new_state"), dt_util.now())
         await self._apply_control()
         self.async_write_ha_state()
 
@@ -499,6 +535,17 @@ class SmartClimateEntity(ClimateEntity):
             return sum(temps) / len(temps)
         return self._numeric_state(sensor)
 
+    def _room_temperature_source(self):
+        """Where the room temperature comes from (for the cards)."""
+        source = self._conf(CONF_TEMPERATURE_SOURCE, TEMP_SOURCE_MEAN)
+        sensor = self._conf(CONF_TEMPERATURE_SENSOR, None)
+        if source == TEMP_SOURCE_SENSOR and self._numeric_state(sensor) is not None:
+            return {"kind": TEMP_SOURCE_SENSOR, "entity": sensor}
+        primary = self._conf(CONF_PRIMARY_DEVICE, None)
+        if source == TEMP_SOURCE_PRIMARY and self._device_current_temp(primary) is not None:
+            return {"kind": TEMP_SOURCE_PRIMARY, "entity": primary}
+        return {"kind": TEMP_SOURCE_MEAN, "entity": None}
+
     def _numeric_state(self, entity_id):
         if not entity_id:
             return None
@@ -521,20 +568,30 @@ class SmartClimateEntity(ClimateEntity):
 
     def _device_caps(self):
         """Return per-device dicts for routing (role, tier, park, capabilities)."""
+        now = dt_util.now()
         caps = []
         for dev in self._devices:
-            state = self.hass.states.get(dev["entity_id"])
-            available = state is not None and state.state not in ("unavailable", "unknown")
+            eid = dev["entity_id"]
+            state = self.hass.states.get(eid)
+            reachable = state is not None and state.state not in ("unavailable", "unknown")
+            if reachable:
+                self._unavailable_since.pop(eid, None)
+                available = True
+            else:
+                since = self._unavailable_since.setdefault(eid, now)
+                # A short dropout must not hand the whole job to the other heater.
+                available = (now - since).total_seconds() < UNAVAILABLE_DEBOUNCE_SECONDS
             attrs = state.attributes if state else {}
             modes = attrs.get("hvac_modes")
             step = attrs.get("target_temp_step")
             caps.append({
-                "entity_id": dev["entity_id"],
+                "entity_id": eid,
                 "role": dev.get("role", ROLE_BOTH),
                 "tier": dev.get("tier", TIER_PRIMARY),
-                "park": dev.get("park", PARK_FAN_ONLY),
-                "control": self._effective_device_mode(dev["entity_id"], dt_util.now()),
+                "park": dev.get("park", PARK_OFF),
+                "control": self._effective_device_mode(eid, now),
                 "available": available,
+                "heating": bool(state) and state.state == "heat",
                 "supports_fan_only": HVACMode.FAN_ONLY in (modes or []),
                 # Unknown capabilities (no hvac_modes list) are assumed capable.
                 "can_heat": modes is None or HVACMode.HEAT in modes,
@@ -566,7 +623,7 @@ class SmartClimateEntity(ClimateEntity):
             return
         if self._forecast_fetched and now - self._forecast_fetched < timedelta(minutes=30):
             return
-        self._forecast_fetched = now  # also throttles retries after a failure
+        self._forecast_fetched = now
         try:
             response = await self.hass.services.async_call(
                 "weather", "get_forecasts",
@@ -577,13 +634,26 @@ class SmartClimateEntity(ClimateEntity):
             _LOGGER.warning(
                 "%s: could not fetch forecast from %s: %s", self._attr_name, weather_id, err
             )
+            # Right after a restart the weather service may not be ready yet:
+            # try again in 2 minutes instead of waiting a full 30.
+            self._forecast_fetched = now - timedelta(minutes=28)
             return
         forecast = ((response or {}).get(weather_id) or {}).get("forecast")
-        self._forecast_highs = cooling.parse_daily_highs(forecast, now.date())
+        local_now = dt_util.as_local(now)
+        self._forecast_highs = cooling.parse_daily_highs(
+            forecast, local_now.date(), to_local=dt_util.as_local
+        )
+        observed = self._outdoor_tracker.max_24h(now)
+        if observed is not None:
+            self._persist(**{CONF_OUTDOOR_CACHE: {"value": observed, "at": now.isoformat()}})
 
     def _cooling_highs(self, now):
         """Known highs for the warm-period test: forecast today/tomorrow + observed 24 h."""
         today, tomorrow = self._forecast_highs
+        # Tomorrow's high only matters for the evening; a warm tomorrow must not
+        # open cooling on a mild afternoon today.
+        if dt_util.as_local(now).hour < TOMORROW_FROM_HOUR:
+            tomorrow = None
         highs = [today, tomorrow, self._outdoor_tracker.max_24h(now)]
         if all(h is None for h in highs):
             highs.append(self._outdoor_temperature())
@@ -639,7 +709,9 @@ class SmartClimateEntity(ClimateEntity):
                     (now - self._heat_since).total_seconds() / 60
                     if self._heat_since else None
                 ),
-                rise_per_hour=self._room_trend.rise_per_hour(),
+                rise_per_hour=self._room_trend.rise_per_hour(
+                    since=self._heat_since, min_span_minutes=10
+                ),
                 grace_minutes=self._conf(CONF_SUPPORT_GRACE, DEFAULT_SUPPORT_GRACE_MIN),
                 min_rise=self._conf(CONF_SUPPORT_MIN_RISE, DEFAULT_SUPPORT_MIN_RISE),
             )
@@ -649,6 +721,7 @@ class SmartClimateEntity(ClimateEntity):
         commands = control.plan_routes(
             decision, self._device_caps(), support_active=self._support_active
         )
+        self._acting = any(c.hvac_mode in ("heat", "cool") for c in commands)
         for cmd in commands:
             await self._execute(cmd)
 
@@ -663,13 +736,16 @@ class SmartClimateEntity(ClimateEntity):
         state = self.hass.states.get(cmd.entity_id)
         if state is None or state.state in ("unavailable", "unknown"):
             return
+        sent = False
         try:
             if state.state != cmd.hvac_mode:
+                sent = True
                 await self.hass.services.async_call(
                     "climate", "set_hvac_mode",
                     {"entity_id": cmd.entity_id, "hvac_mode": cmd.hvac_mode},
                 )
             if cmd.temperature is not None and state.attributes.get("temperature") != cmd.temperature:
+                sent = True
                 await self.hass.services.async_call(
                     "climate", "set_temperature",
                     {"entity_id": cmd.entity_id, "temperature": cmd.temperature},
@@ -679,6 +755,60 @@ class SmartClimateEntity(ClimateEntity):
                 "%s: could not drive %s (%s): %s",
                 self._attr_name, cmd.entity_id, cmd.hvac_mode, err,
             )
+        # Remember what we asked for, to tell our own changes from outside ones.
+        # The timestamp only moves when we actually sent something.
+        mark = self._last_sent.setdefault(
+            cmd.entity_id, {"t": dt_util.now() - timedelta(hours=1)}
+        )
+        mark["mode"], mark["temp"] = cmd.hvac_mode, cmd.temperature
+        if sent:
+            mark["t"] = dt_util.now()
+
+    def _detect_external_change(self, entity_id, new_state, now):
+        """A device changed without us asking: take it as hand operation.
+
+        If, a while after our last command, an auto device reports a different
+        HVAC mode (or a clearly different target) than we set, somebody used the
+        remote or the device's own app.  The device then goes to ``manual`` for
+        the default override duration so the coordinator does not undo it.
+        """
+        if not self._conf(CONF_EXTERNAL_TAKEOVER, True):
+            return
+        if self._effective_device_mode(entity_id, now) != DEVICE_MODE_AUTO:
+            return
+        mark = self._last_sent.get(entity_id)
+        if not mark or (now - mark["t"]).total_seconds() < EXTERNAL_SETTLE_SECONDS:
+            return
+        if new_state is None or new_state.state in ("unavailable", "unknown"):
+            return
+        changed = new_state.state != mark.get("mode")
+        target = new_state.attributes.get("temperature")
+        if (
+            not changed
+            and new_state.state in ("heat", "cool")
+            and isinstance(target, (int, float))
+            and isinstance(mark.get("temp"), (int, float))
+            and abs(target - mark["temp"]) >= 0.5
+        ):
+            changed = True
+        if not changed:
+            return
+        if self._default_override_mode == "infinity":
+            end = None
+        elif self._default_override_mode == "next_node":
+            end = schedule_helper.compute_next_node_datetime(self._schedule, dt_util.as_local(now))
+        else:
+            end = now + timedelta(minutes=float(self._default_override_duration))
+        _LOGGER.info(
+            "%s: %s was changed outside the coordinator (now %s); leaving it alone%s",
+            self._attr_name, entity_id, new_state.state,
+            f" until {end:%H:%M}" if end else "",
+        )
+        self._device_modes[entity_id] = {
+            "mode": DEVICE_MODE_MANUAL, "until": end.isoformat() if end else None,
+            "source": SOURCE_EXTERNAL,
+        }
+        self._persist(**{CONF_DEVICE_MODES: dict(self._device_modes)})
 
     def _persist(self, **changes) -> None:
         """Persist runtime-changeable settings to config-entry storage.
@@ -840,8 +970,9 @@ class SmartClimateEntity(ClimateEntity):
             return DEVICE_MODE_AUTO
         until = entry.get("until")
         if until:
-            when = dt_util.parse_datetime(until)
-            if when is not None and now >= when:
+            when = _parse_dt(until)
+            # An unreadable end time counts as expired rather than crashing.
+            if when is None or now >= when:
                 return DEVICE_MODE_AUTO
         return entry.get("mode", DEVICE_MODE_AUTO)
 
@@ -850,7 +981,7 @@ class SmartClimateEntity(ClimateEntity):
         expired = [
             eid for eid, entry in self._device_modes.items()
             if entry.get("until")
-            and (dt_util.parse_datetime(entry["until"]) or now) <= now
+            and ((_parse_dt(entry["until"]) or now) <= now)
         ]
         if expired:
             for eid in expired:
@@ -871,20 +1002,25 @@ class SmartClimateEntity(ClimateEntity):
 
     async def async_set_device_mode(self, device, mode, minutes=None, until=None):
         """Set a device to auto / off / manual, optionally only for a while."""
-        if mode not in DEVICE_MODES or device not in {d["entity_id"] for d in self._devices}:
-            return
+        if mode not in DEVICE_MODES:
+            raise ServiceValidationError(f"Unknown device mode: {mode}")
+        if device not in {d["entity_id"] for d in self._devices}:
+            raise ServiceValidationError(f"{device} is not a device of this coordinator")
         now = dt_util.now()
         end = None
         if mode != DEVICE_MODE_AUTO:
             if minutes:
                 end = now + timedelta(minutes=float(minutes))
             elif until:
-                end = dt_util.parse_datetime(str(until))
+                end = _parse_dt(until)
+                if end is None:
+                    raise ServiceValidationError(f"Cannot read the end time: {until}")
         if mode == DEVICE_MODE_AUTO:
             self._device_modes.pop(device, None)
         else:
             self._device_modes[device] = {
                 "mode": mode, "until": end.isoformat() if end else None,
+                "source": SOURCE_USER,
             }
         self._persist(**{CONF_DEVICE_MODES: dict(self._device_modes)})
         await self._apply_control()
@@ -899,37 +1035,58 @@ class SmartClimateEntity(ClimateEntity):
         """
         now = dt_util.now()
         end = None
+        kind = "open"
         if enabled:
             if minutes:
-                end = now + timedelta(minutes=float(minutes))
+                end, kind = now + timedelta(minutes=float(minutes)), "minutes"
             elif until_morning:
-                end = self._next_skip_end(now)
+                end, kind = self._next_skip_end(now), "until_morning"
         for dev in self._devices:
             if dev.get("tier") != TIER_SUPPORT:
                 continue
+            eid = dev["entity_id"]
+            entry = self._device_modes.get(eid)
             if enabled:
-                self._device_modes[dev["entity_id"]] = {
+                # A device the user set by hand (off/manual) keeps that choice.
+                if entry and entry.get("source") != SOURCE_PAUSE and self._effective_device_mode(eid, now) != DEVICE_MODE_AUTO:
+                    continue
+                self._device_modes[eid] = {
                     "mode": DEVICE_MODE_OFF, "until": end.isoformat() if end else None,
+                    "source": SOURCE_PAUSE, "kind": kind,
                 }
-            else:
-                self._device_modes.pop(dev["entity_id"], None)
+            elif entry and entry.get("source") == SOURCE_PAUSE:
+                self._device_modes.pop(eid, None)
         self._persist(**{CONF_DEVICE_MODES: dict(self._device_modes)})
         await self._apply_control()
         self.async_write_ha_state()
 
-    def _support_paused_until(self):
-        """ISO end time of the active support pause ('' if open-ended, None if none)."""
-        ends = []
+    def _pause_entries(self):
+        """Active pause entries of the support devices."""
+        out = []
         for dev in self._devices:
             if dev.get("tier") != TIER_SUPPORT:
                 continue
             entry = self._device_modes.get(dev["entity_id"])
-            if entry and entry.get("mode") == DEVICE_MODE_OFF:
-                ends.append(entry.get("until") or "")
+            if (
+                entry
+                and entry.get("source") == SOURCE_PAUSE
+                and self._effective_device_mode(dev["entity_id"], dt_util.now()) == DEVICE_MODE_OFF
+            ):
+                out.append(entry)
+        return out
+
+    def _support_paused_until(self):
+        """ISO end time of the active support pause ('' if open-ended, None if none)."""
+        ends = [e.get("until") or "" for e in self._pause_entries()]
         if not ends:
             return None
         timed = [e for e in ends if e]
         return min(timed) if timed and len(timed) == len(ends) else ""
+
+    def _support_pause_kind(self):
+        """until_morning / minutes / open for the active pause, else None."""
+        entries = self._pause_entries()
+        return entries[0].get("kind", "open") if entries else None
 
     async def async_set_cooling_mode(self, mode: str):
         """Set the auto-cooling policy: off / auto / on."""
@@ -998,6 +1155,8 @@ class SmartClimateEntity(ClimateEntity):
 
     @property
     def hvac_action(self):
+        if self._intent in (control.HEAT, control.COOL) and not self._acting:
+            return "idle"  # the coordinator wants it, but no device is allowed to act
         return control.intent_to_hvac_action(self._intent)
 
     @property
@@ -1091,10 +1250,14 @@ class SmartClimateEntity(ClimateEntity):
                 d["entity_id"]: {
                     "mode": self._effective_device_mode(d["entity_id"], dt_util.now()),
                     "until": (self._device_modes.get(d["entity_id"]) or {}).get("until"),
+                    "source": (self._device_modes.get(d["entity_id"]) or {}).get("source", SOURCE_USER),
                 }
                 for d in self._devices
             },
             ATTR_SUPPORT_PAUSED_UNTIL: self._support_paused_until(),
+            ATTR_SUPPORT_PAUSE_KIND: self._support_pause_kind(),
+            ATTR_ROOM_TEMPERATURE_SOURCE: self._room_temperature_source(),
+            ATTR_EXTERNAL_TAKEOVER: bool(self._conf(CONF_EXTERNAL_TAKEOVER, True)),
             ATTR_SUPPORT_DELTA: self._conf(CONF_SUPPORT_DELTA, DEFAULT_SUPPORT_DELTA),
             ATTR_WARM_THRESHOLD: self._conf(CONF_WARM_THRESHOLD, DEFAULT_WARM_THRESHOLD),
             ATTR_HARD_CEILING: self._conf(CONF_HARD_CEILING, DEFAULT_HARD_CEILING),

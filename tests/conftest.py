@@ -52,8 +52,18 @@ _register_stub(
 _dt_stub = types.ModuleType("homeassistant.util.dt")
 _dt_stub.now = lambda: _datetime.datetime.now()
 _dt_stub.parse_datetime = lambda value: _datetime.datetime.fromisoformat(value)
+_dt_stub.as_local = lambda d: (
+    d.astimezone() if d.tzinfo else d.replace(tzinfo=_datetime.datetime.now().astimezone().tzinfo)
+)
 _register_stub("homeassistant.util", dt=_dt_stub)
 sys.modules["homeassistant.util.dt"] = _dt_stub
+
+# homeassistant.exceptions
+_register_stub(
+    "homeassistant.exceptions",
+    HomeAssistantError=type("HomeAssistantError", (Exception,), {}),
+    ServiceValidationError=type("ServiceValidationError", (Exception,), {}),
+)
 
 # homeassistant.components
 _register_stub("homeassistant.components")

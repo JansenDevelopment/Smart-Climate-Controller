@@ -20,6 +20,7 @@ from .const import (
     CONF_DEFAULT_OVERRIDE_MODE,
     CONF_DEVICES,
     CONF_ENTITY_ID,
+    CONF_EXTERNAL_TAKEOVER,
     CONF_HARD_CEILING,
     CONF_HYSTERESIS,
     CONF_INTEGRATION_DRIVEN_AUTO,
@@ -336,6 +337,10 @@ class SmartClimateOptionsFlow(OptionsFlow):
                     CONF_SKIP_UNTIL,
                     default=current.get(CONF_SKIP_UNTIL, DEFAULT_SKIP_UNTIL),
                 ): selector.TimeSelector(),
+                vol.Optional(
+                    CONF_EXTERNAL_TAKEOVER,
+                    default=current.get(CONF_EXTERNAL_TAKEOVER, True),
+                ): selector.BooleanSelector(),
                 vol.Optional(
                     CONF_INTEGRATION_DRIVEN_AUTO,
                     default=current.get(CONF_INTEGRATION_DRIVEN_AUTO, True),

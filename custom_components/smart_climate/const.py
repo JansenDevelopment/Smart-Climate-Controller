@@ -40,6 +40,8 @@ CONF_SUPPORT_MIN_RISE = "support_min_rise"
 CONF_TIER = "tier"
 CONF_DEVICE_MODES = "device_modes"
 CONF_DEVICE_SEEDED = "device_modes_seeded"
+CONF_EXTERNAL_TAKEOVER = "external_takeover"
+CONF_OUTDOOR_CACHE = "outdoor_max_cache"
 CONF_CONTROL = "control"
 CONF_SKIP_UNTIL = "skip_until"
 CONF_PARK = "park"
@@ -61,6 +63,20 @@ DEVICE_MODE_OFF = "off"
 DEVICE_MODE_MANUAL = "manual"
 DEVICE_MODES = [DEVICE_MODE_AUTO, DEVICE_MODE_OFF, DEVICE_MODE_MANUAL]
 DEFAULT_SKIP_UNTIL = "10:00"
+
+# Where a device's current control mode came from.
+SOURCE_USER = "user"          # chosen by hand (card, select, service)
+SOURCE_PAUSE = "pause"        # set by the support-pause shortcuts
+SOURCE_EXTERNAL = "external"  # device was operated outside the coordinator
+
+# External changes are only recognised this long after our own last command
+# (devices report their new state with a delay).
+EXTERNAL_SETTLE_SECONDS = 30
+# A device must be unavailable this long before routing gives up on it (localtuya
+# devices drop out briefly all the time; the CV must not take over for a blip).
+UNAVAILABLE_DEBOUNCE_SECONDS = 300
+# Tomorrow's forecast high only counts towards a "warm period" from this hour.
+TOMORROW_FROM_HOUR = 18
 
 # Heating tiers: the primary device heats alone; a support device joins only
 # when the room is far enough below the heat target.
@@ -132,6 +148,9 @@ ATTR_SUPPORT_DELTA = "support_delta"
 ATTR_ROOM_TREND = "room_trend"
 ATTR_DEVICE_MODES = "device_modes"
 ATTR_SUPPORT_PAUSED_UNTIL = "support_paused_until"
+ATTR_SUPPORT_PAUSE_KIND = "support_pause_kind"
+ATTR_ROOM_TEMPERATURE_SOURCE = "room_temperature_source"
+ATTR_EXTERNAL_TAKEOVER = "external_takeover"
 ATTR_WARM_THRESHOLD = "warm_threshold"
 ATTR_HARD_CEILING = "hard_ceiling"
 ATTR_FORECAST_HIGH_TODAY = "forecast_high_today"
