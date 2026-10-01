@@ -32,11 +32,15 @@ function nextMorning() {
   return d.toISOString();
 }
 
-/** `device_modes` attribute: everything auto unless overridden, e.g. { [CV]: { mode: "off", until } }. */
+/**
+ * `device_modes` attribute: everything auto unless overridden, e.g.
+ * { [CV]: { mode: "off", until, source: "pause" } }. `source` is user | pause | external.
+ */
 function modes(over = {}) {
   const out = {};
-  for (const d of DEVICES) out[d.entity_id] = { mode: "auto", until: null };
-  return { ...out, ...over };
+  for (const d of DEVICES) out[d.entity_id] = { mode: "auto", until: null, source: null };
+  for (const [id, m] of Object.entries(over)) out[id] = { source: "user", ...m };
+  return out;
 }
 
 /** `support_paused_until` as the backend derives it from the support devices' modes. */
@@ -48,6 +52,17 @@ function pausedUntil(deviceModes) {
   if (!ends.length) return null;
   const timed = ends.filter(Boolean);
   return timed.length === ends.length ? timed.sort()[0] : "";
+}
+
+/**
+ * `support_pause_kind` as the backend derives it: the kind of the last pause when every
+ * switched-off support device was set by the pause buttons, else null (user choice).
+ */
+function pauseKindOf(deviceModes, kind) {
+  const off = DEVICES.filter((d) => d.tier === "support")
+    .map((d) => deviceModes[d.entity_id])
+    .filter((m) => m && m.mode === "off");
+  return off.length && off.every((m) => m.source === "pause") ? kind : null;
 }
 
 /** Attributes of a modern backend; scenarios override parts of it. */
@@ -67,6 +82,7 @@ function base(over = {}) {
     wrapped_climate: "climate.airco",
     auto_temperature: 20,
     away_temperature: 15,
+    cool_away_temperature: 28,
     away_delay_minutes: 5,
     default_override_mode: "timer",
     default_override_duration: 30,
@@ -82,6 +98,9 @@ function base(over = {}) {
     support_delta: 1.5,
     device_modes: modes(),
     support_paused_until: null,
+    support_pause_kind: null,
+    room_temperature_source: { kind: "mean", entity: null },
+    external_takeover: true,
     warm_threshold: 22,
     hard_ceiling: 26,
     forecast_high_today: 19,
@@ -95,7 +114,12 @@ function base(over = {}) {
 
 const SCENARIOS = {
   // Autumn afternoon: warm room after the sun, nothing runs, cooling not allowed.
-  "autumn-idle": { state: "auto", attrs: base(), airco: "off", cv: "off" },
+  "autumn-idle": {
+    state: "auto",
+    attrs: base({ room_temperature_source: { kind: "sensor", entity: "sensor.woonkamer_temperatuur" } }),
+    airco: "off",
+    cv: "off",
+  },
   // Cold winter evening: airco and CV both heating, someone is about to leave.
   "winter-heat": {
     state: "auto",
@@ -124,6 +148,7 @@ const SCENARIOS = {
       hvac_action: "cooling",
       intent: "cool",
       cooling_allowed: true,
+      room_temperature_source: { kind: "primary", entity: "climate.airco" },
       forecast_high_today: 29,
       forecast_high_tomorrow: 31,
       outdoor_max_24h: 27.4,
@@ -211,7 +236,7 @@ const SCENARIOS = {
   },
   // Winter evening, CV switched off until tomorrow 10:00 ("Geen CV tot morgenochtend").
   "cv-paused-morning": (() => {
-    const dm = modes({ [CV]: { mode: "off", until: nextMorning() } });
+    const dm = modes({ [CV]: { mode: "off", until: nextMorning(), source: "pause" } });
     return {
       state: "auto",
       airco: "heat",
@@ -222,6 +247,7 @@ const SCENARIOS = {
         intent: "heat",
         device_modes: dm,
         support_paused_until: pausedUntil(dm),
+        support_pause_kind: pauseKindOf(dm, "until_morning"),
         forecast_high_today: 4,
         forecast_high_tomorrow: 6,
         outdoor_max_24h: 5,
@@ -230,7 +256,7 @@ const SCENARIOS = {
   })(),
   // "Ik ga zo weg": CV paused for another 40 minutes.
   "leaving-soon": (() => {
-    const dm = modes({ [CV]: { mode: "off", until: inMin(40) } });
+    const dm = modes({ [CV]: { mode: "off", until: inMin(40), source: "pause" } });
     return {
       state: "auto",
       airco: "heat",
@@ -241,6 +267,7 @@ const SCENARIOS = {
         intent: "heat",
         device_modes: dm,
         support_paused_until: pausedUntil(dm),
+        support_pause_kind: pauseKindOf(dm, "minutes"),
         forecast_high_today: 4,
         forecast_high_tomorrow: 6,
         outdoor_max_24h: 5,
@@ -296,6 +323,93 @@ const SCENARIOS = {
       attrs: base({ device_modes: dm, support_paused_until: pausedUntil(dm) }),
     };
   })(),
+  // "Geen CV tot 10:00" set this morning: it ends in 90 min, which the old heuristic took for "leaving soon".
+  "cv-paused-morning-short": (() => {
+    const dm = modes({ [CV]: { mode: "off", until: inMin(90), source: "pause" } });
+    return {
+      state: "auto",
+      airco: "heat",
+      cv: "off",
+      attrs: base({
+        current_temperature: 18.7,
+        hvac_action: "heating",
+        intent: "heat",
+        device_modes: dm,
+        support_paused_until: pausedUntil(dm),
+        support_pause_kind: pauseKindOf(dm, "until_morning"),
+      }),
+    };
+  })(),
+  // Pause without an end: the CV stays off until the user resumes it.
+  "pause-open": (() => {
+    const dm = modes({ [CV]: { mode: "off", until: null, source: "pause" } });
+    return {
+      state: "auto",
+      airco: "heat",
+      cv: "off",
+      attrs: base({
+        current_temperature: 18.7,
+        hvac_action: "heating",
+        intent: "heat",
+        device_modes: dm,
+        support_paused_until: pausedUntil(dm),
+        support_pause_kind: pauseKindOf(dm, "open"),
+      }),
+    };
+  })(),
+  // The airco was operated with its remote: automatically on Manual, no end.
+  "airco-external": (() => {
+    const dm = modes({ [AIRCO]: { mode: "manual", until: null, source: "external" } });
+    return {
+      state: "auto",
+      airco: "heat",
+      cv: "heat",
+      attrs: base({
+        current_temperature: 18.1,
+        hvac_action: "heating",
+        intent: "heat",
+        support_active: true,
+        device_modes: dm,
+        support_paused_until: pausedUntil(dm),
+        support_pause_kind: pauseKindOf(dm, null),
+        forecast_high_today: 4,
+        forecast_high_tomorrow: 6,
+        outdoor_max_24h: 5,
+      }),
+    };
+  })(),
+  // The airco is unreachable while the room wants heat.
+  "airco-unavailable": {
+    state: "auto",
+    airco: "unavailable",
+    cv: "off",
+    attrs: base({ current_temperature: 17.9, hvac_action: "heating", intent: "heat" }),
+  },
+  // Both devices unreachable.
+  "all-unavailable": {
+    state: "auto",
+    airco: "unavailable",
+    cv: "unavailable",
+    attrs: base({ current_temperature: 17.9, hvac_action: "heating", intent: "heat" }),
+  },
+  // The configured entity does not exist.
+  "entity-missing": { state: "auto", airco: "off", cv: "off", missing: true, attrs: base() },
+  // Old backend that has the pause but not support_pause_kind / source: the duration heuristic decides.
+  "old-backend-pause": (() => {
+    const dm = modes({ [CV]: { mode: "off", until: inMin(40) } });
+    for (const m of Object.values(dm)) delete m.source;
+    const a = base({
+      current_temperature: 18.9,
+      hvac_action: "heating",
+      intent: "heat",
+      device_modes: dm,
+      support_paused_until: pausedUntil(dm),
+    });
+    delete a.support_pause_kind;
+    delete a.room_temperature_source;
+    delete a.external_takeover;
+    return { state: "auto", airco: "heat", cv: "off", attrs: a };
+  })(),
   // Backend with `devices` but from before the per-device modes: attributes missing.
   "old-backend-devices": {
     state: "auto",
@@ -310,6 +424,9 @@ const SCENARIOS = {
       });
       delete a.device_modes;
       delete a.support_paused_until;
+      delete a.support_pause_kind;
+      delete a.room_temperature_source;
+      delete a.external_takeover;
       return a;
     })(),
   },
@@ -325,6 +442,7 @@ const SCENARIOS = {
         "support_delta", "warm_threshold", "hard_ceiling", "forecast_high_today",
         "forecast_high_tomorrow", "outdoor_max_24h", "weather_entity", "outdoor_sensor",
         "devices", "intent", "heat_target", "cool_limit", "device_modes", "support_paused_until",
+        "support_pause_kind", "room_temperature_source", "external_takeover",
       ]) delete a[k];
       return a;
     })(),
@@ -373,6 +491,12 @@ export function createHass(name, lang, onChange, dark = false) {
       attributes: { friendly_name: "Woonkamer Presence" },
     },
   };
+  states["sensor.woonkamer_temperatuur"] = {
+    entity_id: "sensor.woonkamer_temperatuur",
+    state: String(sc.attrs.current_temperature ?? 20),
+    attributes: { friendly_name: "Woonkamer sensor", unit_of_measurement: "°C" },
+  };
+  if (sc.missing) delete states[ENTITY];
   if (sc.cv !== null) {
     states["climate.cv"] = {
       entity_id: "climate.cv",
@@ -381,6 +505,7 @@ export function createHass(name, lang, onChange, dark = false) {
     };
   }
   const attrs = () => states[ENTITY].attributes;
+  let pauseKind = sc.attrs.support_pause_kind ?? null;
 
   const hass = {
     language: lang,
@@ -404,17 +529,26 @@ export function createHass(name, lang, onChange, dark = false) {
         const until = data.minutes ? inMin(Number(data.minutes)) : data.until ?? null;
         a.device_modes = {
           ...a.device_modes,
-          [data.device]: { mode: data.mode, until: data.mode === "auto" ? null : until },
+          [data.device]:
+            data.mode === "auto"
+              ? { mode: "auto", until: null, source: null }
+              : { mode: data.mode, until, source: "user" },
         };
         a.support_paused_until = pausedUntil(a.device_modes);
+        a.support_pause_kind = pauseKindOf(a.device_modes, pauseKind);
       } else if (service === "set_support_pause") {
         const end = data.minutes ? inMin(Number(data.minutes)) : data.until_morning ? nextMorning() : null;
         const next = { ...a.device_modes };
+        pauseKind = data.until_morning ? "until_morning" : data.minutes ? "minutes" : "open";
         for (const d of DEVICES.filter((x) => x.tier === "support")) {
-          next[d.entity_id] = data.enabled === false ? { mode: "auto", until: null } : { mode: "off", until: end };
+          next[d.entity_id] =
+            data.enabled === false
+              ? { mode: "auto", until: null, source: null }
+              : { mode: "off", until: end, source: "pause" };
         }
         a.device_modes = next;
         a.support_paused_until = pausedUntil(next);
+        a.support_pause_kind = pauseKindOf(next, pauseKind);
       } else if (service === "set_override_timer") {
         Object.assign(a, { mode: "override_timer", override_temperature: data.temperature, remaining_minutes: data.minutes });
       } else if (service === "set_override_next_node") {

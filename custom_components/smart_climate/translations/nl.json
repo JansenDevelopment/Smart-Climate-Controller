@@ -56,7 +56,7 @@
           "data": {
             "entity_id": "Klimaatapparaat",
             "role": "Rol",
-            "tier": "Verwarmingsniveau",
+            "tier": "Rol bij verwarmen",
             "park": "Als niet in gebruik",
             "control": "Startstand"
           },
@@ -72,7 +72,7 @@
           "data": {
             "entity_id": "Klimaatapparaat",
             "role": "Rol",
-            "tier": "Verwarmingsniveau",
+            "tier": "Rol bij verwarmen",
             "park": "Als niet in gebruik",
             "control": "Startstand"
           },

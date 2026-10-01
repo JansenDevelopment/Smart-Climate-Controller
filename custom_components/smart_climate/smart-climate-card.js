@@ -6,22 +6,26 @@ import {
   fmtTemp,
   entityName,
   supportDevices,
+  supportName,
   deviceMode,
   fmtClock,
   minutesUntilClock,
+  minutesLeft,
+  supportPause,
   coolingInfo,
   coolingLabel,
+  coolingRelevant,
+  isUnavailable,
 } from "./smart-climate-shared.js";
 
 const OVERRIDE_MIN = 5;
 const OVERRIDE_MAX = 25;
 const OVERRIDE_STEP = 0.5;
 const DEFAULT_SUPPORT_DELTA = 1.5;
-// A support pause that ends within this many minutes counts as "I'm leaving soon"
-// (the longest quick choice is 2 h); a longer or open-ended one as "no CV until morning".
-const LEAVING_MAX_MIN = 125;
 // A temporary device mode shows "N min left" below this, "until HH:MM" above it.
 const REMAINING_SHOW_MIN = 90;
+// A device left on Off/Manual for longer than this (or without an end) is worth a reminder line.
+const LONG_DEVIATION_MIN = 720;
 
 // hvac_action → intent, for backends that do not publish `intent`.
 const ACTION_TO_INTENT = { heating: "heat", cooling: "cool", idle: "idle", off: "off" };
@@ -29,20 +33,27 @@ const ACTION_TO_INTENT = { heating: "heat", cooling: "cool", idle: "idle", off: 
 const TEXT = {
   nl: {
     entityNotFound: "Entiteit niet gevonden",
+    entityNotFoundHint: "Controleer of {entity} bestaat en de Smart Climate-integratie is geladen.",
+    coordUnavailable: "Niet beschikbaar",
+    coordUnavailableHint: "{entity} reageert niet. De kaart komt terug zodra de integratie weer bereikbaar is.",
     powerOn: "Aanzetten (auto)",
     powerOff: "Uitzetten",
     goal: "doel {t}",
     off: "Uit",
+    roomSensor: "Kamer: {name}",
+    roomMean: "Kamer: gemiddelde van apparaten",
+    roomPrimary: "Kamer: {name}",
     stateOff: "Uit: de regeling stuurt niets aan",
-    idleAbove: "Rust: kamer ligt boven het doel, niets stookt",
-    idleWarm: "Rust: kamer is warm, maar koelen is niet toegestaan",
-    idleOk: "Rust: kamer ligt rond het doel, niets verwarmt of koelt",
+    idleAbove: "Niets actief: de kamer ligt boven het doel",
+    idleWarm: "Niets actief: de kamer is warm, maar koelen is niet toegestaan",
+    idleOk: "Niets actief: de kamer ligt rond het doel",
     heating: "{names} verwarmt naar {t}",
     heatingMany: "{names} verwarmen naar {t}",
     heatingAny: "Verwarmt naar {t}",
     heatNoDevice: "Wil verwarmen naar {t}, maar geen apparaat staat op Auto",
     coolNoDevice: "Wil koelen naar {t}, maar geen apparaat staat op Auto",
     paused: "{names} gepauzeerd",
+    notAvailable: "{names} niet beschikbaar",
     allManual: "Alles handmatig: de coördinator stuurt niets aan",
     noneAuto: "Geen apparaat op Auto: de coördinator stuurt niets aan",
     cooling: "{names} koelt naar {t}",
@@ -52,36 +63,42 @@ const TEXT = {
     home: "Thuis",
     away: "Weg",
     awayIn: "weg over {t}",
-    "hvac.off": "Uit",
-    "hvac.heat": "Verwarmt",
-    "hvac.cool": "Koelt",
-    "hvac.auto": "Auto",
-    "hvac.heat_cool": "Auto",
-    "hvac.fan_only": "Ventilator",
-    "hvac.dry": "Drogen",
-    "hvac.unavailable": "Niet beschikbaar",
-    "hvac.unknown": "Onbekend",
+    "st.off": "staat uit",
+    "st.heat": "verwarmt",
+    "st.cool": "koelt",
+    "st.auto": "auto",
+    "st.heat_cool": "auto",
+    "st.fan_only": "ventilator",
+    "st.dry": "droogt",
+    "st.unavailable": "niet beschikbaar",
+    "st.unknown": "onbekend",
     cooling_title: "Koelen",
+    coolSummary: "Koelen: {mode} · nu niet nodig",
+    coolExpand: "Koelen uitklappen",
+    coolCollapse: "Koelen inklappen",
     coolOff: "Er wordt niet gekoeld, ook niet bij warm weer.",
     coolOn: "Koelen is altijd toegestaan; er wordt gekoeld boven {t}.",
     coolOnPlain: "Koelen is altijd toegestaan.",
     coolAllowed: "Toegestaan",
     coolNotAllowed: "Nu niet toegestaan",
-    coolCeiling: "Boven {t} is koelen altijd toegestaan.",
+    coolCeiling: "Koelen altijd toegestaan boven {t}.",
     supportTitle: "CV-ondersteuning",
-    supportText: "Springt bij als de kamer {d} onder het doel zit",
+    supportText: "Mag bijspringen als de kamer {d} onder het doel zit",
     supportActive: "Actief",
     noCvMorning: "Geen CV tot morgenochtend",
     noCvUntil: "Geen CV tot {t}",
     noCvOpen: "Geen CV (tot je hem weer aanzet)",
     leavingSoon: "Ik ga zo weg",
-    cvPaused: "CV gepauzeerd, nog {t}",
+    cvPaused: "{Support} gepauzeerd, nog {t}",
+    cvPausedOpen: "{Support} gepauzeerd (tot je hem hervat)",
     resume: "Hervat",
-    leavingHint: "De CV warmt traag op; als je binnenkort weg bent doet de airco het werk.",
+    leavingHint:
+      "Als je zo weg bent is het zonde om de {support} nog aan te zetten; de airco houdt het bij.",
     devMode: "Besturing van {name}",
     devAuto: "Auto",
-    devOff: "Uit",
+    devOff: "Niet gebruiken",
     devManual: "Handmatig",
+    devExternal: "(afstandsbediening)",
     devAutoHint: "De coördinator stuurt dit apparaat aan.",
     devOffHint: "Blijft uit en wordt niet gebruikt, ook niet als ondersteuning.",
     devManualHint: "Handen af: jij bedient dit apparaat zelf.",
@@ -91,11 +108,13 @@ const TEXT = {
     devForever: "Blijvend",
     devUntilShort: "tot {t}",
     devLeft: "nog {t}",
+    devStays: "{name} staat op {mode}",
+    devBackAuto: "Weer automatisch",
     close: "Sluiten",
     tileToday: "Verwacht max vandaag",
     tileTomorrow: "Verwacht max morgen",
     tileMeasured: "Gemeten max 24 uur",
-    overrideTitle: "Tijdelijk andere temperatuur",
+    overrideTitle: "Tijdelijk een andere temperatuur",
     followsSchedule: "Volgt het schema",
     remaining: "Nog {t}",
     always: "Altijd",
@@ -113,20 +132,27 @@ const TEXT = {
   },
   en: {
     entityNotFound: "Entity not found",
+    entityNotFoundHint: "Check that {entity} exists and the Smart Climate integration is loaded.",
+    coordUnavailable: "Unavailable",
+    coordUnavailableHint: "{entity} is not responding. The card returns once the integration is reachable again.",
     powerOn: "Turn on (auto)",
     powerOff: "Turn off",
     goal: "target {t}",
     off: "Off",
+    roomSensor: "Room: {name}",
+    roomMean: "Room: average of the devices",
+    roomPrimary: "Room: {name}",
     stateOff: "Off: the controller drives nothing",
-    idleAbove: "Idle: room is above the target, nothing is heating",
-    idleWarm: "Idle: room is warm, but cooling is not allowed",
-    idleOk: "Idle: room is around the target, nothing heats or cools",
+    idleAbove: "Nothing active: the room is above the target",
+    idleWarm: "Nothing active: the room is warm, but cooling is not allowed",
+    idleOk: "Nothing active: the room is around the target",
     heating: "{names} heats to {t}",
     heatingMany: "{names} heat to {t}",
     heatingAny: "Heating to {t}",
     heatNoDevice: "Wants to heat to {t}, but no device is set to Auto",
     coolNoDevice: "Wants to cool to {t}, but no device is set to Auto",
     paused: "{names} paused",
+    notAvailable: "{names} not available",
     allManual: "Everything manual: the coordinator drives nothing",
     noneAuto: "No device on Auto: the coordinator drives nothing",
     cooling: "{names} cools to {t}",
@@ -136,36 +162,42 @@ const TEXT = {
     home: "Home",
     away: "Away",
     awayIn: "away in {t}",
-    "hvac.off": "Off",
-    "hvac.heat": "Heating",
-    "hvac.cool": "Cooling",
-    "hvac.auto": "Auto",
-    "hvac.heat_cool": "Auto",
-    "hvac.fan_only": "Fan",
-    "hvac.dry": "Dry",
-    "hvac.unavailable": "Unavailable",
-    "hvac.unknown": "Unknown",
+    "st.off": "off",
+    "st.heat": "heating",
+    "st.cool": "cooling",
+    "st.auto": "auto",
+    "st.heat_cool": "auto",
+    "st.fan_only": "fan",
+    "st.dry": "drying",
+    "st.unavailable": "not available",
+    "st.unknown": "unknown",
     cooling_title: "Cooling",
+    coolSummary: "Cooling: {mode} · not needed now",
+    coolExpand: "Expand cooling",
+    coolCollapse: "Collapse cooling",
     coolOff: "No cooling, not even in warm weather.",
     coolOn: "Cooling is always allowed; it cools above {t}.",
     coolOnPlain: "Cooling is always allowed.",
     coolAllowed: "Allowed",
     coolNotAllowed: "Not allowed right now",
-    coolCeiling: "Above {t}, cooling is always allowed.",
+    coolCeiling: "Cooling always allowed above {t}.",
     supportTitle: "Heat support",
-    supportText: "Joins in when the room is {d} below the target",
+    supportText: "May join in when the room is {d} below the target",
     supportActive: "Active",
-    noCvMorning: "No CV until tomorrow morning",
-    noCvUntil: "No CV until {t}",
-    noCvOpen: "No CV (until you turn it back on)",
+    noCvMorning: "No heating support until tomorrow morning",
+    noCvUntil: "No heating support until {t}",
+    noCvOpen: "No heating support (until you switch it back on)",
     leavingSoon: "I'm leaving soon",
-    cvPaused: "CV paused, {t} left",
+    cvPaused: "{Support} paused, {t} left",
+    cvPausedOpen: "{Support} paused (until you resume it)",
     resume: "Resume",
-    leavingHint: "The CV warms up slowly; if you are leaving soon, the airco does the work.",
+    leavingHint:
+      "If you are leaving soon there is no point in switching on the {support}; the airco keeps up.",
     devMode: "Control of {name}",
     devAuto: "Auto",
-    devOff: "Off",
+    devOff: "Don't use",
     devManual: "Manual",
+    devExternal: "(remote control)",
     devAutoHint: "The coordinator drives this device.",
     devOffHint: "Stays off and is not used, not even as support.",
     devManualHint: "Hands off: you operate this device yourself.",
@@ -175,6 +207,8 @@ const TEXT = {
     devForever: "Permanent",
     devUntilShort: "until {t}",
     devLeft: "{t} left",
+    devStays: "{name} is set to {mode}",
+    devBackAuto: "Back to automatic",
     close: "Close",
     tileToday: "Forecast high today",
     tileTomorrow: "Forecast high tomorrow",
@@ -203,6 +237,7 @@ class SmartClimateCard extends LitElement {
     config: {},
     _overrideTemp: { state: true },
     _menu: { state: true }, // { id, mode } while a device's control menu is open
+    _coolOpen: { state: true }, // the cooling block is unfolded although cooling is not relevant
   };
 
   static getConfigElement() {
@@ -237,7 +272,7 @@ class SmartClimateCard extends LitElement {
       this._listenMenu();
       // Move focus into a freshly opened menu (not on every mode pick inside it).
       if (!prev || prev.id !== this._menu.id) {
-        this.renderRoot.querySelector('.devmenu [aria-checked="true"]')?.focus();
+        this.renderRoot.querySelector('.devmenu [aria-pressed="true"]')?.focus();
       }
     } else {
       this._unlistenMenu();
@@ -298,6 +333,16 @@ class SmartClimateCard extends LitElement {
     return translate(TEXT, this.hass, key, vars);
   }
 
+  /** Texts with the support heater's name: `{support}` and `{Support}` (capitalised). */
+  _ts(key, attrs, vars = {}) {
+    const support = supportName(attrs, this.hass);
+    return this._t(key, {
+      ...vars,
+      support,
+      Support: support.charAt(0).toUpperCase() + support.slice(1),
+    });
+  }
+
   // ── Render ───────────────────────────────────────────────────────────────
 
   render() {
@@ -305,11 +350,10 @@ class SmartClimateCard extends LitElement {
 
     const entity = this.hass.states[this.config.entity];
     if (!entity) {
-      return html`
-        <ha-card>
-          <div class="content">${this._t("entityNotFound")}</div>
-        </ha-card>
-      `;
+      return this._renderError("entityNotFound", "entityNotFoundHint");
+    }
+    if (entity.state === "unavailable") {
+      return this._renderError("coordUnavailable", "coordUnavailableHint");
     }
 
     // The entity state is the coordinator's HVAC mode; "off" means it drives
@@ -322,10 +366,24 @@ class SmartClimateCard extends LitElement {
         <div class="content">
           ${this._renderHeader(entity, attrs, isOff)}
           <div class="body" ?dimmed=${isOff}>
+            ${this._renderOverride(attrs)}
             ${this._renderCooling(attrs)}
             ${this._renderSupport(attrs)}
-            ${this._renderTiles(attrs)}
-            ${this._renderOverride(attrs)}
+          </div>
+        </div>
+      </ha-card>
+    `;
+  }
+
+  /** Friendly error card instead of a bare line of text. */
+  _renderError(titleKey, hintKey) {
+    return html`
+      <ha-card>
+        <div class="content error" role="alert">
+          <ha-icon icon="mdi:alert-circle-outline"></ha-icon>
+          <div>
+            <div class="error-title">${this._t(titleKey)}</div>
+            <div class="error-text">${this._t(hintKey, { entity: this.config.entity })}</div>
           </div>
         </div>
       </ha-card>
@@ -335,6 +393,7 @@ class SmartClimateCard extends LitElement {
   // Header: big room temperature, one-sentence status, chips and power button.
   _renderHeader(entity, attrs, isOff) {
     const name = this.config.name ?? attrs.friendly_name ?? "SmartClimate";
+    const source = this._roomSource(attrs);
     return html`
       <div class="head">
         <div class="temp-block">
@@ -349,23 +408,42 @@ class SmartClimateCard extends LitElement {
               ? this._t("goal", { t: fmtTemp(attrs.temperature, this.hass) })
               : ""}
           </div>
+          ${source ? html`<div class="source">${source}</div>` : ""}
         </div>
         <div class="head-right">
-          <div class="chips">${this._renderPresenceChip(attrs)}${this._renderDeviceChips(attrs)}</div>
-          <button
-            class="power"
-            ?on=${!isOff}
-            title=${isOff ? this._t("powerOn") : this._t("powerOff")}
-            aria-label=${isOff ? this._t("powerOn") : this._t("powerOff")}
-            @click=${this.onPowerClick}
-          >
-            <ha-icon icon="mdi:power"></ha-icon>
-          </button>
+          <div class="head-top">
+            ${this._renderPresenceChip(attrs)}
+            <button
+              class="power"
+              ?on=${!isOff}
+              title=${isOff ? this._t("powerOn") : this._t("powerOff")}
+              aria-label=${isOff ? this._t("powerOn") : this._t("powerOff")}
+              @click=${this.onPowerClick}
+            >
+              <ha-icon icon="mdi:power"></ha-icon>
+            </button>
+          </div>
+          <div class="chips">${this._renderDeviceChips(attrs)}</div>
         </div>
       </div>
       <div class="sentence">${this._sentence(attrs, isOff)}</div>
       ${this._renderDeviceMenu(attrs)}
+      ${this._renderDeviations(attrs)}
     `;
+  }
+
+  /** Where the room temperature comes from (`room_temperature_source`); "" when unknown. */
+  _roomSource(attrs) {
+    const src = attrs.room_temperature_source;
+    if (!src || typeof src !== "object") return "";
+    if (src.kind === "mean") return this._t("roomMean");
+    if (src.kind === "sensor" && src.entity) {
+      return this._t("roomSensor", { name: entityName(this.hass, src.entity) });
+    }
+    if (src.kind === "primary" && src.entity) {
+      return this._t("roomPrimary", { name: entityName(this.hass, src.entity) });
+    }
+    return "";
   }
 
   _renderPresenceChip(attrs) {
@@ -375,12 +453,16 @@ class SmartClimateCard extends LitElement {
     const leaving = presence === "home" && delay > 0;
     const icon = presence === "home" && !leaving ? "mdi:home" : "mdi:home-export-outline";
     return html`
-      <span class="chip" data-kind="presence" data-presence=${presence}>
+      <span class="chip chip--static" data-kind="presence" data-presence=${presence}>
         <ha-icon icon=${icon}></ha-icon>
-        <span>${presence === "home" ? this._t("home") : this._t("away")}</span>
-        ${leaving
-          ? html`<span class="chip-sub">${this._t("awayIn", { t: this._clock(delay) })}</span>`
-          : ""}
+        <span class="chip-text">
+          <span class="chip-line">
+            <span class="chip-name">${presence === "home" ? this._t("home") : this._t("away")}</span>
+            ${leaving
+              ? html`<span class="chip-sub">· ${this._t("awayIn", { t: this._clock(delay) })}</span>`
+              : ""}
+          </span>
+        </span>
       </span>
     `;
   }
@@ -393,16 +475,26 @@ class SmartClimateCard extends LitElement {
       : [];
   }
 
+  /** Translated hvac state of a device ("verwarmt", "staat uit", "niet beschikbaar", ...). */
+  _stateLabel(state) {
+    const key = `st.${isUnavailable(state) ? "unavailable" : state}`;
+    const text = this._t(key);
+    return text === key ? String(state) : text;
+  }
+
   _renderDeviceChips(attrs) {
     return this._devices(attrs).map((d) => {
-      const { mode, until } = deviceMode(attrs, d.entity_id);
-      const state = this.hass.states[d.entity_id]?.state ?? "unavailable";
+      const { mode, until, source } = deviceMode(attrs, d.entity_id);
+      const state = this.hass.states[d.entity_id]?.state;
+      const unavailable = isUnavailable(state);
       const support = d.tier === "support";
-      const kind = mode !== "auto" ? "" : state === "heat" ? "heat" : state === "cool" ? "cool" : "";
+      const kind =
+        mode !== "auto" || unavailable ? "" : state === "heat" ? "heat" : state === "cool" ? "cool" : "";
       let icon = support ? "mdi:radiator" : "mdi:air-conditioning";
-      if (mode === "manual") icon = "mdi:hand-back-left";
+      if (unavailable) icon = "mdi:alert-circle-outline";
+      else if (mode === "manual") icon = "mdi:hand-back-left";
       else if (mode === "off") icon = support ? "mdi:radiator-off" : "mdi:snowflake-off";
-      const label = mode === "auto" ? this._t(`hvac.${state}`) : this._modeLabel(mode, until);
+      const control = mode !== "auto" ? this._controlLabel(mode, until, source) : "";
       const open = this._menu?.id === d.entity_id;
       return html`
         <button
@@ -410,34 +502,67 @@ class SmartClimateCard extends LitElement {
           data-device=${d.entity_id}
           data-kind=${kind || "device"}
           data-mode=${mode}
+          data-source=${source}
+          data-unavailable=${unavailable ? "true" : "false"}
           aria-haspopup="true"
           aria-expanded=${open ? "true" : "false"}
           aria-controls="devmenu"
           @click=${() => this._toggleMenu(d.entity_id)}
         >
           <ha-icon icon=${icon}></ha-icon>
-          <span class="chip-name">${entityName(this.hass, d.entity_id)}</span>
-          <span class="chip-sub" ?strong=${mode !== "auto"}>${label}</span>
+          <span class="chip-text">
+            <span class="chip-line">
+              <span class="chip-name">${entityName(this.hass, d.entity_id)}</span>
+              <span class="chip-sub">· ${this._stateLabel(state)}</span>
+            </span>
+            ${control ? html`<span class="chip-ctl">${control}</span>` : ""}
+          </span>
         </button>
       `;
     });
   }
 
-  /** "Uit", "Handmatig · nog 25 min", "Uit · tot 10:00" for a device that is not on Auto. */
-  _modeLabel(mode, until) {
-    const base = this._t(mode === "off" ? "devOff" : "devManual");
+  /** Control label of a device not on Auto: "Niet gebruiken · nog 25 min", "Handmatig (afstandsbediening)". */
+  _controlLabel(mode, until, source) {
+    let base = this._t(mode === "off" ? "devOff" : "devManual");
+    if (mode === "manual" && source === "external") base += ` ${this._t("devExternal")}`;
     const rest = this._untilLabel(until);
     return rest ? `${base} · ${rest}` : base;
   }
 
   /** "nog 25 min" (soon) or "tot 10:00"; "" when the mode has no end. */
   _untilLabel(until) {
-    if (!until) return "";
-    const end = new Date(until).getTime();
-    if (Number.isNaN(end)) return "";
-    const left = Math.max(1, Math.ceil((end - Date.now()) / 60000));
+    const left = minutesLeft(until);
+    if (left === null) return "";
     if (left <= REMAINING_SHOW_MIN) return this._t("devLeft", { t: this._minutes(left) });
     return this._t("devUntilShort", { t: fmtClock(until, this.hass) });
+  }
+
+  /**
+   * Quiet reminders for devices left on Off/Manual with no end (or a very distant
+   * one): "CV staat op Niet gebruiken — Weer automatisch". Devices that are off
+   * because of the pause buttons are shown by the pause controls instead.
+   */
+  _renderDeviations(attrs) {
+    const rows = [];
+    for (const d of this._devices(attrs)) {
+      const { mode, until, source } = deviceMode(attrs, d.entity_id);
+      if (mode === "auto" || source === "pause") continue;
+      const left = minutesLeft(until);
+      if (left !== null && left <= LONG_DEVIATION_MIN) continue;
+      const label = this._t(mode === "off" ? "devOff" : "devManual") +
+        (mode === "manual" && source === "external" ? ` ${this._t("devExternal")}` : "");
+      rows.push(html`
+        <div class="deviation" data-device=${d.entity_id}>
+          <ha-icon icon=${mode === "off" ? "mdi:power-plug-off" : "mdi:hand-back-left"}></ha-icon>
+          <span>${this._t("devStays", { name: entityName(this.hass, d.entity_id), mode: label })} —</span>
+          <button class="link" @click=${() => this.onDeviceMode(d.entity_id, "auto")}>
+            ${this._t("devBackAuto")}
+          </button>
+        </div>
+      `);
+    }
+    return rows;
   }
 
   /** Compact panel under the header to pick Auto / Off / Manual for one device. */
@@ -463,12 +588,11 @@ class SmartClimateCard extends LitElement {
             <ha-icon icon="mdi:close"></ha-icon>
           </button>
         </div>
-        <div class="segmented" role="radiogroup" aria-label=${this._t("devMode", { name })}>
+        <div class="segmented" role="group" aria-label=${this._t("devMode", { name })}>
           ${modes.map(
             ([m, key]) => html`
               <button
-                role="radio"
-                aria-checked=${picked === m ? "true" : "false"}
+                aria-pressed=${picked === m ? "true" : "false"}
                 ?active=${picked === m}
                 @click=${() => this.onDeviceModePick(dev.entity_id, m)}
               >
@@ -491,7 +615,7 @@ class SmartClimateCard extends LitElement {
                 <button class="choice" @click=${() => this.onDeviceMode(dev.entity_id, picked, until10)}>
                   ${this._t("devUntil", { t: "10:00" })}
                 </button>
-                <button class="choice" @click=${() => this.onDeviceMode(dev.entity_id, picked)}>
+                <button class="choice choice--quiet" @click=${() => this.onDeviceMode(dev.entity_id, picked)}>
                   ${this._t("devForever")}
                 </button>
               </div>
@@ -511,6 +635,12 @@ class SmartClimateCard extends LitElement {
     const intent = attrs.intent ?? ACTION_TO_INTENT[attrs.hvac_action];
     const target = fmtTemp(attrs.temperature, this.hass);
     const devices = this._devices(attrs);
+    const down = (d) => isUnavailable(this.hass.states[d.entity_id]?.state);
+    const namesOf = (list) => list.map((d) => entityName(this.hass, d.entity_id)).join(this._t("and"));
+    const unavailableText = (list) => this._t("notAvailable", { names: namesOf(list) });
+
+    // Nothing reachable: do not claim anything is heating.
+    if (devices.length && devices.every(down)) return unavailableText(devices);
 
     // Devices on Off/Manual are not driven by the coordinator: never named as active.
     const modeOf = (d) => deviceMode(attrs, d.entity_id).mode;
@@ -519,6 +649,8 @@ class SmartClimateCard extends LitElement {
       return this._t(devices.every((d) => modeOf(d) === "manual") ? "allManual" : "noneAuto");
     }
 
+    let text;
+    let mentioned = [];
     if (intent === "heat" || intent === "cool") {
       const wanted = intent === "heat" ? "heat" : "cool";
       const active = auto.filter((d) => this.hass.states[d.entity_id]?.state === wanted);
@@ -534,45 +666,74 @@ class SmartClimateCard extends LitElement {
           if (modeOf(s) === "auto" && !list.includes(s)) list = [...list, s];
         }
       }
-      const names = list.map((d) => entityName(this.hass, d.entity_id));
+      // An unreachable device cannot be heating or cooling.
+      mentioned = list.filter(down);
+      list = list.filter((d) => !down(d));
       const base = intent === "heat" ? "heating" : "cooling";
-      if (!names.length) {
+      if (!list.length) {
+        if (mentioned.length) return unavailableText(mentioned);
         const noDevice = intent === "heat" ? "heatNoDevice" : "coolNoDevice";
         return this._t(devices.some((d) => modeOf(d) !== "auto") ? noDevice : `${base}Any`, {
           t: target,
         });
       }
-      let text = this._t(names.length > 1 ? `${base}Many` : base, {
-        names: names.join(this._t("and")),
+      text = this._t(list.length > 1 ? `${base}Many` : base, {
+        names: namesOf(list),
         t: target,
       });
-      if (intent === "heat" && attrs.support_paused_until != null) {
+      if (intent === "heat" && supportPause(attrs)?.kind) {
         const paused = supportDevices(attrs).map((d) => entityName(this.hass, d.entity_id));
         if (paused.length) text += ` (${this._t("paused", { names: paused.join(this._t("and")) })})`;
       }
-      return text;
+    } else {
+      // idle (or unknown)
+      const room = attrs.current_temperature;
+      const coolLimit = attrs.cool_limit;
+      if (
+        attrs.cooling_allowed === false &&
+        typeof room === "number" &&
+        typeof coolLimit === "number" &&
+        room >= coolLimit
+      ) {
+        text = this._t("idleWarm");
+      } else if (
+        typeof room === "number" &&
+        typeof attrs.temperature === "number" &&
+        room > attrs.temperature
+      ) {
+        text = this._t("idleAbove");
+      } else {
+        text = this._t("idleOk");
+      }
     }
 
-    // idle (or unknown)
-    const room = attrs.current_temperature;
-    const coolLimit = attrs.cool_limit;
-    if (
-      attrs.cooling_allowed === false &&
-      typeof room === "number" &&
-      typeof coolLimit === "number" &&
-      room >= coolLimit
-    ) {
-      return this._t("idleWarm");
-    }
-    if (typeof room === "number" && typeof attrs.temperature === "number" && room > attrs.temperature) {
-      return this._t("idleAbove");
-    }
-    return this._t("idleOk");
+    // Other devices that are on Auto but unreachable.
+    const missing = auto.filter((d) => down(d) && !mentioned.includes(d));
+    if (missing.length) text += ` (${unavailableText(missing)})`;
+    return text;
   }
 
   _renderCooling(attrs) {
     const info = coolingInfo(attrs, this.hass);
-    if (!info) return "";
+    if (!info) return this._renderTiles(attrs, false);
+    const relevant = coolingRelevant(attrs);
+    if (!relevant && !this._coolOpen) {
+      return html`
+        <section class="block fold-block">
+          <button
+            class="fold"
+            aria-expanded="false"
+            aria-label=${this._t("coolExpand")}
+            @click=${() => { this._coolOpen = true; }}
+          >
+            <ha-icon icon="mdi:snowflake"></ha-icon>
+            <span class="fold-label">${this._t("coolSummary", { mode: info.label })}</span>
+            <ha-icon icon="mdi:chevron-down"></ha-icon>
+          </button>
+        </section>
+      `;
+    }
+
     const modes = ["off", "auto", "on"];
     let text;
     if (info.mode === "off") {
@@ -591,12 +752,11 @@ class SmartClimateCard extends LitElement {
       <section class="block">
         <div class="row">
           <div class="label">${this._t("cooling_title")}</div>
-          <div class="segmented" role="radiogroup" aria-label=${this._t("cooling_title")}>
+          <div class="segmented" role="group" aria-label=${this._t("cooling_title")}>
             ${modes.map(
               (m) => html`
                 <button
-                  role="radio"
-                  aria-checked=${info.mode === m ? "true" : "false"}
+                  aria-pressed=${info.mode === m ? "true" : "false"}
                   ?active=${info.mode === m}
                   @click=${() => this.onCoolingMode(m)}
                 >
@@ -622,6 +782,17 @@ class SmartClimateCard extends LitElement {
                 </span>
               </div>
             `
+          : ""}
+        ${this._renderTiles(attrs, true)}
+        ${!relevant
+          ? html`<button
+              class="fold fold--close"
+              aria-expanded="true"
+              @click=${() => { this._coolOpen = false; }}
+            >
+              <ha-icon icon="mdi:chevron-up"></ha-icon>
+              <span class="fold-label">${this._t("coolCollapse")}</span>
+            </button>`
           : ""}
       </section>
     `;
@@ -665,18 +836,16 @@ class SmartClimateCard extends LitElement {
 
   /** Shortcuts to pause the support heater; hidden on backends without `support_paused_until`. */
   _renderSupportPause(attrs) {
-    const raw = attrs.support_paused_until;
-    if (raw === undefined) return "";
-    const paused = raw !== null;
-    const end = paused && raw ? new Date(raw).getTime() : NaN;
-    const left = Number.isNaN(end) ? null : Math.max(1, Math.ceil((end - Date.now()) / 60000));
-    // A short pause is the "I'm leaving soon" one; the rest is "no CV until morning".
-    const leaving = paused && left !== null && left <= LEAVING_MAX_MIN;
-    const morning = paused && !leaving;
+    const pause = supportPause(attrs);
+    if (!pause) return "";
+    const morning = pause.kind === "until_morning";
+    // `minutes` without an end cannot be counted down: show it as open-ended.
+    const leaving = pause.kind === "minutes" && pause.left !== null;
+    const open = pause.kind === "open" || (pause.kind === "minutes" && pause.left === null);
 
     let morningText = this._t("noCvMorning");
     if (morning) {
-      const clock = left !== null ? fmtClock(raw, this.hass) : "";
+      const clock = pause.until ? fmtClock(pause.until, this.hass) : "";
       morningText = clock ? this._t("noCvUntil", { t: clock }) : this._t("noCvOpen");
     }
 
@@ -691,19 +860,23 @@ class SmartClimateCard extends LitElement {
           <ha-icon icon="mdi:radiator-off"></ha-icon>${morningText}
         </button>
         <div class="leaving">
-          <div class="leaving-label">
-            <ha-icon icon="mdi:run-fast"></ha-icon>${this._t("leavingSoon")}
-          </div>
-          ${leaving
+          ${leaving || open
             ? html`
                 <div class="leaving-active">
-                  <span>${this._t("cvPaused", { t: this._minutes(left) })}</span>
+                  <span>
+                    ${leaving
+                      ? this._ts("cvPaused", attrs, { t: this._minutes(pause.left) })
+                      : this._ts("cvPausedOpen", attrs)}
+                  </span>
                   <button class="choice" @click=${() => this.onSupportResume()}>
                     <ha-icon icon="mdi:play"></ha-icon>${this._t("resume")}
                   </button>
                 </div>
               `
             : html`
+                <div class="leaving-label">
+                  <ha-icon icon="mdi:run-fast"></ha-icon>${this._t("leavingSoon")}
+                </div>
                 <div class="choices">
                   ${[
                     [30, "min30"],
@@ -719,12 +892,13 @@ class SmartClimateCard extends LitElement {
                 </div>
               `}
         </div>
-        <div class="hint"><span>${this._t("leavingHint")}</span></div>
+        <div class="hint"><span>${this._ts("leavingHint", attrs)}</span></div>
       </div>
     `;
   }
 
-  _renderTiles(attrs) {
+  /** Outdoor tiles; part of the unfolded cooling block (`inBlock`) or shown alone on old backends. */
+  _renderTiles(attrs, inBlock) {
     const warm = attrs.warm_threshold;
     const tiles = [
       { key: "tileToday", v: attrs.forecast_high_today },
@@ -733,7 +907,7 @@ class SmartClimateCard extends LitElement {
     ].filter((t) => typeof t.v === "number");
     if (!tiles.length) return "";
     return html`
-      <section class="tiles">
+      <section class="tiles ${inBlock ? "tiles--in" : ""}">
         ${tiles.map(
           (t) => html`
             <div class="tile">
@@ -948,6 +1122,21 @@ class SmartClimateCard extends LitElement {
       --sc-cool: var(--state-climate-cool-color, #2b9af9);
       --sc-ok: var(--success-color, #43a047);
       --sc-radius: 12px;
+      --sc-tap: 44px;
+      /* Small text and white-on-colour text need 4.5:1 in light and dark themes;
+         the plain theme colours (grey, light blue) fall short, so mix them toward
+         the readable side. Browsers without color-mix keep the plain colours. */
+      --sc-muted: var(--secondary-text-color);
+      --sc-strong: var(--primary-color);
+      --sc-link: var(--primary-color);
+    }
+
+    @supports (color: color-mix(in srgb, red, blue)) {
+      :host {
+        --sc-muted: color-mix(in srgb, var(--secondary-text-color) 70%, var(--primary-text-color));
+        --sc-strong: color-mix(in srgb, var(--primary-color) 68%, #000);
+        --sc-link: color-mix(in srgb, var(--primary-color) 45%, var(--primary-text-color));
+      }
     }
 
     ha-card {
@@ -957,6 +1146,28 @@ class SmartClimateCard extends LitElement {
 
     .content {
       padding: 16px;
+    }
+
+    .content.error {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+    }
+
+    .error ha-icon {
+      --mdc-icon-size: 28px;
+      color: var(--warning-color, #ffa600);
+    }
+
+    .error-title {
+      font-size: 16px;
+      font-weight: 500;
+    }
+
+    .error-text {
+      margin-top: 2px;
+      font-size: 14px;
+      color: var(--sc-muted);
     }
 
     button {
@@ -974,15 +1185,19 @@ class SmartClimateCard extends LitElement {
     /* Header */
     .head {
       display: flex;
-      flex-wrap: wrap;
       justify-content: space-between;
       align-items: flex-start;
       gap: 8px 12px;
     }
 
+    .temp-block {
+      flex: 1 1 120px;
+      min-width: 110px;
+    }
+
     .name {
       font-size: 13px;
-      color: var(--secondary-text-color);
+      color: var(--sc-muted);
     }
 
     .room {
@@ -993,45 +1208,63 @@ class SmartClimateCard extends LitElement {
     }
 
     .room[off] {
-      color: var(--secondary-text-color);
+      color: var(--sc-muted);
     }
 
     .unit {
       font-size: 0.5em;
       vertical-align: top;
       margin-left: 2px;
-      color: var(--secondary-text-color);
+      color: var(--sc-muted);
     }
 
     .goal {
       font-size: 15px;
-      color: var(--secondary-text-color);
+      color: var(--sc-muted);
+    }
+
+    .source {
+      margin-top: 2px;
+      font-size: 12px;
+      color: var(--sc-muted);
     }
 
     .head-right {
       display: flex;
-      align-items: flex-start;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 6px;
+      flex: 0 1 auto;
+      max-width: 66%;
+      min-width: 0;
+    }
+
+    .head-top {
+      display: flex;
+      align-items: center;
       justify-content: flex-end;
       gap: 8px;
-      flex: 1 1 200px;
-      min-width: 0;
+      max-width: 100%;
     }
 
     .chips {
       display: flex;
-      flex-wrap: wrap;
-      justify-content: flex-end;
+      flex-direction: column;
+      align-items: flex-end;
       gap: 6px;
+      max-width: 100%;
       min-width: 0;
     }
 
     .chip {
       display: inline-flex;
       align-items: center;
-      gap: 6px;
+      gap: 8px;
       max-width: 100%;
-      padding: 4px 10px 4px 8px;
-      border-radius: 16px;
+      min-height: var(--sc-tap);
+      box-sizing: border-box;
+      padding: 4px 12px 4px 10px;
+      border-radius: 22px;
       font-size: 13px;
       background: var(--secondary-background-color);
       border: 1px solid var(--divider-color);
@@ -1040,6 +1273,16 @@ class SmartClimateCard extends LitElement {
     button.chip {
       cursor: pointer;
       text-align: left;
+    }
+
+    .chip--static .chip-line {
+      white-space: nowrap;
+    }
+
+    .chip--static {
+      min-height: 32px;
+      padding-top: 2px;
+      padding-bottom: 2px;
     }
 
     button.chip:hover {
@@ -1051,7 +1294,8 @@ class SmartClimateCard extends LitElement {
       box-shadow: 0 0 0 1px var(--primary-color);
     }
 
-    /* A device the coordinator does not drive (Off / Manual): dashed, orange, easy to spot. */
+    /* A device the coordinator does not drive (Off / Manual): dashed, orange, easy to spot
+       (the control label in the chip says it in words, colour is only a hint). */
     .chip[data-mode="off"],
     .chip[data-mode="manual"] {
       border-style: dashed;
@@ -1060,17 +1304,29 @@ class SmartClimateCard extends LitElement {
     }
 
     .chip[data-mode="off"] ha-icon,
-    .chip[data-mode="manual"] ha-icon {
+    .chip[data-mode="manual"] ha-icon,
+    .chip[data-unavailable="true"] ha-icon {
       color: var(--warning-color, #ffa600);
     }
 
+    .chip[data-unavailable="true"] {
+      border-color: var(--error-color, #db4437);
+    }
+
+    .chip-text {
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      line-height: 1.25;
+    }
+
     .chip-name {
-      flex: none;
+      font-weight: 500;
     }
 
     .chip ha-icon {
-      --mdc-icon-size: 16px;
-      color: var(--secondary-text-color);
+      --mdc-icon-size: 18px;
+      color: var(--sc-muted);
     }
 
     .chip[data-kind="heat"] ha-icon {
@@ -1086,13 +1342,44 @@ class SmartClimateCard extends LitElement {
     }
 
     .chip-sub {
-      min-width: 0;
-      color: var(--secondary-text-color);
+      color: var(--sc-muted);
     }
 
-    .chip-sub[strong] {
-      color: var(--primary-text-color);
+    .chip-ctl {
+      font-size: 12px;
       font-weight: 500;
+      color: var(--primary-text-color);
+    }
+
+    /* Quiet reminder for a device left on Off/Manual */
+    .deviation {
+      display: flex;
+      align-items: center;
+      gap: 0 6px;
+      margin-top: 4px;
+      font-size: 13px;
+      color: var(--sc-muted);
+    }
+
+    .deviation ha-icon {
+      color: var(--warning-color, #ffa600);
+    }
+
+    .deviation > span {
+      flex: 1 1 0;
+      min-width: 0;
+    }
+
+    .link {
+      flex: none;
+      min-height: var(--sc-tap);
+      padding: 0 4px;
+      border: none;
+      background: transparent;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--sc-link);
+      text-decoration: underline;
     }
 
     /* Device control menu (inline panel under the header) */
@@ -1109,7 +1396,7 @@ class SmartClimateCard extends LitElement {
       align-items: center;
       justify-content: space-between;
       gap: 8px;
-      margin-bottom: 8px;
+      margin-bottom: 4px;
     }
 
     .devmenu-title {
@@ -1121,13 +1408,14 @@ class SmartClimateCard extends LitElement {
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      width: 32px;
-      height: 32px;
+      width: var(--sc-tap);
+      height: var(--sc-tap);
+      margin: -4px -6px -4px 0;
       padding: 0;
       border: none;
       border-radius: 50%;
       background: transparent;
-      color: var(--secondary-text-color);
+      color: var(--sc-muted);
     }
 
     .devmenu .close:hover {
@@ -1141,12 +1429,14 @@ class SmartClimateCard extends LitElement {
     .devmenu .segmented button {
       flex: 1 1 0;
       min-width: 0;
+      padding-left: 6px;
+      padding-right: 6px;
     }
 
     .devmenu-how {
       margin: 10px 0 6px;
       font-size: 13px;
-      color: var(--secondary-text-color);
+      color: var(--sc-muted);
     }
 
     /* Support pause shortcuts */
@@ -1169,6 +1459,8 @@ class SmartClimateCard extends LitElement {
       align-self: flex-start;
       gap: 8px;
       max-width: 100%;
+      min-height: var(--sc-tap);
+      box-sizing: border-box;
       padding: 8px 14px;
       border-radius: 999px;
       border: 1px solid var(--divider-color);
@@ -1182,8 +1474,8 @@ class SmartClimateCard extends LitElement {
     }
 
     .toggle-chip[active] {
-      background: var(--primary-color);
-      border-color: var(--primary-color);
+      background: var(--sc-strong);
+      border-color: var(--sc-strong);
       color: var(--text-primary-color, #fff);
     }
 
@@ -1224,18 +1516,18 @@ class SmartClimateCard extends LitElement {
       align-items: center;
       justify-content: center;
       flex-shrink: 0;
-      width: 36px;
-      height: 36px;
+      width: var(--sc-tap);
+      height: var(--sc-tap);
       padding: 0;
       border: none;
       border-radius: 50%;
       background: var(--secondary-background-color);
-      color: var(--secondary-text-color);
+      color: var(--sc-muted);
       transition: background 0.2s ease, color 0.2s ease;
     }
 
     .power[on] {
-      background: var(--primary-color);
+      background: var(--sc-strong);
       color: var(--text-primary-color, #fff);
     }
 
@@ -1244,7 +1536,7 @@ class SmartClimateCard extends LitElement {
     }
 
     .power ha-icon {
-      --mdc-icon-size: 22px;
+      --mdc-icon-size: 24px;
     }
 
     .sentence {
@@ -1257,7 +1549,7 @@ class SmartClimateCard extends LitElement {
       display: flex;
       flex-direction: column;
       gap: 12px;
-      margin-top: 16px;
+      margin-top: 12px;
       transition: opacity 0.2s ease;
     }
 
@@ -1294,7 +1586,7 @@ class SmartClimateCard extends LitElement {
       margin-top: 8px;
       font-size: 13px;
       line-height: 1.35;
-      color: var(--secondary-text-color);
+      color: var(--sc-muted);
     }
 
     .hint ha-icon {
@@ -1307,64 +1599,120 @@ class SmartClimateCard extends LitElement {
     }
 
     .muted {
-      opacity: 0.85;
+      opacity: 1;
     }
 
     .badge {
-      font-size: 11px;
+      font-size: 12px;
       font-weight: 600;
       padding: 2px 8px;
       border-radius: 999px;
-      background: var(--sc-heat);
+      background: #b34700;
       color: #fff;
     }
 
-    /* Segmented control */
+    /* Folded cooling summary / collapse control */
+    .fold-block {
+      padding: 0;
+    }
+
+    .fold {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      width: 100%;
+      min-height: var(--sc-tap);
+      box-sizing: border-box;
+      padding: 0 12px;
+      border: none;
+      border-radius: var(--sc-radius);
+      background: transparent;
+      font-size: 14px;
+      text-align: left;
+    }
+
+    .fold-label {
+      flex: 1 1 auto;
+      min-width: 0;
+    }
+
+    .fold ha-icon {
+      color: var(--sc-muted);
+    }
+
+    .fold--close {
+      justify-content: center;
+      margin-top: 4px;
+      padding: 0;
+      color: var(--sc-muted);
+      font-size: 13px;
+    }
+
+    .fold--close .fold-label {
+      flex: none;
+    }
+
+    .fold:hover {
+      background: rgba(127, 127, 127, 0.1);
+    }
+
+    /* Segmented control (aria-pressed buttons) */
     .segmented {
       display: inline-flex;
-      padding: 3px;
-      border-radius: 10px;
+      padding: 2px;
+      border-radius: 12px;
       background: var(--card-background-color, var(--ha-card-background, #fff));
       border: 1px solid var(--divider-color);
     }
 
     .segmented button {
       min-width: 64px;
+      min-height: var(--sc-tap);
       padding: 6px 14px;
       border: none;
-      border-radius: 8px;
+      border-radius: 10px;
       background: transparent;
       font-size: 14px;
-      color: var(--secondary-text-color);
+      color: var(--sc-muted);
     }
 
     .segmented button[active] {
-      background: var(--primary-color);
+      background: var(--sc-strong);
       color: var(--text-primary-color, #fff);
       font-weight: 500;
     }
 
-    /* Toggle switch */
+    /* Toggle switch: 52x44 hit area around a 46x26 track */
     .switch {
       position: relative;
       flex-shrink: 0;
-      width: 46px;
-      height: 26px;
+      width: 52px;
+      height: var(--sc-tap);
       padding: 0;
       border: none;
+      background: transparent;
+    }
+
+    .switch::before {
+      content: "";
+      position: absolute;
+      left: 3px;
+      top: 9px;
+      width: 46px;
+      height: 26px;
       border-radius: 13px;
-      background: var(--disabled-text-color, #9e9e9e);
+      background: var(--sc-muted);
       transition: background 0.2s ease;
     }
 
-    .switch[on] {
-      background: var(--primary-color);
+    .switch[on]::before {
+      background: var(--sc-strong);
     }
 
     .knob {
       position: absolute;
-      top: 3px;
-      left: 3px;
+      top: 12px;
+      left: 6px;
       width: 20px;
       height: 20px;
       border-radius: 50%;
@@ -1377,17 +1725,25 @@ class SmartClimateCard extends LitElement {
       transform: translateX(20px);
     }
 
-    /* Outdoor tiles */
+    /* Outdoor tiles (inside the unfolded cooling block) */
     .tiles {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
       gap: 8px;
     }
 
+    .tiles--in {
+      margin-top: 10px;
+    }
+
     .tile {
       padding: 10px 12px;
       border-radius: var(--sc-radius);
       background: var(--secondary-background-color);
+    }
+
+    .tiles--in .tile {
+      background: var(--card-background-color, var(--ha-card-background, #fff));
     }
 
     .tile-value {
@@ -1399,16 +1755,22 @@ class SmartClimateCard extends LitElement {
       color: var(--sc-heat);
     }
 
+    @supports (color: color-mix(in srgb, red, blue)) {
+      .tile-value[warm] {
+        color: color-mix(in srgb, var(--sc-heat) 70%, var(--primary-text-color));
+      }
+    }
+
     .tile-label {
       margin-top: 2px;
       font-size: 12px;
-      color: var(--secondary-text-color);
+      color: var(--sc-muted);
     }
 
     /* Override */
     .status {
       font-size: 13px;
-      color: var(--secondary-text-color);
+      color: var(--sc-muted);
     }
 
     .status[active] {
@@ -1421,15 +1783,15 @@ class SmartClimateCard extends LitElement {
       align-items: center;
       justify-content: center;
       gap: 20px;
-      margin: 10px 0;
+      margin: 6px 0 10px;
     }
 
     .stepper button {
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      width: 44px;
-      height: 44px;
+      width: var(--sc-tap);
+      height: var(--sc-tap);
       padding: 0;
       border-radius: 50%;
       border: 1px solid var(--divider-color);
@@ -1460,6 +1822,8 @@ class SmartClimateCard extends LitElement {
 
     .choice {
       flex: 1 1 auto;
+      min-height: var(--sc-tap);
+      box-sizing: border-box;
       padding: 8px 14px;
       border-radius: 999px;
       border: 1px solid var(--divider-color);
@@ -1473,22 +1837,30 @@ class SmartClimateCard extends LitElement {
     }
 
     .choice[active] {
-      background: var(--primary-color);
-      border-color: var(--primary-color);
+      background: var(--sc-strong);
+      border-color: var(--sc-strong);
       color: var(--text-primary-color, #fff);
+    }
+
+    /* Tertiary option: lighter than the timed choices */
+    .choice--quiet {
+      border-style: dashed;
+      background: transparent;
+      color: var(--sc-muted);
     }
 
     .back {
       display: inline-flex;
       align-items: center;
       gap: 6px;
-      margin-top: 10px;
+      min-height: var(--sc-tap);
+      margin-top: 6px;
       padding: 6px 12px;
       border: none;
       border-radius: 8px;
       background: transparent;
       font-size: 14px;
-      color: var(--primary-color);
+      color: var(--sc-link);
     }
 
     .back:hover {

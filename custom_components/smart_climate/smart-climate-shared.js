@@ -42,14 +42,86 @@ export function supportDevices(attrs) {
 }
 
 /**
+ * Name of the support heater for texts. Dutch keeps the familiar "CV"; English
+ * uses the device's friendly name (so "CV" is never hardcoded there), falling
+ * back to "support heater".
+ */
+export function supportName(attrs, hass) {
+  if (langOf(hass) === "nl") return "CV";
+  const names = supportDevices(attrs).map((d) => entityName(hass, d.entity_id));
+  return names.length ? names.join(" & ") : "support heater";
+}
+
+/**
  * Control mode of one actuator: "auto" (the coordinator drives it), "off" (kept
  * off, never used) or "manual" (hands off). Backends without `device_modes`
- * know only "auto". Returns `{ mode, until }` (`until` is an ISO string or null).
+ * know only "auto". Returns `{ mode, until, source }`: `until` is an ISO string or
+ * null; `source` says who set a non-auto mode: "user" (picked in the card),
+ * "pause" (the pause buttons) or "external" (the device was operated outside the
+ * coordinator, e.g. with its remote). Older backends have no `source` → "user".
  */
 export function deviceMode(attrs, entityId) {
   const m = attrs?.device_modes?.[entityId];
   const mode = m?.mode === "off" || m?.mode === "manual" ? m.mode : "auto";
-  return { mode, until: mode === "auto" ? null : m?.until || null };
+  const source = m?.source === "pause" || m?.source === "external" ? m.source : "user";
+  return { mode, until: mode === "auto" ? null : m?.until || null, source };
+}
+
+/** Whole minutes (at least 1) from `now` until the ISO time `until`; null when invalid. */
+export function minutesLeft(until, now = Date.now()) {
+  const end = new Date(until).getTime();
+  if (!until || Number.isNaN(end)) return null;
+  return Math.max(1, Math.ceil((end - now) / 60000));
+}
+
+// Without `support_pause_kind` (older backend) a pause ending within this many
+// minutes counts as "I'm leaving soon" (the longest quick choice is 2 h).
+const LEAVING_MAX_MIN = 125;
+
+/**
+ * State of the support-heater pause. `null` when the backend does not publish
+ * `support_paused_until` at all. Otherwise `{ kind, until, left }`: `kind` is
+ * "until_morning" | "minutes" | "open" | null (not paused), `until` the ISO end
+ * (or ""), `left` the minutes remaining (null when open-ended).
+ *
+ * A support device that was switched off by the user (not by the pause buttons)
+ * is not a pause: the backend reports `support_pause_kind: null` then. Backends
+ * without that attribute fall back to the old duration heuristic.
+ */
+export function supportPause(attrs, now = Date.now()) {
+  const raw = attrs?.support_paused_until;
+  if (raw === undefined) return null;
+  const none = { kind: null, until: "", left: null };
+  if (raw === null) return none;
+  const left = raw ? minutesLeft(raw, now) : null;
+  let kind;
+  if (attrs.support_pause_kind !== undefined) {
+    kind = attrs.support_pause_kind;
+    if (kind !== "until_morning" && kind !== "minutes" && kind !== "open") return none;
+  } else if (left === null) {
+    kind = "open";
+  } else {
+    kind = left <= LEAVING_MAX_MIN ? "minutes" : "until_morning";
+  }
+  return { kind, until: raw || "", left };
+}
+
+/**
+ * Whether the cooling block deserves its full size: always, except when cooling
+ * is on Auto, not allowed right now and no warm period is in sight (winter).
+ */
+export function coolingRelevant(attrs) {
+  if (attrs?.cooling_mode !== "auto" || attrs.cooling_allowed !== false) return true;
+  const threshold = attrs.warm_threshold;
+  if (typeof threshold !== "number") return false;
+  return [attrs.forecast_high_today, attrs.forecast_high_tomorrow, attrs.outdoor_max_24h].some(
+    (v) => typeof v === "number" && v >= threshold
+  );
+}
+
+/** True for a climate state that means "not reachable". */
+export function isUnavailable(state) {
+  return state === undefined || state === "unavailable";
 }
 
 /** Wall-clock parts of `date` in `timeZone` (the browser zone if it is missing/unknown). */
@@ -102,8 +174,8 @@ export function coolingLabel(hass, mode) {
 
 const COOLING_TEXT = {
   nl: {
-    ceiling: "kamer boven hard plafond",
-    ceilingFacts: "{room} bij plafond {ceiling}",
+    ceiling: "kamer is erg warm",
+    ceilingFacts: "{room}, boven {ceiling} altijd koelen",
     warm: "warme periode",
     forecast: "verwachte max {t}",
     measured: "max {t} gemeten",
@@ -111,8 +183,8 @@ const COOLING_TEXT = {
     noData: "geen buitentemperatuur bekend, alleen boven {ceiling}",
   },
   en: {
-    ceiling: "room above hard ceiling",
-    ceilingFacts: "{room} at ceiling {ceiling}",
+    ceiling: "room is very warm",
+    ceilingFacts: "{room}, always cooling above {ceiling}",
     warm: "warm period",
     forecast: "forecast high {t}",
     measured: "{t} max measured",

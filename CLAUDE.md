@@ -190,21 +190,33 @@ thin clients: they call `smart_climate.*` services and re-render on state change
 
 - Cards are bilingual: `translate(dict, hass, key)` from `smart-climate-shared.js`
   picks `nl` when `hass.language` starts with `nl`, otherwise `en`. The schedule
-  card's older texts are still English only; only its new policy texts are bilingual.
+  card is bilingual too (own `TEXT` dict).
 - Cards must **degrade on an older backend**: the new attributes (`cooling_mode`,
   `support_*`, `forecast_*`, `devices`, `intent`, ...) may be missing — leave that
   part out, never crash. The schedule card reads `attributes.schedule`: if the key
   is absent it shows a warning and disables Save (so defaults can never overwrite
   a real schedule); `schedule: null` means "no schedule saved yet" and is fine.
-- Main card device control: the header device chips are buttons that open an inline menu
-  (Auto / Off / Manual, plus 30 min / 1 h / until 10:00 / permanent for Off and Manual) →
-  `set_device_mode`. State comes from `device_modes` (already effective, so an expired
-  temporary mode reads `auto`). "Until 10:00" is sent as `minutes`, computed in the HA time
-  zone (`minutesUntilClock` in `smart-climate-shared.js`), never from the browser's zone.
-  The heat-support block adds "no CV until morning" (`set_support_pause` `until_morning`) and
-  "I'm leaving soon" (30/60/120 min) when `support_paused_until` exists; a pause ending within
-  125 min counts as "leaving soon", a longer/open-ended one as "until morning" (the backend
-  does not say which was used). The header sentence only names devices on `auto`.
+- Main card device control: the header device chips are buttons (>= 44 px) that open an inline menu
+  (Auto / Niet gebruiken / Handmatig, plus 30 min / 1 h / until 10:00 / permanent for the latter two;
+  permanent is the quiet option) -> `set_device_mode`. A chip shows name + hvac state ("Airco · verwarmt")
+  and, when not on Auto, the control label ("Niet gebruiken · nog 25 min", "Handmatig (afstandsbediening)").
+  State comes from `device_modes[id] = {mode, until, source}` (already effective, so an expired temporary
+  mode reads `auto`; `source` user | pause | external, missing = user). "Until 10:00" is sent as `minutes`,
+  computed in the HA time zone (`minutesUntilClock` in `smart-climate-shared.js`), never from the browser's
+  zone. A device left on Off/Manual without end (or > 12 h) and not set by the pause buttons gets a quiet
+  line under the headline with a "Weer automatisch" button. The header sentence only names devices on `auto`
+  and says "X niet beschikbaar" for `unavailable` ones.
+- Support pause: `supportPause()` in the shared module reads `support_paused_until` + `support_pause_kind`
+  (`until_morning` | `minutes` | `open` | null). `until_morning` -> toggle chip pressed with the real end
+  time; `minutes` / `open` -> "CV gepauzeerd ... Hervat" row. `kind` null = the support device is off by
+  user choice, which is NOT a pause. Only an old backend without `support_pause_kind` falls back to the
+  duration heuristic (<= 125 min = "leaving soon"). English texts use the support device's friendly name
+  (`supportName`), never a hardcoded "CV".
+- The cooling block is folded to one line ("Koelen: Auto · nu niet nodig") while `coolingRelevant()` is false
+  (mode auto, not allowed, no forecast/measured high >= warm_threshold); the forecast tiles live inside the
+  unfolded block. `room_temperature_source` ({kind mean|primary|sensor, entity}) is shown small under the target.
+- Touch targets: every button/switch is >= 44 px; segmented controls are `aria-pressed` buttons (no radiogroup).
+  Small/white-on-colour text uses `--sc-muted` / `--sc-strong` (color-mix) to stay >= 4.5:1 - the harness checks it.
 - Override state shown on the main card comes from the `mode` attribute
   (`override_timer` → remaining time, `override_infinity`, `override_next_node`).
 
@@ -213,7 +225,7 @@ lit from unpkg): `index.html?card=main|schedule&scenario=<name>&theme=light|dark
 renders a card against a mock `hass` (`mock.js`: scenarios, stateful `callService`,
 history API). `node tools/card-preview/shoot.mjs [filter]` serves the repo root,
 writes screenshots to `tools/card-preview/shots/`, runs interaction smoke tests and
-prints console/page errors (Playwright is taken from `PLAYWRIGHT_PATH`, default
+prints console/page errors plus audits (every main-card button >= 44 px, text contrast >= WCAG AA, card heights) (Playwright is taken from `PLAYWRIGHT_PATH`, default
 `D:/git/Martijn/HomeAssistant/tools/node_modules/playwright`). `viewer.html` +
 `serve.py` (port 8777) run the same cards on the real simulation.
 The harness stubs `ha-card`/`ha-icon` as custom elements with a shadow root
