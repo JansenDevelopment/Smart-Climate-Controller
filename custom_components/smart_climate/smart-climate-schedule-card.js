@@ -162,6 +162,23 @@ class SmartClimateScheduleCard extends LitElement {
 
   /** Home Assistant's own dark-mode flag (the graph colours differ per scheme). */
   _isDark() {
+    // Dashboards often use their own (dark) theme while the profile's dark-mode
+    // flag stays off, so judge the actual text colour first and only fall back
+    // to the flag when it cannot be read.
+    try {
+      const raw = getComputedStyle(this).getPropertyValue("--primary-text-color").trim();
+      if (raw) {
+        const probe = document.createElement("span");
+        probe.style.color = raw;
+        document.body.appendChild(probe);
+        const m = getComputedStyle(probe).color.match(/\d+(\.\d+)?/g);
+        probe.remove();
+        if (m && m.length >= 3) {
+          const [r, g, b] = m.slice(0, 3).map(Number);
+          return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.5;
+        }
+      }
+    } catch (_) { /* fall through */ }
     return this.hass?.themes?.darkMode !== false;
   }
 
