@@ -112,6 +112,7 @@ from .const import (
     MODE_OVERRIDE_NEXT_NODE,
     MODE_OVERRIDE_TIMER,
     PARK_OFF,
+    RESEND_SECONDS,
     ROLE_BOTH,
     SOURCE_EXTERNAL,
     SOURCE_PAUSE,
@@ -738,13 +739,23 @@ class SmartClimateEntity(ClimateEntity):
     async def _execute(self, cmd):
         """Apply one DeviceCommand, only calling services when state differs.
 
-        A device that is missing/unavailable is skipped, and a failing service
-        call is logged instead of raised — one misbehaving device must never
+        A device that is missing/unavailable is skipped, the same command is
+        repeated at most every ``RESEND_SECONDS`` (a device that ignores it must
+        not be spammed every tick), and a failing service call is logged
+        instead of raised — one misbehaving device must never
         abort the control loop (and with it the other devices and the state
         write).
         """
         state = self.hass.states.get(cmd.entity_id)
         if state is None or state.state in ("unavailable", "unknown"):
+            return
+        last = self._last_sent.get(cmd.entity_id)
+        if (
+            last
+            and last.get("mode") == cmd.hvac_mode
+            and last.get("temp") == cmd.temperature
+            and (dt_util.now() - last["t"]).total_seconds() < RESEND_SECONDS
+        ):
             return
         sent = False
         try:

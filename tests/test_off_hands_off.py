@@ -153,3 +153,27 @@ def test_auto_with_a_warm_room_still_switches_devices_off():
     d = decide(mode="auto", room_temp=23, heat_target=21, cool_target=24, cooling_allowed=False)
     assert d.intent != OFF
     assert {c.entity_id: c.hvac_mode for c in plan_routes(d, devices)} == {"a": "off"}
+
+
+async def test_a_device_that_ignores_a_setpoint_is_not_spammed():
+    # 3 October: the Qlima did not take 14 °C and got it again every few seconds.
+    states = {"climate.airco": _on("heat", 22), "climate.cv": CV_STATE}
+    entity, hass, clock = _make(states)
+    entity._hvac_mode = "heat"
+    entity._auto_temperature = 14
+
+    def _temps():
+        return [
+            c.args[2]["temperature"] for c in hass.services.async_call.call_args_list
+            if c.args[1] == "set_temperature" and c.args[2]["entity_id"] == "climate.airco"
+        ]
+
+    await entity._apply_control()
+    assert _temps() == [14]
+    for _ in range(20):  # the device stays on 22; ticks and sensor updates follow
+        clock["now"] += timedelta(seconds=5)
+        await entity._apply_control()
+    assert _temps() == [14]
+    clock["now"] += timedelta(minutes=5)  # but it is retried now and then
+    await entity._apply_control()
+    assert _temps() == [14, 14]
