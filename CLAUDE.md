@@ -102,6 +102,13 @@ attribute for backward compatibility — **do not remove the `mode` attribute.**
 **owned here**, not mirrored from a device: it is persisted as `CONF_HVAC_MODE`
 and fed into `control.decide` as an input.
 
+**Off means hands off.** Switching *to* `off` powers the auto devices down
+once (`_apply_control(force=True)`); while `off`, `_apply_control` still
+resolves state but sends nothing, and `_detect_external_change` records no
+takeovers. `control.decide` returning `OFF` is not the same thing: in `auto`
+that just means "no heat needed" and the devices are still driven off. Keep
+that distinction in `climate.py`, not in `control.py`.
+
 **The coordinator leads.** `decide` resolves a single intent
 (`off`/`idle`/`heat`/`cool`) from the room temperature and the band, and
 `plan_routes` then writes each device's HVAC mode *and* setpoint — so a

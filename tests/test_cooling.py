@@ -155,11 +155,17 @@ async def test_auto_inside_band_keeps_airflow_when_fan_capable():
     assert _last_mode(hass) == "fan_only"
 
 
-async def test_off_mode_powers_device_off():
-    entity, hass, _ = _make_entity(hvac_mode="off", device_state="heat", presence="home")
-    await entity._apply_control()
+async def test_switching_off_powers_device_off():
+    entity, hass, _ = _make_entity(hvac_mode="heat", device_state="heat", presence="home")
+    await entity.async_set_hvac_mode("off")
     assert _last_mode(hass) == "off"
     assert _svc(hass, "set_temperature") == []
+
+
+async def test_off_mode_leaves_the_device_alone():
+    entity, hass, _ = _make_entity(hvac_mode="off", device_state="heat", presence="home")
+    await entity._apply_control()
+    assert _last_mode(hass) is None
 
 
 async def test_no_devices_does_nothing():

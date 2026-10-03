@@ -659,8 +659,13 @@ class SmartClimateEntity(ClimateEntity):
             highs.append(self._outdoor_temperature())
         return highs
 
-    async def _apply_control(self):
-        """Resolve the control decision and drive the actuator devices."""
+    async def _apply_control(self, force: bool = False):
+        """Resolve the control decision and drive the actuator devices.
+
+        While the coordinator is off it still resolves its state, but drives
+        nothing: off means hands off.  ``force`` sends the commands anyway —
+        used once, when switching to off, to power the auto devices down.
+        """
         if not self._devices:
             return
 
@@ -718,6 +723,11 @@ class SmartClimateEntity(ClimateEntity):
         else:
             self._support_active = False
 
+        if self._hvac_mode == HVACMode.OFF and not force:
+            # Off = hands off: the coordinator drives nothing until switched back on.
+            self._acting = False
+            return
+
         commands = control.plan_routes(
             decision, self._device_caps(), support_active=self._support_active
         )
@@ -774,6 +784,8 @@ class SmartClimateEntity(ClimateEntity):
         """
         if not self._conf(CONF_EXTERNAL_TAKEOVER, True):
             return
+        if self._hvac_mode == HVACMode.OFF:
+            return  # nothing to take over while we drive nothing
         if self._effective_device_mode(entity_id, now) != DEVICE_MODE_AUTO:
             return
         mark = self._last_sent.get(entity_id)
@@ -934,10 +946,15 @@ class SmartClimateEntity(ClimateEntity):
             await self.async_set_override_timer(self._default_override_duration, temperature)
 
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
-        """Set the coordinator's own HVAC mode and re-drive the devices."""
+        """Set the coordinator's own HVAC mode and re-drive the devices.
+
+        Switching to off powers the auto devices down once; after that the
+        coordinator leaves every device alone until it is switched back on.
+        """
+        turning_off = hvac_mode == HVACMode.OFF and self._hvac_mode != HVACMode.OFF
         self._hvac_mode = hvac_mode
         self._persist(**{CONF_HVAC_MODE: hvac_mode})
-        await self._apply_control()
+        await self._apply_control(force=turning_off)
         self.async_write_ha_state()
 
     async def async_set_fan_mode(self, fan_mode: str) -> None:
@@ -1105,7 +1122,7 @@ class SmartClimateEntity(ClimateEntity):
         self.async_write_ha_state()
 
     async def async_turn_off(self) -> None:
-        """Turn the coordinator off (powers all actuators down)."""
+        """Turn the coordinator off: auto devices go off once, then hands off."""
         await self.async_set_hvac_mode(HVACMode.OFF)
 
     async def async_turn_on(self) -> None:
