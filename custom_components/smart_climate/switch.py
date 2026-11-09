@@ -6,10 +6,13 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import (
+    ATTR_FAN_BOOST,
+    ATTR_HOLD_PRIMARY,
     ATTR_INTERRUPTIBLE,
     ATTR_OBSERVE,
     ATTR_SUPPORT_ENABLED,
     ATTR_SUPPORT_PAUSED_UNTIL,
+    SERVICE_SET_BEHAVIOUR,
     SERVICE_SET_HEAT_SUPPORT,
     SERVICE_SET_INTERRUPTIBLE,
     SERVICE_SET_OBSERVE,
@@ -29,6 +32,8 @@ async def async_setup_entry(
         SmartClimateHeatSupportSwitch(hass, entry),
         SmartClimateSupportPauseSwitch(hass, entry),
         SmartClimateObserveSwitch(hass, entry),
+        SmartClimateFanBoostSwitch(hass, entry),
+        SmartClimateHoldSwitch(hass, entry),
     ])
 
 
@@ -110,3 +115,41 @@ class SmartClimateObserveSwitch(SmartClimateChildEntity, SwitchEntity):
 
     async def async_turn_off(self, **kwargs) -> None:
         await self._call_service(SERVICE_SET_OBSERVE, enabled=False)
+
+
+class SmartClimateFanBoostSwitch(SmartClimateChildEntity, SwitchEntity):
+    """Fan on high while the room is far below the target, then medium, then auto."""
+
+    def __init__(self, hass, entry) -> None:
+        super().__init__(hass, entry, "fan_boost")
+        self._attr_name = "Fan Boost"
+        self._attr_icon = "mdi:fan-chevron-up"
+
+    @property
+    def is_on(self):
+        return bool(self._climate_attr(ATTR_FAN_BOOST, False))
+
+    async def async_turn_on(self, **kwargs) -> None:
+        await self._call_service(SERVICE_SET_BEHAVIOUR, fan_boost=True)
+
+    async def async_turn_off(self, **kwargs) -> None:
+        await self._call_service(SERVICE_SET_BEHAVIOUR, fan_boost=False)
+
+
+class SmartClimateHoldSwitch(SmartClimateChildEntity, SwitchEntity):
+    """Keep the primary heater heating at the target instead of switching it off."""
+
+    def __init__(self, hass, entry) -> None:
+        super().__init__(hass, entry, "hold_primary")
+        self._attr_name = "Hold Primary Heater"
+        self._attr_icon = "mdi:thermostat-auto"
+
+    @property
+    def is_on(self):
+        return bool(self._climate_attr(ATTR_HOLD_PRIMARY, False))
+
+    async def async_turn_on(self, **kwargs) -> None:
+        await self._call_service(SERVICE_SET_BEHAVIOUR, hold_primary=True)
+
+    async def async_turn_off(self, **kwargs) -> None:
+        await self._call_service(SERVICE_SET_BEHAVIOUR, hold_primary=False)

@@ -372,6 +372,34 @@ set_observe:
       selector:
         boolean:
 
+set_behaviour:
+  name: Set behaviour
+  description: >-
+    Fan boost: while heating, run the primary heater's fan on high when the room
+    is more than 1 degree below the target, medium within that, auto near it.
+    Hold: keep the primary heater heating at the target while the room is warm
+    enough (it modulates on its own sensor) instead of switching it off, with
+    its setpoint 1 degree lower when the room stays too warm.
+  fields:
+    entity_id:
+      name: Entity
+      description: The Smart Climate entity.
+      required: true
+      selector:
+        entity:
+          domain: climate
+          integration: smart_climate
+    fan_boost:
+      name: Fan boost
+      required: false
+      selector:
+        boolean:
+    hold_primary:
+      name: Hold primary heater
+      required: false
+      selector:
+        boolean:
+
 set_device_mode:
   name: Set device mode
   description: >-

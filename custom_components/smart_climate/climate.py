@@ -37,10 +37,12 @@ from .const import (
     ATTR_DEVICES,
     ATTR_ETA_MINUTES,
     ATTR_EXTERNAL_TAKEOVER,
+    ATTR_FAN_BOOST,
     ATTR_FORECAST_HIGH_TODAY,
     ATTR_FORECAST_HIGH_TOMORROW,
     ATTR_HARD_CEILING,
     ATTR_HEAT_TARGET,
+    ATTR_HOLD_PRIMARY,
     ATTR_HOLD_TARGET,
     ATTR_INTENT,
     ATTR_INTERRUPTIBLE,
@@ -1202,6 +1204,25 @@ class SmartClimateEntity(ClimateEntity):
         await self._apply_control()
         self.async_write_ha_state()
 
+    async def async_set_behaviour(self, fan_boost=None, hold_primary=None) -> None:
+        """Switch the fan boost and/or holding the primary heater at the target."""
+        changes = {}
+        if fan_boost is not None:
+            changes[CONF_FAN_BOOST] = bool(fan_boost)
+        if hold_primary is not None:
+            changes[CONF_HOLD_PRIMARY] = bool(hold_primary)
+        if not changes:
+            return
+        self._persist(**changes)
+        self._plan_key = None
+        text = ", ".join(
+            f"{'ventilator-boost' if k == CONF_FAN_BOOST else 'aanhouden'} {'aan' if v else 'uit'}"
+            for k, v in changes.items()
+        )
+        self._log_action(WHO_USER, None, text, self._room_temperature())
+        await self._apply_control()
+        self.async_write_ha_state()
+
     async def async_set_fan_mode(self, fan_mode: str) -> None:
         """Delegate fan mode to the single fan-capable device, if any."""
         device_id = self._single_fan_device()
@@ -1534,6 +1555,8 @@ class SmartClimateEntity(ClimateEntity):
             ATTR_OUTDOOR_SENSOR: self._conf(CONF_OUTDOOR_SENSOR, None),
             ATTR_OUTDOOR_TEMPERATURE: self._outdoor_temperature(),
             ATTR_OBSERVE: self._observe,
+            ATTR_FAN_BOOST: bool(self._conf(CONF_FAN_BOOST, False)),
+            ATTR_HOLD_PRIMARY: bool(self._conf(CONF_HOLD_PRIMARY, False)),
             ATTR_PLAN: self._plan,
             ATTR_HOLD_TARGET: self._hold_target,
             ATTR_ETA_MINUTES: None if self._eta is None else round(self._eta),
