@@ -120,7 +120,7 @@ async def test_observe_logs_what_it_would_do_and_sends_nothing():
     await entity._apply_control()
     assert hass.services.async_call.call_count == 0
     texts = [(e["who"], e["entity_id"], e["text"]) for e in entity._log]
-    assert ("observe", "climate.qlima", "warm · 21° · ventilator high") in texts
+    assert ("observe", "climate.qlima", "warm · 21° · ventilator hoog") in texts
     assert len(texts) == 2  # qlima + cv once, not again on the second pass
     assert entity.extra_state_attributes["observe"] is True
 
@@ -134,7 +134,7 @@ async def test_hand_changes_are_logged_with_context():
     entity._log.clear()
     await entity._on_watched_change(_event("climate.qlima", old, new))
     hand = [e for e in entity._log if e["who"] == "hand"]
-    assert hand[0]["text"] == "ventilator high"
+    assert hand[0]["text"] == "ventilator hoog"
     assert hand[0]["room"] == 19.0
     assert hand[0]["presence"] == "home"
 

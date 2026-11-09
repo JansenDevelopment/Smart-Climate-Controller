@@ -995,6 +995,7 @@ class SmartClimateEntity(ClimateEntity):
     _MODE_NL: ClassVar[dict] = {
         "off": "uit", "heat": "warm", "cool": "koel", "auto": "auto", "fan_only": "ventilator", "dry": "droog",
     }
+    _FAN_NL: ClassVar[dict] = {"auto": "auto", "low": "laag", "medium": "midden", "high": "hoog"}
 
     def _describe(self, cmd, what=None):
         """Short Dutch text for a command (what = the parts that were actually sent)."""
@@ -1003,7 +1004,7 @@ class SmartClimateEntity(ClimateEntity):
             if cmd.temperature is not None and (what is None or "temp" in what or "mode" in what):
                 parts.append(f"{cmd.temperature:g}°")
             if cmd.fan_mode and (what is None or "fan" in what or "mode" in what):
-                parts.append(f"ventilator {cmd.fan_mode}")
+                parts.append(f"ventilator {self._FAN_NL.get(cmd.fan_mode, cmd.fan_mode)}")
         return " · ".join(parts)
 
     @classmethod
@@ -1021,7 +1022,7 @@ class SmartClimateEntity(ClimateEntity):
             if o.get("temperature") != t and isinstance(t, (int, float)):
                 parts.append(f"{t:g}°")
             if o.get("fan_mode") != n.get("fan_mode") and n.get("fan_mode"):
-                parts.append(f"ventilator {n.get('fan_mode')}")
+                parts.append(f"ventilator {cls._FAN_NL.get(n.get('fan_mode'), n.get('fan_mode'))}")
         return " · ".join(parts) or None
 
     def _log_action(self, who, entity_id, text, room_temp=None):
