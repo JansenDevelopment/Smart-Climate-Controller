@@ -208,3 +208,27 @@ async def test_parts_are_sent_one_after_another_and_a_lost_part_is_retried():
     assert [c.args[1] for c in hass.services.async_call.call_args_list] == ["set_temperature"]
     assert "poging 2" in entity._log[-1]["text"]
 
+
+
+async def test_a_temperature_on_the_coordinator_takes_back_hand_operated_devices():
+    states = {"climate.qlima": {"state": "heat", "attributes": {**QLIMA["attributes"], "temperature": 21}}, "climate.cv": CV}
+    _room(states, 20.0)
+    entity, hass, clock = _make(states)
+    entity._device_modes = {
+        "climate.qlima": {"mode": "manual", "until": None, "source": "external"},
+        "climate.cv": {"mode": "manual", "until": None, "source": "external", "off_by_hand": True},
+    }
+    entity._schedule = None
+    await entity.async_set_override_infinity(22)
+    assert "climate.qlima" not in entity._device_modes   # hand takeover released
+    assert entity._device_modes["climate.cv"]["off_by_hand"] is True  # off by hand stays off
+    assert {"entity_id": "climate.qlima", "temperature": 22} in _calls(hass, "set_temperature")
+
+
+async def test_a_device_the_user_set_to_manual_stays_manual():
+    states = {"climate.qlima": QLIMA, "climate.cv": CV}
+    _room(states, 20.0)
+    entity, hass, clock = _make(states)
+    entity._device_modes = {"climate.qlima": {"mode": "manual", "until": None, "source": "user"}}
+    await entity.async_set_override_infinity(22)
+    assert entity._device_modes["climate.qlima"]["source"] == "user"

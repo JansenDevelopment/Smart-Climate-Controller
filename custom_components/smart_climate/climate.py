@@ -1121,6 +1121,19 @@ class SmartClimateEntity(ClimateEntity):
             self.entry, data={**self.entry.data, **changes}
         )
 
+    def _release_hand_takeovers(self):
+        """Choosing a temperature on the coordinator means: you drive it. Devices it let go of
+        after hand operation come back; switched off by hand or set to manual by the user stays."""
+        released = [
+            eid for eid, entry in self._device_modes.items()
+            if entry.get("source") == SOURCE_EXTERNAL and not entry.get("off_by_hand")
+        ]
+        for eid in released:
+            self._device_modes.pop(eid, None)
+            self._log_action(WHO_USER, eid, "regeling neemt het weer over", self._room_temperature())
+        if released:
+            self._persist(**{CONF_DEVICE_MODES: dict(self._device_modes)})
+
     async def async_set_override_timer(self, minutes: int, temperature: float):
         """Set override timer mode."""
         self._mode = MODE_OVERRIDE_TIMER
@@ -1128,6 +1141,7 @@ class SmartClimateEntity(ClimateEntity):
         self._override_start_time = dt_util.now()
         self._override_duration_minutes = minutes
         self._log_action(WHO_USER, None, f"tijdelijk {temperature:g}° voor {minutes:g} min", self._room_temperature())
+        self._release_hand_takeovers()
         await self._apply_control()
         self.async_write_ha_state()
 
@@ -1137,6 +1151,7 @@ class SmartClimateEntity(ClimateEntity):
         self._override_temperature = temperature
         self._override_start_time = None
         self._log_action(WHO_USER, None, f"tijdelijk {temperature:g}° zonder einde", self._room_temperature())
+        self._release_hand_takeovers()
         await self._apply_control()
         self.async_write_ha_state()
 
@@ -1155,6 +1170,7 @@ class SmartClimateEntity(ClimateEntity):
         self._override_temperature = temperature
         self._next_node_datetime = next_dt
         self._log_action(WHO_USER, None, f"tijdelijk {temperature:g}° tot het volgende blok", self._room_temperature())
+        self._release_hand_takeovers()
         await self._apply_control()
         self.async_write_ha_state()
 
@@ -1164,6 +1180,7 @@ class SmartClimateEntity(ClimateEntity):
         self._override_start_time = None
         self._next_node_datetime = None
         self._log_action(WHO_USER, None, "terug naar het schema", self._room_temperature())
+        self._release_hand_takeovers()
         await self._apply_control()
         self.async_write_ha_state()
 
