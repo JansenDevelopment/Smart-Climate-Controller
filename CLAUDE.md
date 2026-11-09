@@ -116,6 +116,24 @@ third-party thermostat never gets to pick heating-versus-cooling by itself.
 That is why `async_turn_on` selects `auto` instead of pinning `heat`: pinning a
 mode would hand that decision back to whoever set it.
 
+### Fan boost, hold, observe and the action log (1.4)
+
+- **Fan boost** (`fan_boost`, switch + `set_behaviour`, default off): `control.fan_for` picks high / medium /
+  auto from the deficit (> 1 deg / > 0.3 deg / near), steps up at once, down only after 10 min and a 0.2 deg backoff.
+  Only primary devices with `fan_modes`. Measured on a Qlima: high warms 2-3x faster.
+- **Hold** (`hold_primary`, default off): while the intent is idle, a primary heater keeps heating at the target
+  (`plan_routes(hold_target=...)`) instead of being parked; `control.hold_trim` lowers its setpoint 1 deg after the
+  room has been > 0.5 deg over the target for 20 min. A target below the device's `min_temp` (night setback) = off.
+- **Observe** (`observe`, switch + `set_observe`): everything is decided and `plan` is published, but nothing is
+  sent; changed plans go into the log as `who: observe`. Devices on manual (source user) are planned as auto then.
+- **Action log**: `_log_action` keeps the last 40 entries in the `log` attribute (memory only, empty after a
+  restart) and fires every entry as event `smart_climate_log` (the recorder keeps events) with room, outdoor,
+  target and presence. `who`: user (service/card), hand (device changed outside us), control (we sent), observe.
+- **Off by hand** stays off: an auto device switched off outside us becomes manual without end
+  (`off_by_hand`), and switching it on by hand hands it back. Other outside changes stay "until next node".
+- After a restart nothing is driven until the configured room sensor has a value (max 120 s): the fallback to
+  the devices' own sensors reads an airco's outlet air.
+
 ### Presence & away delay
 
 - Presence is `"home"` or `"away"`, derived from the zone entity's integer state
