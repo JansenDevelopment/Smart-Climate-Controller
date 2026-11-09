@@ -269,6 +269,9 @@ class SmartClimateEntity(ClimateEntity):
         # restored from persisted config-entry storage (see async_set_* setters).
         self._mode = MODE_AUTO
         self._presence = "away"  # Start as away
+        # The first presence reading after a (re)start is not a homecoming: it must not
+        # interrupt an override restored from storage.
+        self._presence_known = False
         self._interruptible = interruptible
         self._auto_temperature = entry.data.get(CONF_AUTO_TEMPERATURE, 21)
         self._cool_auto_temperature = entry.data.get(CONF_COOL_AUTO_TEMPERATURE, 24)
@@ -448,7 +451,11 @@ class SmartClimateEntity(ClimateEntity):
         if zone_state:
             try:
                 zone_count = int(zone_state.state)
-                if zone_count > 0 and self._presence != "home":
+                if not self._presence_known:
+                    self._presence_known = True
+                    if zone_count > 0:
+                        self._presence = "home"
+                elif zone_count > 0 and self._presence != "home":
                     # Someone came home
                     await self._cancel_away_delay()
                     self._presence = "home"

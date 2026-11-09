@@ -280,3 +280,23 @@ async def test_an_expired_override_is_cleared_from_storage():
     await entity._update_state()
     assert entity._mode == "auto"
     assert _stored(entity) is None
+
+
+async def test_a_restored_override_survives_the_first_presence_reading():
+    from custom_components.smart_climate import climate as climate_mod
+
+    now = datetime(2026, 1, 12, 10, 0).astimezone()
+    climate_mod.dt_util.now = lambda: now
+    states = {"climate.qlima": QLIMA, "climate.cv": CV, "zone.home": {"state": "2", "attributes": {}}}
+    _room(states, 20.0)
+    rec = {"mode": "override_infinity", "temperature": 22}
+    entity, hass, clock = _make(states, override=rec)
+    entity._presence = "away"  # as after a restart
+    await entity._update_state()
+    assert entity._presence == "home"
+    assert entity._mode == "override_infinity"
+    # a real homecoming later still interrupts
+    entity._presence = "away"
+    await entity._update_state()
+    assert entity._mode == "auto"
+
