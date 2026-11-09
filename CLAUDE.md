@@ -123,7 +123,8 @@ mode would hand that decision back to whoever set it.
   Only primary devices with `fan_modes`. Measured on a Qlima: high warms 2-3x faster.
 - **Hold** (`hold_primary`, default off): while the intent is idle, a primary heater keeps heating at the target
   (`plan_routes(hold_target=...)`) instead of being parked; `control.hold_trim` lowers its setpoint 1 deg after the
-  room has been > 0.5 deg over the target for 20 min. A target below the device's `min_temp` (night setback) = off.
+  room has been > 0.5 deg over the target for 20 min. A target below the device's `min_temp` or below
+  `control.HOLD_FLOOR` 16 (night setback) = off: the Qlima reports `min_temp` 7 but ignores setpoints under ~16.
 - **Observe** (`observe`, switch + `set_observe`): everything is decided and `plan` is published, but nothing is
   sent; changed plans go into the log as `who: observe`. Devices on manual (source user) are planned as auto then.
 - **Action log**: `_log_action` keeps the last 40 entries in the `log` attribute (memory only, empty after a

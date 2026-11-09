@@ -254,6 +254,11 @@ TRIM_ABOVE = 0.5
 TRIM_MINUTES = 20
 TRIM_STEP = 1.0
 
+# Below this a hold is a night setback, not a hold: the device goes off. Some
+# devices report a min_temp they do not honour (the Qlima via localtuya says 7
+# but ignores anything under ~16, so a 12 deg hold kept it heating at 22).
+HOLD_FLOOR = 16.0
+
 
 def fan_for(
     room_temp: float | None,
@@ -365,7 +370,8 @@ def plan_routes(
     - ``step`` — the device's temperature step (setpoints are rounded to it)
     - ``hold`` — a primary heater that keeps heating at ``hold_target`` while
       the coordinator idles (it then modulates on its own sensor) instead of
-      being parked; ``min_temp`` — below that the hold is off instead
+      being parked; ``min_temp`` — below that (or below ``HOLD_FLOOR``) the
+      hold is off instead
     - ``fan`` — the fan mode to run at while heating or holding (None = leave it)
     - ``trim`` — setpoint offset applied to its hold setpoint (see ``hold_trim``)
     - ``off_by_hand`` — the user switched this device off outside the coordinator
@@ -454,8 +460,9 @@ def plan_routes(
             # that by hand), the coordinator only trims the setpoint.
             temp = _round_to_step(hold_target + dev.get("trim", 0.0), dev.get("step"))
             min_temp = dev.get("min_temp")
-            if isinstance(min_temp, (int, float)) and temp < min_temp:
-                commands.append(DeviceCommand(entity_id, OFF))  # a setback below its range: off
+            floor = max(min_temp, HOLD_FLOOR) if isinstance(min_temp, (int, float)) else HOLD_FLOOR
+            if temp < floor:
+                commands.append(DeviceCommand(entity_id, OFF))  # a setback, not a hold: off
             else:
                 commands.append(DeviceCommand(entity_id, HEAT, temp, dev.get("fan")))
         elif dev.get("park", PARK_FAN_ONLY) == PARK_FAN_ONLY and dev.get("supports_fan_only", False):

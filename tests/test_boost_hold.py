@@ -78,6 +78,15 @@ def test_setback_below_the_device_range_turns_it_off():
     assert cmds == [control.DeviceCommand("climate.qlima", "off")]
 
 
+def test_setback_turns_it_off_even_if_the_device_claims_a_low_min_temp():
+    # 9-11-2026 23:30: the Qlima reports min_temp 7, got "heat 12" and ignored it.
+    q = {**QLIMA, "min_temp": 7}
+    cmds = control.plan_routes(Decision(control.IDLE), [q], hold_target=11.5)
+    assert cmds == [control.DeviceCommand("climate.qlima", "off")]
+    cmds = control.plan_routes(Decision(control.IDLE), [{**q, "min_temp": None}], hold_target=14.0)
+    assert cmds == [control.DeviceCommand("climate.qlima", "off")]
+
+
 def test_manual_device_is_never_held():
     q = {**QLIMA, "control": "manual"}
     assert control.plan_routes(Decision(control.IDLE), [q], hold_target=21.0) == []
