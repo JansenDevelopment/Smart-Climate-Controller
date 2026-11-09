@@ -174,3 +174,15 @@ async def test_switching_off_by_the_coordinator_is_not_off_by_hand():
     clock["now"] += timedelta(seconds=5)
     await entity._on_watched_change(_event("climate.qlima", states["climate.qlima"], {**QLIMA}))
     assert "climate.qlima" not in entity._device_modes
+
+
+async def test_waits_for_the_room_sensor_after_a_restart():
+    warm = {"state": "heat", "attributes": {**QLIMA["attributes"], "temperature": 21, "current_temperature": 24}}
+    states = {"climate.qlima": warm, "climate.cv": CV}  # sensor.room not loaded yet
+    entity, hass, clock = _make(states, fan_boost=True, hold_primary=True)
+    await entity._apply_control()
+    assert hass.services.async_call.call_count == 0
+    _room(states, 19.0)
+    clock["now"] += timedelta(seconds=20)
+    await entity._apply_control()
+    assert {"entity_id": "climate.qlima", "fan_mode": "high"} in _calls(hass, "set_fan_mode")

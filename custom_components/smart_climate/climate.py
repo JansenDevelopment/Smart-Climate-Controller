@@ -131,6 +131,7 @@ from .const import (
     SOURCE_EXTERNAL,
     SOURCE_PAUSE,
     SOURCE_USER,
+    STARTUP_SENSOR_WAIT_SECONDS,
     SUBENTRY_TYPE_DEVICE,
     TEMP_SOURCE_MEAN,
     TEMP_SOURCE_PRIMARY,
@@ -312,6 +313,7 @@ class SmartClimateEntity(ClimateEntity):
         self._plan = []
         self._plan_key = None
         self._log = deque(maxlen=LOG_SIZE)
+        self._started = None       # first evaluation: the room sensor may not be loaded yet
 
         # Outdoor context for the auto-cooling policy.
         self._outdoor_tracker = cooling.OutdoorMaxTracker()
@@ -797,6 +799,18 @@ class SmartClimateEntity(ClimateEntity):
             # Off = hands off: the coordinator drives nothing until switched back on.
             self._acting = False
             self._plan = []
+            return
+
+        # Right after a restart the chosen room sensor may not have a value yet; the
+        # fallback (the devices' own sensors) can read degrees off and would send a
+        # wrong command (every command beeps on some devices). Wait for it a little.
+        self._started = self._started or now
+        if (
+            not force
+            and self._conf(CONF_TEMPERATURE_SOURCE, TEMP_SOURCE_MEAN) == TEMP_SOURCE_SENSOR
+            and self._numeric_state(self._conf(CONF_TEMPERATURE_SENSOR, None)) is None
+            and (now - self._started).total_seconds() < STARTUP_SENSOR_WAIT_SECONDS
+        ):
             return
 
         caps = self._device_caps()

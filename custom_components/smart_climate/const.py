@@ -90,6 +90,8 @@ EXTERNAL_SETTLE_SECONDS = 30
 # A device that does not take a command (e.g. a setpoint below its own
 # minimum) gets the same command again at most this often, not every tick.
 RESEND_SECONDS = 300
+# After a restart: wait this long for the chosen room sensor before driving anything.
+STARTUP_SENSOR_WAIT_SECONDS = 120
 # A device must be unavailable this long before routing gives up on it (localtuya
 # devices drop out briefly all the time; the CV must not take over for a blip).
 UNAVAILABLE_DEBOUNCE_SECONDS = 300
