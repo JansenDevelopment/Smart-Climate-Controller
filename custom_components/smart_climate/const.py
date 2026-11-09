@@ -47,6 +47,8 @@ CONF_SKIP_UNTIL = "skip_until"
 CONF_PARK = "park"
 # Observe ("proefdraaien"): decide and log what it would do, drive nothing.
 CONF_OBSERVE = "observe"
+# The active override (mode, temperature, start/minutes or until), restored after a restart.
+CONF_OVERRIDE = "override"
 # Options: fan boost while heating, and holding the primary heater at the target
 # while idle instead of switching it off (both default off: an option per install).
 CONF_FAN_BOOST = "fan_boost"

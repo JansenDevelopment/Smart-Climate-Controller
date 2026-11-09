@@ -232,3 +232,51 @@ async def test_a_device_the_user_set_to_manual_stays_manual():
     entity._device_modes = {"climate.qlima": {"mode": "manual", "until": None, "source": "user"}}
     await entity.async_set_override_infinity(22)
     assert entity._device_modes["climate.qlima"]["source"] == "user"
+
+
+def _stored(entity):
+    calls = [c.kwargs.get("data") or c.args[1] for c in entity.hass.config_entries.async_update_entry.call_args_list]
+    return calls[-1].get("override") if calls else None
+
+
+async def test_an_override_is_stored_and_cleared():
+    states = {"climate.qlima": QLIMA, "climate.cv": CV}
+    _room(states, 20.0)
+    entity, hass, clock = _make(states)
+    await entity.async_set_override_timer(30, 22)
+    rec = _stored(entity)
+    assert rec["mode"] == "override_timer" and rec["temperature"] == 22 and rec["minutes"] == 30
+    await entity.async_clear_override()
+    assert _stored(entity) is None
+
+
+def test_a_stored_override_comes_back_after_a_restart():
+    from custom_components.smart_climate import climate as climate_mod
+
+    states = {"climate.qlima": QLIMA, "climate.cv": CV}
+    now = datetime(2026, 1, 12, 10, 0).astimezone()
+    climate_mod.dt_util.now = lambda: now
+    for rec, expect in (
+        ({"mode": "override_next_node", "temperature": 22, "until": (now + timedelta(hours=12)).isoformat()}, "override_next_node"),
+        ({"mode": "override_next_node", "temperature": 22, "until": (now - timedelta(minutes=1)).isoformat()}, "auto"),
+        ({"mode": "override_timer", "temperature": 23, "start": (now - timedelta(minutes=10)).isoformat(), "minutes": 30}, "override_timer"),
+        ({"mode": "override_timer", "temperature": 23, "start": (now - timedelta(minutes=40)).isoformat(), "minutes": 30}, "auto"),
+        ({"mode": "override_infinity", "temperature": 19}, "override_infinity"),
+        ({"mode": "rubbish", "temperature": 19}, "auto"),
+    ):
+        climate_mod.dt_util.now = lambda: now  # _make moves the clock: reset per case
+        entity, _, _ = _make(states, override=rec)
+        assert entity._mode == expect, rec
+        if expect != "auto":
+            assert entity._override_temperature == rec["temperature"]
+
+
+async def test_an_expired_override_is_cleared_from_storage():
+    states = {"climate.qlima": QLIMA, "climate.cv": CV, "zone.home": {"state": "1", "attributes": {}}}
+    _room(states, 20.0)
+    entity, hass, clock = _make(states)
+    await entity.async_set_override_timer(30, 22)
+    clock["now"] += timedelta(minutes=31)
+    await entity._update_state()
+    assert entity._mode == "auto"
+    assert _stored(entity) is None

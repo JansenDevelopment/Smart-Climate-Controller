@@ -92,6 +92,7 @@ from .const import (
     CONF_OBSERVE,
     CONF_OUTDOOR_CACHE,
     CONF_OUTDOOR_SENSOR,
+    CONF_OVERRIDE,
     CONF_PARK,
     CONF_PRIMARY_DEVICE,
     CONF_SCHEDULE,
@@ -276,6 +277,8 @@ class SmartClimateEntity(ClimateEntity):
         self._override_start_time = None
         self._override_duration_minutes = 0
         self._next_node_datetime = None
+        self._override_saved = entry.data.get(CONF_OVERRIDE)
+        self._restore_override(self._override_saved)
         self._away_delay_task = None
         self._away_delay_start = None
         self._away_delay_remaining = 0
@@ -483,6 +486,7 @@ class SmartClimateEntity(ClimateEntity):
             self._next_node_datetime = None
 
         self._expire_device_modes(current_time)
+        self._sync_override()
 
         # Outdoor context for the cooling policy, then evaluate + drive devices
         await self._refresh_outdoor(current_time)
@@ -1121,6 +1125,48 @@ class SmartClimateEntity(ClimateEntity):
             self.entry, data={**self.entry.data, **changes}
         )
 
+    def _override_record(self):
+        """The active override as a storable dict (None in auto)."""
+        if self._mode == MODE_OVERRIDE_TIMER and self._override_start_time:
+            return {"mode": self._mode, "temperature": self._override_temperature,
+                    "start": self._override_start_time.isoformat(), "minutes": self._override_duration_minutes}
+        if self._mode == MODE_OVERRIDE_NEXT_NODE and self._next_node_datetime:
+            return {"mode": self._mode, "temperature": self._override_temperature,
+                    "until": self._next_node_datetime.isoformat()}
+        if self._mode == MODE_OVERRIDE_INFINITY:
+            return {"mode": self._mode, "temperature": self._override_temperature}
+        return None
+
+    def _sync_override(self):
+        """Persist the override when it changed (set, cleared, expired or interrupted), so a
+        restart of Home Assistant keeps it (9-11-2026: a 22 until the next node was lost)."""
+        record = self._override_record()
+        if record != self._override_saved:
+            self._override_saved = record
+            self._persist(**{CONF_OVERRIDE: record})
+
+    def _restore_override(self, record):
+        """Put a stored override back, unless it has run out in the meantime."""
+        if not isinstance(record, Mapping) or not isinstance(record.get("temperature"), (int, float)):
+            return
+        now = dt_util.now()
+        mode = record.get("mode")
+        if mode == MODE_OVERRIDE_TIMER:
+            start = _parse_dt(record.get("start"))
+            minutes = record.get("minutes")
+            if start is None or not isinstance(minutes, (int, float)) or start + timedelta(minutes=minutes) <= now:
+                return
+            self._override_start_time, self._override_duration_minutes = start, minutes
+        elif mode == MODE_OVERRIDE_NEXT_NODE:
+            until = _parse_dt(record.get("until"))
+            if until is None or until <= now:
+                return
+            self._next_node_datetime = until
+        elif mode != MODE_OVERRIDE_INFINITY:
+            return
+        self._mode = mode
+        self._override_temperature = record["temperature"]
+
     def _release_hand_takeovers(self):
         """Choosing a temperature on the coordinator means: you drive it. Devices it let go of
         after hand operation come back; switched off by hand or set to manual by the user stays."""
@@ -1142,6 +1188,7 @@ class SmartClimateEntity(ClimateEntity):
         self._override_duration_minutes = minutes
         self._log_action(WHO_USER, None, f"tijdelijk {temperature:g}° voor {minutes:g} min", self._room_temperature())
         self._release_hand_takeovers()
+        self._sync_override()
         await self._apply_control()
         self.async_write_ha_state()
 
@@ -1152,6 +1199,7 @@ class SmartClimateEntity(ClimateEntity):
         self._override_start_time = None
         self._log_action(WHO_USER, None, f"tijdelijk {temperature:g}° zonder einde", self._room_temperature())
         self._release_hand_takeovers()
+        self._sync_override()
         await self._apply_control()
         self.async_write_ha_state()
 
@@ -1171,6 +1219,7 @@ class SmartClimateEntity(ClimateEntity):
         self._next_node_datetime = next_dt
         self._log_action(WHO_USER, None, f"tijdelijk {temperature:g}° tot het volgende blok", self._room_temperature())
         self._release_hand_takeovers()
+        self._sync_override()
         await self._apply_control()
         self.async_write_ha_state()
 
@@ -1181,6 +1230,7 @@ class SmartClimateEntity(ClimateEntity):
         self._next_node_datetime = None
         self._log_action(WHO_USER, None, "terug naar het schema", self._room_temperature())
         self._release_hand_takeovers()
+        self._sync_override()
         await self._apply_control()
         self.async_write_ha_state()
 
