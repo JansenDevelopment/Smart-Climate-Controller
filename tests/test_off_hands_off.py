@@ -170,10 +170,17 @@ async def test_a_device_that_ignores_a_setpoint_is_not_spammed():
 
     await entity._apply_control()
     assert _temps() == [14]
+    # A dropped command gets a few quick retries (localtuya loses commands that
+    # overlap, 9 November), every 20 s and not on every tick ...
     for _ in range(20):  # the device stays on 22; ticks and sensor updates follow
         clock["now"] += timedelta(seconds=5)
         await entity._apply_control()
-    assert _temps() == [14]
-    clock["now"] += timedelta(minutes=5)  # but it is retried now and then
+    assert _temps() == [14, 14, 14]
+    # ... and then only now and then.
+    for _ in range(20):
+        clock["now"] += timedelta(seconds=10)
+        await entity._apply_control()
+    assert _temps() == [14, 14, 14]
+    clock["now"] += timedelta(minutes=5)
     await entity._apply_control()
-    assert _temps() == [14, 14]
+    assert _temps() == [14, 14, 14, 14]

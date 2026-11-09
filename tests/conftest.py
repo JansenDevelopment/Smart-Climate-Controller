@@ -149,3 +149,21 @@ _vol.Optional = lambda key, **kw: key
 _vol.All = lambda *args: args[-1]
 _vol.ALLOW_EXTRA = 1
 sys.modules["voluptuous"] = _vol
+
+
+import pytest  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _no_command_waits():
+    """Multi-part commands wait for device confirmations; the stubs never confirm, so do not wait."""
+    try:
+        from custom_components.smart_climate.climate import SmartClimateEntity
+    except Exception:  # noqa: BLE001 - modules that do not import the entity
+        yield
+        return
+    old = (SmartClimateEntity._confirm_seconds, SmartClimateEntity._command_gap)
+    SmartClimateEntity._confirm_seconds = 0
+    SmartClimateEntity._command_gap = 0
+    yield
+    SmartClimateEntity._confirm_seconds, SmartClimateEntity._command_gap = old

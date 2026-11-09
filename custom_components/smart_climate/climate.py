@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from collections import deque
 from collections.abc import Mapping
@@ -67,6 +68,8 @@ from .const import (
     ATTR_WARM_THRESHOLD,
     ATTR_WEATHER_ENTITY,
     ATTR_WRAPPED_CLIMATE,
+    COMMAND_CONFIRM_SECONDS,
+    COMMAND_GAP_SECONDS,
     CONF_AUTO_TEMPERATURE,
     CONF_AWAY_DELAY_MINUTES,
     CONF_AWAY_TEMPERATURE,
@@ -127,6 +130,8 @@ from .const import (
     MODE_OVERRIDE_TIMER,
     PARK_OFF,
     RESEND_SECONDS,
+    RETRY_SECONDS,
+    RETRY_TIMES,
     ROLE_BOTH,
     SOURCE_EXTERNAL,
     SOURCE_PAUSE,
@@ -206,6 +211,10 @@ class SmartClimateEntity(ClimateEntity):
     """
 
     # The coordinator's own HVAC modes (not mirrored from a device).
+    # Sending one command part after another (tests set these to 0).
+    _confirm_seconds: ClassVar[float] = COMMAND_CONFIRM_SECONDS
+    _command_gap: ClassVar[float] = COMMAND_GAP_SECONDS
+
     _OWN_HVAC_MODES: ClassVar[list[HVACMode]] = [
         HVACMode.OFF,
         HVACMode.HEAT,
@@ -314,6 +323,7 @@ class SmartClimateEntity(ClimateEntity):
         self._plan_key = None
         self._log = deque(maxlen=LOG_SIZE)
         self._started = None       # first evaluation: the room sensor may not be loaded yet
+        self._busy = set()         # devices we are sending a multi-part command to
 
         # Outdoor context for the auto-cooling policy.
         self._outdoor_tracker = cooling.OutdoorMaxTracker()
@@ -861,64 +871,101 @@ class SmartClimateEntity(ClimateEntity):
         state = self.hass.states.get(cmd.entity_id)
         if state is None or state.state in ("unavailable", "unknown"):
             return
+        if cmd.entity_id in self._busy:
+            return  # still sending to this device (waiting for confirmations)
+        need = self._missing_parts(cmd, state)
         last = self._last_sent.get(cmd.entity_id)
-        if (
+        same = (
             last
             and last.get("mode") == cmd.hvac_mode
             and last.get("temp") == cmd.temperature
             and last.get("fan") == cmd.fan_mode
-            and (dt_util.now() - last["t"]).total_seconds() < RESEND_SECONDS
-        ):
+        )
+        if same:
+            # A device that did not take (all of) it gets it again soon, a few times,
+            # then only every RESEND_SECONDS (a value it refuses must not be spammed).
+            wait = RETRY_SECONDS if need and last.get("tries", 0) < RETRY_TIMES else RESEND_SECONDS
+            if (dt_util.now() - last["t"]).total_seconds() < wait:
+                return
+        if not need:
+            if not same:
+                self._last_sent[cmd.entity_id] = {
+                    "t": (last or {}).get("t", dt_util.now() - timedelta(hours=1)),
+                    "mode": cmd.hvac_mode, "temp": cmd.temperature, "fan": cmd.fan_mode, "tries": 0,
+                }
             return
-        sent = False
-        what = []
         # Mark before calling: the device reports its new state while we are still
         # awaiting, and that change must be recognised as ours, not as hand operation.
-        mark = self._last_sent.setdefault(
-            cmd.entity_id, {"t": dt_util.now() - timedelta(hours=1)}
-        )
-        prev_mark = dict(mark)
-        mark["mode"], mark["temp"], mark["fan"] = cmd.hvac_mode, cmd.temperature, cmd.fan_mode
-        mark["t"] = dt_util.now()
+        mark = {
+            "t": dt_util.now(), "mode": cmd.hvac_mode, "temp": cmd.temperature, "fan": cmd.fan_mode,
+            "tries": (last.get("tries", 0) + 1) if same else 1,
+        }
+        self._last_sent[cmd.entity_id] = mark
+        self._busy.add(cmd.entity_id)
+        sent = []
         try:
-            if state.state != cmd.hvac_mode:
-                sent = True
-                what.append("mode")
-                await self.hass.services.async_call(
-                    "climate", "set_hvac_mode",
-                    {"entity_id": cmd.entity_id, "hvac_mode": cmd.hvac_mode},
-                )
-            if cmd.temperature is not None and state.attributes.get("temperature") != cmd.temperature:
-                sent = True
-                what.append("temp")
-                await self.hass.services.async_call(
-                    "climate", "set_temperature",
-                    {"entity_id": cmd.entity_id, "temperature": cmd.temperature},
-                )
-            if (
-                cmd.fan_mode
-                and cmd.hvac_mode != "off"
-                and cmd.fan_mode in (state.attributes.get("fan_modes") or [])
-                and state.attributes.get("fan_mode") != cmd.fan_mode
-            ):
-                sent = True
-                what.append("fan")
-                await self.hass.services.async_call(
-                    "climate", "set_fan_mode",
-                    {"entity_id": cmd.entity_id, "fan_mode": cmd.fan_mode},
-                )
+            # One part at a time, each only after the device reported the previous one:
+            # localtuya sends the whole state, so a second command before the first is
+            # confirmed can put the first back (measured on the Qlima 9-11-2026: report
+            # after 1.3-3 s; temp + fan 2 s apart -> the fan command restored the old temp).
+            for part in need:
+                if sent:
+                    await asyncio.sleep(self._command_gap)
+                if part == "mode":
+                    await self.hass.services.async_call(
+                        "climate", "set_hvac_mode", {"entity_id": cmd.entity_id, "hvac_mode": cmd.hvac_mode},
+                    )
+                elif part == "temp":
+                    await self.hass.services.async_call(
+                        "climate", "set_temperature", {"entity_id": cmd.entity_id, "temperature": cmd.temperature},
+                    )
+                else:
+                    await self.hass.services.async_call(
+                        "climate", "set_fan_mode", {"entity_id": cmd.entity_id, "fan_mode": cmd.fan_mode},
+                    )
+                sent.append(part)
+                mark["t"] = dt_util.now()
+                if part != need[-1]:
+                    await self._await_part(cmd, part)
         except Exception as err:  # noqa: BLE001 - see docstring
             _LOGGER.warning(
                 "%s: could not drive %s (%s): %s",
                 self._attr_name, cmd.entity_id, cmd.hvac_mode, err,
             )
-        # Remember what we asked for, to tell our own changes from outside ones.
-        # The timestamp only moves when we actually sent something.
+        finally:
+            self._busy.discard(cmd.entity_id)
         if sent:
             mark["t"] = dt_util.now()
-            self._log_action(WHO_CONTROL, cmd.entity_id, self._describe(cmd, what), self._room_temperature())
-        else:
-            mark["t"] = prev_mark["t"]
+            retry = f" (poging {mark['tries']})" if mark["tries"] > 1 else ""
+            self._log_action(WHO_CONTROL, cmd.entity_id, self._describe(cmd, sent) + retry, self._room_temperature())
+
+    @staticmethod
+    def _missing_parts(cmd, state):
+        """The parts of a command the device does not show yet, in sending order."""
+        need = []
+        if state.state != cmd.hvac_mode:
+            need.append("mode")
+        if cmd.hvac_mode == "off":
+            return need
+        if cmd.temperature is not None and state.attributes.get("temperature") != cmd.temperature:
+            need.append("temp")
+        if (
+            cmd.fan_mode
+            and cmd.fan_mode in (state.attributes.get("fan_modes") or [])
+            and state.attributes.get("fan_mode") != cmd.fan_mode
+        ):
+            need.append("fan")
+        return need
+
+    async def _await_part(self, cmd, part):
+        """Wait (at most ``_confirm_seconds``) until the device reports one part of a command."""
+        loop_end = dt_util.now() + timedelta(seconds=self._confirm_seconds)
+        while dt_util.now() < loop_end:
+            st = self.hass.states.get(cmd.entity_id)
+            if st is not None and part not in self._missing_parts(cmd, st):
+                return True
+            await asyncio.sleep(0.25)
+        return False
 
     def _detect_external_change(self, entity_id, new_state, now, old_state=None):
         """A device changed without us asking: take it as hand operation.

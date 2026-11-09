@@ -90,6 +90,14 @@ EXTERNAL_SETTLE_SECONDS = 30
 # A device that does not take a command (e.g. a setpoint below its own
 # minimum) gets the same command again at most this often, not every tick.
 RESEND_SECONDS = 300
+# A command with several parts (mode, setpoint, fan) is sent one part at a time:
+# wait up to COMMAND_CONFIRM_SECONDS for the device to report a part, then
+# COMMAND_GAP_SECONDS more. A part that did not stick is sent again after
+# RETRY_SECONDS, RETRY_TIMES times, then only every RESEND_SECONDS.
+COMMAND_CONFIRM_SECONDS = 6
+COMMAND_GAP_SECONDS = 1
+RETRY_SECONDS = 20
+RETRY_TIMES = 3
 # After a restart: wait this long for the chosen room sensor before driving anything.
 STARTUP_SENSOR_WAIT_SECONDS = 120
 # A device must be unavailable this long before routing gives up on it (localtuya

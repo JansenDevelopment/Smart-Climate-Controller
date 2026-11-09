@@ -186,3 +186,25 @@ async def test_waits_for_the_room_sensor_after_a_restart():
     clock["now"] += timedelta(seconds=20)
     await entity._apply_control()
     assert {"entity_id": "climate.qlima", "fan_mode": "high"} in _calls(hass, "set_fan_mode")
+
+
+async def test_parts_are_sent_one_after_another_and_a_lost_part_is_retried():
+    # measured 9 November: a fan command before the setpoint was confirmed put the old setpoint back
+    states = {"climate.qlima": {"state": "heat", "attributes": {**QLIMA["attributes"], "temperature": 23, "fan_mode": "high"}},
+              "climate.cv": CV}
+    _room(states, 20.5)
+    entity, hass, clock = _make(states, fan_boost=True, hold_primary=True)
+    await entity._apply_control()
+    sent = [(c.args[1], c.args[2].get("temperature") or c.args[2].get("fan_mode")) for c in hass.services.async_call.call_args_list]
+    assert sent == [("set_temperature", 21), ("set_fan_mode", "medium")]
+    # the device kept 23 (lost) but took the fan: only the setpoint is sent again, after 20 s
+    states["climate.qlima"] = {"state": "heat", "attributes": {**QLIMA["attributes"], "temperature": 23, "fan_mode": "medium"}}
+    hass.services.async_call.reset_mock()
+    clock["now"] += timedelta(seconds=10)
+    await entity._apply_control()
+    assert hass.services.async_call.call_count == 0
+    clock["now"] += timedelta(seconds=15)
+    await entity._apply_control()
+    assert [c.args[1] for c in hass.services.async_call.call_args_list] == ["set_temperature"]
+    assert "poging 2" in entity._log[-1]["text"]
+
