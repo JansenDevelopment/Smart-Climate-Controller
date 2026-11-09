@@ -131,6 +131,11 @@ mode would hand that decision back to whoever set it.
   target and presence. `who`: user (service/card), hand (device changed outside us), control (we sent), observe.
 - **Off by hand** stays off: an auto device switched off outside us becomes manual without end
   (`off_by_hand`), and switching it on by hand hands it back. Other outside changes stay "until next node".
+- **One part at a time** (`_execute`): mode, setpoint and fan are sent separately, each after the device reported
+  the previous one (`COMMAND_CONFIRM_SECONDS` 6, then `COMMAND_GAP_SECONDS` 1); a part that did not stick is
+  resent after `RETRY_SECONDS` 20, `RETRY_TIMES` 3, then every `RESEND_SECONDS`. Reason: the Qlima (Tuya, via
+  localtuya which sends one DP per call) puts an earlier DP back when a second one arrives before it reported the
+  first. Tests zero the waits in `conftest.py`.
 - After a restart nothing is driven until the configured room sensor has a value (max 120 s): the fallback to
   the devices' own sensors reads an airco's outlet air.
 
