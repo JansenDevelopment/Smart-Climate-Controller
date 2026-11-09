@@ -237,6 +237,90 @@ def support_needed(
     return rise_per_hour < min_rise
 
 
+# Fan boost while heating (measured on a Qlima split unit, 6-11-2026, room =
+# separate sensor): high warms 2-3x faster than medium, auto/low barely move the
+# room. High while the room is more than BOOST_HIGH below the target, medium
+# within that, the device's own auto once it is within BOOST_AUTO.
+BOOST_HIGH = 1.0
+BOOST_AUTO = 0.3
+BOOST_BACKOFF = 0.2      # step down only once the deficit is this far past the threshold
+BOOST_HOLD_MINUTES = 10  # a fan step stays at least this long (every command beeps)
+FAN_ORDER = ("auto", "low", "medium", "high")
+
+# Hold trim: a holding device runs on its own sensor, which can sit far from the
+# room sensor. Room more than TRIM_ABOVE over the target for TRIM_MINUTES ->
+# its setpoint goes TRIM_STEP lower; back once the room is under the target.
+TRIM_ABOVE = 0.5
+TRIM_MINUTES = 20
+TRIM_STEP = 1.0
+
+
+def fan_for(
+    room_temp: float | None,
+    target: float | None,
+    prev_fan: str | None,
+    held_minutes: float | None,
+    fan_modes: list[str] | None,
+) -> str | None:
+    """The fan mode a heating device should run at, or None to leave it alone.
+
+    ``prev_fan`` is the fan mode the boost chose last (None = never), and
+    ``held_minutes`` how long ago that was.  Stepping *up* is immediate (a cold
+    room should start warming at once); stepping *down* waits for
+    ``BOOST_HOLD_MINUTES`` and an extra ``BOOST_BACKOFF`` so the fan does not
+    flap around a threshold.  Only modes the device advertises are returned.
+    """
+    if room_temp is None or target is None or not fan_modes:
+        return None
+    available = [f for f in FAN_ORDER if f in fan_modes]
+    if not available:
+        return None
+    deficit = target - room_temp
+    want = "high" if deficit > BOOST_HIGH else "medium" if deficit > BOOST_AUTO else "auto"
+    if prev_fan in FAN_ORDER and FAN_ORDER.index(want) < FAN_ORDER.index(prev_fan):
+        held = held_minutes if held_minutes is not None else 0
+        threshold = BOOST_HIGH if prev_fan == "high" else BOOST_AUTO
+        if held < BOOST_HOLD_MINUTES or deficit > threshold - BOOST_BACKOFF:
+            want = prev_fan
+    if want not in available:
+        # e.g. a device without "medium": nearest available step downwards, else upwards
+        lower = [f for f in available if FAN_ORDER.index(f) <= FAN_ORDER.index(want)]
+        want = lower[-1] if lower else available[0]
+    return want
+
+
+def hold_trim(
+    room_temp: float | None,
+    target: float | None,
+    prev_trim: float,
+    above_minutes: float | None,
+) -> float:
+    """Setpoint offset for a holding device (0 or -TRIM_STEP).
+
+    ``above_minutes`` is how long the room has been more than ``TRIM_ABOVE``
+    over the target (None = it is not).
+    """
+    if room_temp is None or target is None:
+        return prev_trim
+    if prev_trim:
+        return 0.0 if room_temp < target else prev_trim
+    if above_minutes is not None and above_minutes >= TRIM_MINUTES:
+        return -TRIM_STEP
+    return 0.0
+
+
+def eta_minutes(room_temp: float | None, target: float | None, rise_per_hour: float | None) -> float | None:
+    """Minutes until the room reaches the target at the current warming rate (None if unknown)."""
+    if room_temp is None or target is None or rise_per_hour is None:
+        return None
+    deficit = target - room_temp
+    if deficit <= 0:
+        return 0.0
+    if rise_per_hour < 0.2:
+        return None  # flat or falling: no honest estimate
+    return deficit / rise_per_hour * 60
+
+
 @dataclass(frozen=True)
 class DeviceCommand:
     """A desired end-state for one actuator device."""
@@ -244,6 +328,7 @@ class DeviceCommand:
     entity_id: str
     hvac_mode: str
     temperature: float | None = None
+    fan_mode: str | None = None
 
 
 def _round_to_step(value: float | None, step: float | None) -> float | None:
@@ -259,6 +344,7 @@ def plan_routes(
     devices: list[dict],
     *,
     support_active: bool = False,
+    hold_target: float | None = None,
 ) -> list[DeviceCommand]:
     """Map one :class:`Decision` onto per-device commands.
 
@@ -277,6 +363,11 @@ def plan_routes(
       counted as serving.  ``off``: kept off and never used (not even as
       support), whatever its ``park`` preference.
     - ``step`` — the device's temperature step (setpoints are rounded to it)
+    - ``hold`` — a primary heater that keeps heating at ``hold_target`` while
+      the coordinator idles (it then modulates on its own sensor) instead of
+      being parked; ``min_temp`` — below that the hold is off instead
+    - ``fan`` — the fan mode to run at while heating or holding (None = leave it)
+    - ``trim`` — setpoint offset applied to its hold setpoint (see ``hold_trim``)
 
     Heating: primary devices heat alone; *support* devices join only while
     ``support_active``.  If no primary device can serve (none configured,
@@ -336,8 +427,28 @@ def plan_routes(
         elif entity_id in serving:
             mode = HEAT if decision.intent == HEAT else COOL
             commands.append(
-                DeviceCommand(entity_id, mode, _round_to_step(decision.target, dev.get("step")))
+                DeviceCommand(
+                    entity_id, mode, _round_to_step(decision.target, dev.get("step")),
+                    dev.get("fan") if mode == HEAT else None,
+                )
             )
+        elif (
+            decision.intent == IDLE
+            and hold_target is not None
+            and dev.get("hold")
+            and dev.get("available", True)
+            and dev.get("tier", TIER_PRIMARY) == TIER_PRIMARY
+            and _serves(dev, HEAT)
+        ):
+            # Keep a primary heater running at the target instead of cycling it
+            # off and on: it modulates on its own sensor (the user runs it like
+            # that by hand), the coordinator only trims the setpoint.
+            temp = _round_to_step(hold_target + dev.get("trim", 0.0), dev.get("step"))
+            min_temp = dev.get("min_temp")
+            if isinstance(min_temp, (int, float)) and temp < min_temp:
+                commands.append(DeviceCommand(entity_id, OFF))  # a setback below its range: off
+            else:
+                commands.append(DeviceCommand(entity_id, HEAT, temp, dev.get("fan")))
         elif dev.get("park", PARK_FAN_ONLY) == PARK_FAN_ONLY and dev.get("supports_fan_only", False):
             # Keep airflow without conditioning (aircos).
             commands.append(DeviceCommand(entity_id, "fan_only"))

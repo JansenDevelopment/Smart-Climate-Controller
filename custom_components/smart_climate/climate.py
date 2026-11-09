@@ -1,4 +1,5 @@
 import logging
+from collections import deque
 from collections.abc import Mapping
 from datetime import timedelta
 from typing import ClassVar
@@ -34,17 +35,23 @@ from .const import (
     ATTR_DEFAULT_OVERRIDE_MODE,
     ATTR_DEVICE_MODES,
     ATTR_DEVICES,
+    ATTR_ETA_MINUTES,
     ATTR_EXTERNAL_TAKEOVER,
     ATTR_FORECAST_HIGH_TODAY,
     ATTR_FORECAST_HIGH_TOMORROW,
     ATTR_HARD_CEILING,
     ATTR_HEAT_TARGET,
+    ATTR_HOLD_TARGET,
     ATTR_INTENT,
     ATTR_INTERRUPTIBLE,
+    ATTR_LOG,
     ATTR_MODE,
+    ATTR_OBSERVE,
     ATTR_OUTDOOR_MAX_24H,
     ATTR_OUTDOOR_SENSOR,
+    ATTR_OUTDOOR_TEMPERATURE,
     ATTR_OVERRIDE_TEMPERATURE,
+    ATTR_PLAN,
     ATTR_PRESENCE,
     ATTR_REMAINING_MINUTES,
     ATTR_ROOM_TEMPERATURE_SOURCE,
@@ -71,10 +78,13 @@ from .const import (
     CONF_DEVICE_SEEDED,
     CONF_DEVICES,
     CONF_EXTERNAL_TAKEOVER,
+    CONF_FAN_BOOST,
     CONF_HARD_CEILING,
+    CONF_HOLD_PRIMARY,
     CONF_HVAC_MODE,
     CONF_HYSTERESIS,
     CONF_INTERRUPTIBLE,
+    CONF_OBSERVE,
     CONF_OUTDOOR_CACHE,
     CONF_OUTDOOR_SENSOR,
     CONF_PARK,
@@ -106,7 +116,9 @@ from .const import (
     DEVICE_MODE_OFF,
     DEVICE_MODES,
     DOMAIN,
+    EVENT_LOG,
     EXTERNAL_SETTLE_SECONDS,
+    LOG_SIZE,
     MODE_AUTO,
     MODE_OVERRIDE_INFINITY,
     MODE_OVERRIDE_NEXT_NODE,
@@ -125,6 +137,10 @@ from .const import (
     TIER_SUPPORT,
     TOMORROW_FROM_HOUR,
     UNAVAILABLE_DEBOUNCE_SECONDS,
+    WHO_CONTROL,
+    WHO_HAND,
+    WHO_OBSERVE,
+    WHO_USER,
 )
 from .services import async_register_services
 
@@ -283,6 +299,17 @@ class SmartClimateEntity(ClimateEntity):
         self._acting = False
         self._last_sent = {}
         self._unavailable_since = {}
+
+        # Observe ("proefdraaien"), fan boost, hold trim and the action log.
+        self._observe = bool(entry.data.get(CONF_OBSERVE, False))
+        self._fan_state = {}       # entity_id -> (fan mode the boost chose, since)
+        self._trim = 0.0
+        self._above_since = None   # room more than TRIM_ABOVE over the hold target since
+        self._hold_target = None
+        self._eta = None
+        self._plan = []
+        self._plan_key = None
+        self._log = deque(maxlen=LOG_SIZE)
 
         # Outdoor context for the auto-cooling policy.
         self._outdoor_tracker = cooling.OutdoorMaxTracker()
@@ -451,8 +478,16 @@ class SmartClimateEntity(ClimateEntity):
     async def _on_watched_change(self, event):
         """Re-evaluate control when a device or the temp sensor changes."""
         data = getattr(event, "data", None) or {}
-        if data.get("entity_id") in {d["entity_id"] for d in self._devices}:
-            self._detect_external_change(data["entity_id"], data.get("new_state"), dt_util.now())
+        eid = data.get("entity_id")
+        if eid in {d["entity_id"] for d in self._devices}:
+            now = dt_util.now()
+            old, new = data.get("old_state"), data.get("new_state")
+            mark = self._last_sent.get(eid)
+            ours = bool(mark) and (now - mark["t"]).total_seconds() < EXTERNAL_SETTLE_SECONDS
+            change = self._describe_state(old, new) if old is not None else None
+            if change and not ours:
+                self._log_action(WHO_HAND, eid, change, self._room_temperature())
+            self._detect_external_change(eid, new, now, old)
         await self._apply_control()
         self.async_write_ha_state()
 
@@ -585,12 +620,19 @@ class SmartClimateEntity(ClimateEntity):
             attrs = state.attributes if state else {}
             modes = attrs.get("hvac_modes")
             step = attrs.get("target_temp_step")
+            control_mode = self._effective_device_mode(eid, now)
+            entry = self._device_modes.get(eid) or {}
+            if self._observe and control_mode != DEVICE_MODE_AUTO and entry.get("source") != SOURCE_EXTERNAL:
+                # Observing: show what it would do if this device were on auto. A device
+                # switched by hand (remote, app) keeps that, just like for real.
+                control_mode = DEVICE_MODE_AUTO
+            min_temp = attrs.get("min_temp")
             caps.append({
                 "entity_id": eid,
                 "role": dev.get("role", ROLE_BOTH),
                 "tier": dev.get("tier", TIER_PRIMARY),
                 "park": dev.get("park", PARK_OFF),
-                "control": self._effective_device_mode(eid, now),
+                "control": control_mode,
                 "available": available,
                 "heating": bool(state) and state.state == "heat",
                 "supports_fan_only": HVACMode.FAN_ONLY in (modes or []),
@@ -598,6 +640,10 @@ class SmartClimateEntity(ClimateEntity):
                 "can_heat": modes is None or HVACMode.HEAT in modes,
                 "can_cool": modes is None or HVACMode.COOL in modes,
                 "step": step if isinstance(step, (int, float)) else None,
+                "min_temp": min_temp if isinstance(min_temp, (int, float)) else None,
+                "fan_modes": attrs.get("fan_modes") or None,
+                "hold": bool(self._conf(CONF_HOLD_PRIMARY, False)),
+                "trim": self._trim,
             })
         return caps
 
@@ -724,15 +770,65 @@ class SmartClimateEntity(ClimateEntity):
         else:
             self._support_active = False
 
+        # Hold target: what a holding primary heater runs at while the coordinator
+        # idles (the override, else the band's heat target). Trimmed down when the
+        # room stays clearly too warm, because the device regulates on its own sensor.
+        hold_target = None
+        if decision.intent in (control.HEAT, control.IDLE):
+            hold_target = override_target if override_target is not None else heat_target
+        if hold_target is not None and room_temp is not None and room_temp > hold_target + control.TRIM_ABOVE:
+            self._above_since = self._above_since or now
+        else:
+            self._above_since = None
+        self._trim = control.hold_trim(
+            room_temp, hold_target, self._trim,
+            (now - self._above_since).total_seconds() / 60 if self._above_since else None,
+        )
+        self._hold_target = hold_target
+        fan_target = decision.target if decision.intent == control.HEAT else hold_target
+        self._eta = control.eta_minutes(
+            room_temp, fan_target,
+            self._room_trend.rise_per_hour(since=self._heat_since, min_span_minutes=10),
+        )
+
         if self._hvac_mode == HVACMode.OFF and not force:
             # Off = hands off: the coordinator drives nothing until switched back on.
             self._acting = False
+            self._plan = []
             return
 
+        caps = self._device_caps()
+        boost = bool(self._conf(CONF_FAN_BOOST, False))
+        for cap in caps:
+            cap["fan"] = None
+            if boost and cap["fan_modes"] and cap.get("tier") == TIER_PRIMARY:
+                prev, since = self._fan_state.get(cap["entity_id"], (None, None))
+                cap["fan"] = control.fan_for(
+                    room_temp, fan_target, prev,
+                    (now - since).total_seconds() / 60 if since else None,
+                    cap["fan_modes"],
+                )
         commands = control.plan_routes(
-            decision, self._device_caps(), support_active=self._support_active
+            decision, caps, support_active=self._support_active,
+            hold_target=hold_target if bool(self._conf(CONF_HOLD_PRIMARY, False)) else None,
         )
+        for cmd in commands:
+            if cmd.fan_mode and (self._fan_state.get(cmd.entity_id) or (None,))[0] != cmd.fan_mode:
+                self._fan_state[cmd.entity_id] = (cmd.fan_mode, now)
+        self._plan = [
+            {"entity_id": c.entity_id, "hvac_mode": c.hvac_mode, "temperature": c.temperature, "fan_mode": c.fan_mode}
+            for c in commands
+        ]
         self._acting = any(c.hvac_mode in ("heat", "cool") for c in commands)
+        if self._observe and not force:
+            # Proefdraaien: log what it would send (only when that changes), send nothing.
+            last = self._plan_key or {}
+            for cmd in commands:
+                key = (cmd.hvac_mode, cmd.temperature, cmd.fan_mode)
+                if last.get(cmd.entity_id) != key:
+                    self._log_action(WHO_OBSERVE, cmd.entity_id, self._describe(cmd), room_temp)
+            self._plan_key = {c.entity_id: (c.hvac_mode, c.temperature, c.fan_mode) for c in commands}
+            return
         for cmd in commands:
             await self._execute(cmd)
 
@@ -754,22 +850,46 @@ class SmartClimateEntity(ClimateEntity):
             last
             and last.get("mode") == cmd.hvac_mode
             and last.get("temp") == cmd.temperature
+            and last.get("fan") == cmd.fan_mode
             and (dt_util.now() - last["t"]).total_seconds() < RESEND_SECONDS
         ):
             return
         sent = False
+        what = []
+        # Mark before calling: the device reports its new state while we are still
+        # awaiting, and that change must be recognised as ours, not as hand operation.
+        mark = self._last_sent.setdefault(
+            cmd.entity_id, {"t": dt_util.now() - timedelta(hours=1)}
+        )
+        prev_mark = dict(mark)
+        mark["mode"], mark["temp"], mark["fan"] = cmd.hvac_mode, cmd.temperature, cmd.fan_mode
+        mark["t"] = dt_util.now()
         try:
             if state.state != cmd.hvac_mode:
                 sent = True
+                what.append("mode")
                 await self.hass.services.async_call(
                     "climate", "set_hvac_mode",
                     {"entity_id": cmd.entity_id, "hvac_mode": cmd.hvac_mode},
                 )
             if cmd.temperature is not None and state.attributes.get("temperature") != cmd.temperature:
                 sent = True
+                what.append("temp")
                 await self.hass.services.async_call(
                     "climate", "set_temperature",
                     {"entity_id": cmd.entity_id, "temperature": cmd.temperature},
+                )
+            if (
+                cmd.fan_mode
+                and cmd.hvac_mode != "off"
+                and cmd.fan_mode in (state.attributes.get("fan_modes") or [])
+                and state.attributes.get("fan_mode") != cmd.fan_mode
+            ):
+                sent = True
+                what.append("fan")
+                await self.hass.services.async_call(
+                    "climate", "set_fan_mode",
+                    {"entity_id": cmd.entity_id, "fan_mode": cmd.fan_mode},
                 )
         except Exception as err:  # noqa: BLE001 - see docstring
             _LOGGER.warning(
@@ -778,31 +898,58 @@ class SmartClimateEntity(ClimateEntity):
             )
         # Remember what we asked for, to tell our own changes from outside ones.
         # The timestamp only moves when we actually sent something.
-        mark = self._last_sent.setdefault(
-            cmd.entity_id, {"t": dt_util.now() - timedelta(hours=1)}
-        )
-        mark["mode"], mark["temp"] = cmd.hvac_mode, cmd.temperature
         if sent:
             mark["t"] = dt_util.now()
+            self._log_action(WHO_CONTROL, cmd.entity_id, self._describe(cmd, what), self._room_temperature())
+        else:
+            mark["t"] = prev_mark["t"]
 
-    def _detect_external_change(self, entity_id, new_state, now):
+    def _detect_external_change(self, entity_id, new_state, now, old_state=None):
         """A device changed without us asking: take it as hand operation.
 
         If, a while after our last command, an auto device reports a different
-        HVAC mode (or a clearly different target) than we set, somebody used the
-        remote or the device's own app.  The device then goes to ``manual`` for
-        the default override duration so the coordinator does not undo it.
+        HVAC mode, a clearly different target or another fan mode than we set,
+        somebody used the remote, the device's own app or a dashboard.  The
+        device then goes to ``manual`` for the default override duration so the
+        coordinator does not undo it.
+
+        Switched **off** by hand is stronger: it stays off (manual, no end) until
+        somebody switches it on again by hand, which hands it back to the
+        coordinator.  That also works while observing, when we send nothing.
         """
         if not self._conf(CONF_EXTERNAL_TAKEOVER, True):
             return
         if self._hvac_mode == HVACMode.OFF:
             return  # nothing to take over while we drive nothing
-        if self._effective_device_mode(entity_id, now) != DEVICE_MODE_AUTO:
+        if new_state is None or new_state.state in ("unavailable", "unknown"):
             return
         mark = self._last_sent.get(entity_id)
-        if not mark or (now - mark["t"]).total_seconds() < EXTERNAL_SETTLE_SECONDS:
+        ours = bool(mark) and (now - mark["t"]).total_seconds() < EXTERNAL_SETTLE_SECONDS
+        entry = self._device_modes.get(entity_id) or {}
+        was_on = old_state is not None and old_state.state not in ("off", "unavailable", "unknown")
+
+        if entry.get("off_by_hand"):
+            if new_state.state != "off" and not ours:
+                self._device_modes.pop(entity_id, None)
+                self._persist(**{CONF_DEVICE_MODES: dict(self._device_modes)})
+                self._log_action(
+                    WHO_HAND, entity_id, "weer aan met de hand: de regeling neemt het weer over",
+                    self._room_temperature(),
+                )
             return
-        if new_state is None or new_state.state in ("unavailable", "unknown"):
+        if self._effective_device_mode(entity_id, now) != DEVICE_MODE_AUTO:
+            return
+        if new_state.state == "off" and was_on and not (ours and mark.get("mode") == "off"):
+            self._device_modes[entity_id] = {
+                "mode": DEVICE_MODE_MANUAL, "until": None, "source": SOURCE_EXTERNAL, "off_by_hand": True,
+            }
+            self._persist(**{CONF_DEVICE_MODES: dict(self._device_modes)})
+            self._log_action(
+                WHO_HAND, entity_id, "met de hand uit: blijft uit tot hij weer met de hand aan gaat",
+                self._room_temperature(),
+            )
+            return
+        if not mark or ours:
             return
         changed = new_state.state != mark.get("mode")
         target = new_state.attributes.get("temperature")
@@ -813,6 +960,9 @@ class SmartClimateEntity(ClimateEntity):
             and isinstance(mark.get("temp"), (int, float))
             and abs(target - mark["temp"]) >= 0.5
         ):
+            changed = True
+        fan = new_state.attributes.get("fan_mode")
+        if not changed and mark.get("fan") and fan and fan != mark["fan"]:
             changed = True
         if not changed:
             return
@@ -832,6 +982,68 @@ class SmartClimateEntity(ClimateEntity):
             "source": SOURCE_EXTERNAL,
         }
         self._persist(**{CONF_DEVICE_MODES: dict(self._device_modes)})
+        until = f" tot {dt_util.as_local(end):%H:%M}" if end else ""
+        self._log_action(
+            WHO_HAND, entity_id, "met de hand bediend: regeling blijft eraf" + until,
+            self._room_temperature(),
+        )
+
+    # ---- Action log -------------------------------------------------------
+
+    _MODE_NL: ClassVar[dict] = {
+        "off": "uit", "heat": "warm", "cool": "koel", "auto": "auto", "fan_only": "ventilator", "dry": "droog",
+    }
+
+    def _describe(self, cmd, what=None):
+        """Short Dutch text for a command (what = the parts that were actually sent)."""
+        parts = [self._MODE_NL.get(cmd.hvac_mode, cmd.hvac_mode)]
+        if cmd.hvac_mode != "off":
+            if cmd.temperature is not None and (what is None or "temp" in what or "mode" in what):
+                parts.append(f"{cmd.temperature:g}°")
+            if cmd.fan_mode and (what is None or "fan" in what or "mode" in what):
+                parts.append(f"ventilator {cmd.fan_mode}")
+        return " · ".join(parts)
+
+    @classmethod
+    def _describe_state(cls, old, new):
+        """What changed on a device (mode, setpoint, fan), or None if nothing of that."""
+        if new is None or new.state in ("unavailable", "unknown"):
+            return None
+        o = old.attributes if old is not None else {}
+        n = new.attributes
+        parts = []
+        if old is None or old.state != new.state:
+            parts.append(cls._MODE_NL.get(new.state, new.state))
+        if new.state != "off":
+            t = n.get("temperature")
+            if o.get("temperature") != t and isinstance(t, (int, float)):
+                parts.append(f"{t:g}°")
+            if o.get("fan_mode") != n.get("fan_mode") and n.get("fan_mode"):
+                parts.append(f"ventilator {n.get('fan_mode')}")
+        return " · ".join(parts) or None
+
+    def _log_action(self, who, entity_id, text, room_temp=None):
+        """Add one entry to the action log and fire it as an event (kept by the recorder)."""
+        now = dt_util.now()
+        coordinator = getattr(self, "entity_id", None)
+        entry = {
+            "t": now.isoformat(timespec="seconds"),
+            "who": who,
+            "entity_id": entity_id or coordinator,
+            "text": text,
+            "room": room_temp,
+            "outdoor": self._outdoor_temperature(),
+            "target": self._active_target if self._active_target is not None else self._heat_target,
+            "presence": self._presence,
+            "mode": self._mode,
+            "hvac_mode": self._hvac_mode,
+            "observe": self._observe,
+        }
+        self._log.append(entry)
+        try:
+            self.hass.bus.async_fire(EVENT_LOG, {**entry, "coordinator": coordinator})
+        except Exception as err:  # noqa: BLE001 - logging must never break control
+            _LOGGER.debug("%s: could not fire %s: %s", self._attr_name, EVENT_LOG, err)
 
     def _persist(self, **changes) -> None:
         """Persist runtime-changeable settings to config-entry storage.
@@ -851,6 +1063,7 @@ class SmartClimateEntity(ClimateEntity):
         self._override_temperature = temperature
         self._override_start_time = dt_util.now()
         self._override_duration_minutes = minutes
+        self._log_action(WHO_USER, None, f"tijdelijk {temperature:g}° voor {minutes:g} min", self._room_temperature())
         await self._apply_control()
         self.async_write_ha_state()
 
@@ -859,6 +1072,7 @@ class SmartClimateEntity(ClimateEntity):
         self._mode = MODE_OVERRIDE_INFINITY
         self._override_temperature = temperature
         self._override_start_time = None
+        self._log_action(WHO_USER, None, f"tijdelijk {temperature:g}° zonder einde", self._room_temperature())
         await self._apply_control()
         self.async_write_ha_state()
 
@@ -876,6 +1090,7 @@ class SmartClimateEntity(ClimateEntity):
         self._mode = MODE_OVERRIDE_NEXT_NODE
         self._override_temperature = temperature
         self._next_node_datetime = next_dt
+        self._log_action(WHO_USER, None, f"tijdelijk {temperature:g}° tot het volgende blok", self._room_temperature())
         await self._apply_control()
         self.async_write_ha_state()
 
@@ -884,6 +1099,7 @@ class SmartClimateEntity(ClimateEntity):
         self._mode = MODE_AUTO
         self._override_start_time = None
         self._next_node_datetime = None
+        self._log_action(WHO_USER, None, "terug naar het schema", self._room_temperature())
         await self._apply_control()
         self.async_write_ha_state()
 
@@ -963,9 +1179,27 @@ class SmartClimateEntity(ClimateEntity):
         coordinator leaves every device alone until it is switched back on.
         """
         turning_off = hvac_mode == HVACMode.OFF and self._hvac_mode != HVACMode.OFF
+        if hvac_mode != self._hvac_mode:
+            self._log_action(
+                WHO_USER, None, f"regeling {self._MODE_NL.get(hvac_mode, hvac_mode)}", self._room_temperature()
+            )
         self._hvac_mode = hvac_mode
         self._persist(**{CONF_HVAC_MODE: hvac_mode})
         await self._apply_control(force=turning_off)
+        self.async_write_ha_state()
+
+    async def async_set_observe(self, enabled: bool) -> None:
+        """Proefdraaien: decide and log what it would do, but drive nothing."""
+        enabled = bool(enabled)
+        if enabled != self._observe:
+            self._log_action(
+                WHO_USER, None, "proefdraaien aan" if enabled else "proefdraaien uit: de regeling stuurt",
+                self._room_temperature(),
+            )
+        self._observe = enabled
+        self._plan_key = None
+        self._persist(**{CONF_OBSERVE: enabled})
+        await self._apply_control()
         self.async_write_ha_state()
 
     async def async_set_fan_mode(self, fan_mode: str) -> None:
@@ -1051,6 +1285,9 @@ class SmartClimateEntity(ClimateEntity):
                 "source": SOURCE_USER,
             }
         self._persist(**{CONF_DEVICE_MODES: dict(self._device_modes)})
+        label = {DEVICE_MODE_AUTO: "auto", DEVICE_MODE_OFF: "niet gebruiken", DEVICE_MODE_MANUAL: "handmatig"}[mode]
+        until_txt = f" tot {dt_util.as_local(end):%H:%M}" if end else ""
+        self._log_action(WHO_USER, device, f"stand {label}{until_txt}", self._room_temperature())
         await self._apply_control()
         self.async_write_ha_state()
 
@@ -1279,6 +1516,7 @@ class SmartClimateEntity(ClimateEntity):
                     "mode": self._effective_device_mode(d["entity_id"], dt_util.now()),
                     "until": (self._device_modes.get(d["entity_id"]) or {}).get("until"),
                     "source": (self._device_modes.get(d["entity_id"]) or {}).get("source", SOURCE_USER),
+                    "off_by_hand": bool((self._device_modes.get(d["entity_id"]) or {}).get("off_by_hand")),
                 }
                 for d in self._devices
             },
@@ -1294,4 +1532,10 @@ class SmartClimateEntity(ClimateEntity):
             ATTR_OUTDOOR_MAX_24H: self._outdoor_tracker.max_24h(dt_util.now()),
             ATTR_WEATHER_ENTITY: self._conf(CONF_WEATHER_ENTITY, None),
             ATTR_OUTDOOR_SENSOR: self._conf(CONF_OUTDOOR_SENSOR, None),
+            ATTR_OUTDOOR_TEMPERATURE: self._outdoor_temperature(),
+            ATTR_OBSERVE: self._observe,
+            ATTR_PLAN: self._plan,
+            ATTR_HOLD_TARGET: self._hold_target,
+            ATTR_ETA_MINUTES: None if self._eta is None else round(self._eta),
+            ATTR_LOG: list(self._log),
         }

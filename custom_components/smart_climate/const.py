@@ -45,6 +45,21 @@ CONF_OUTDOOR_CACHE = "outdoor_max_cache"
 CONF_CONTROL = "control"
 CONF_SKIP_UNTIL = "skip_until"
 CONF_PARK = "park"
+# Observe ("proefdraaien"): decide and log what it would do, drive nothing.
+CONF_OBSERVE = "observe"
+# Options: fan boost while heating, and holding the primary heater at the target
+# while idle instead of switching it off (both default off: an option per install).
+CONF_FAN_BOOST = "fan_boost"
+CONF_HOLD_PRIMARY = "hold_primary"
+
+# Action log: the last LOG_SIZE entries as an attribute, every entry also as a
+# bus event (the recorder keeps those) for later analysis.
+EVENT_LOG = "smart_climate_log"
+LOG_SIZE = 40
+WHO_USER = "user"          # through the coordinator (card, service, helper entity)
+WHO_HAND = "hand"          # on the device itself (remote, its own app, a dashboard)
+WHO_CONTROL = "control"    # a command the coordinator sent
+WHO_OBSERVE = "observe"    # what it would have sent while observing
 
 # Device roles
 ROLE_HEAT = "heat"
@@ -161,6 +176,12 @@ ATTR_FORECAST_HIGH_TOMORROW = "forecast_high_tomorrow"
 ATTR_OUTDOOR_MAX_24H = "outdoor_max_24h"
 ATTR_WEATHER_ENTITY = "weather_entity"
 ATTR_OUTDOOR_SENSOR = "outdoor_sensor"
+ATTR_OBSERVE = "observe"
+ATTR_LOG = "log"
+ATTR_PLAN = "plan"
+ATTR_ETA_MINUTES = "eta_minutes"
+ATTR_HOLD_TARGET = "hold_target"
+ATTR_OUTDOOR_TEMPERATURE = "outdoor_temperature"
 
 # Services
 SERVICE_SET_OVERRIDE_TIMER = "set_override_timer"
@@ -179,6 +200,7 @@ SERVICE_SET_COOLING_MODE = "set_cooling_mode"
 SERVICE_SET_HEAT_SUPPORT = "set_heat_support"
 SERVICE_SET_DEVICE_MODE = "set_device_mode"
 SERVICE_SET_SUPPORT_PAUSE = "set_support_pause"
+SERVICE_SET_OBSERVE = "set_observe"
 
 # Schedule modes
 SCHEDULE_MODE_DAILY = "daily"

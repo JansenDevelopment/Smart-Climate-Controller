@@ -7,10 +7,12 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import (
     ATTR_INTERRUPTIBLE,
+    ATTR_OBSERVE,
     ATTR_SUPPORT_ENABLED,
     ATTR_SUPPORT_PAUSED_UNTIL,
     SERVICE_SET_HEAT_SUPPORT,
     SERVICE_SET_INTERRUPTIBLE,
+    SERVICE_SET_OBSERVE,
     SERVICE_SET_SUPPORT_PAUSE,
 )
 from .entity_base import SmartClimateChildEntity
@@ -26,6 +28,7 @@ async def async_setup_entry(
         SmartClimateInterruptibleSwitch(hass, entry),
         SmartClimateHeatSupportSwitch(hass, entry),
         SmartClimateSupportPauseSwitch(hass, entry),
+        SmartClimateObserveSwitch(hass, entry),
     ])
 
 
@@ -88,3 +91,22 @@ class SmartClimateSupportPauseSwitch(SmartClimateChildEntity, SwitchEntity):
 
     async def async_turn_off(self, **kwargs) -> None:
         await self._call_service(SERVICE_SET_SUPPORT_PAUSE, enabled=False)
+
+
+class SmartClimateObserveSwitch(SmartClimateChildEntity, SwitchEntity):
+    """Observe ("proefdraaien"): decide and log, but drive nothing."""
+
+    def __init__(self, hass, entry) -> None:
+        super().__init__(hass, entry, "observe")
+        self._attr_name = "Observe Only"
+        self._attr_icon = "mdi:eye-outline"
+
+    @property
+    def is_on(self):
+        return bool(self._climate_attr(ATTR_OBSERVE, False))
+
+    async def async_turn_on(self, **kwargs) -> None:
+        await self._call_service(SERVICE_SET_OBSERVE, enabled=True)
+
+    async def async_turn_off(self, **kwargs) -> None:
+        await self._call_service(SERVICE_SET_OBSERVE, enabled=False)

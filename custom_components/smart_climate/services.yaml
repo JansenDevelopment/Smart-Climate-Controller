@@ -350,6 +350,28 @@ set_heat_support:
       selector:
         boolean:
 
+set_observe:
+  name: Set observe
+  description: >-
+    Observe ("proefdraaien"): the coordinator keeps deciding and logs what it
+    would send to each device, but drives nothing. Use it to compare its
+    choices with how you run the devices yourself before handing over.
+  fields:
+    entity_id:
+      name: Entity
+      description: The Smart Climate entity.
+      required: true
+      selector:
+        entity:
+          domain: climate
+          integration: smart_climate
+    enabled:
+      name: Enabled
+      description: Observe only (true) or drive the devices (false).
+      required: true
+      selector:
+        boolean:
+
 set_device_mode:
   name: Set device mode
   description: >-

@@ -26,6 +26,7 @@ from .const import (
     SERVICE_SET_DEVICE_MODE,
     SERVICE_SET_HEAT_SUPPORT,
     SERVICE_SET_INTERRUPTIBLE,
+    SERVICE_SET_OBSERVE,
     SERVICE_SET_OVERRIDE_INFINITY,
     SERVICE_SET_OVERRIDE_NEXT_NODE,
     SERVICE_SET_OVERRIDE_TIMER,
@@ -147,6 +148,11 @@ async def async_register_services(hass: HomeAssistant) -> None:
         if entity:
             await entity.async_set_heat_support(call.data.get("enabled", True))
 
+    async def handle_set_observe(call: ServiceCall) -> None:
+        entity = _get_entity(hass, call)
+        if entity:
+            await entity.async_set_observe(call.data.get("enabled", True))
+
     async def handle_set_device_mode(call: ServiceCall) -> None:
         entity = _get_entity(hass, call)
         if entity:
@@ -208,6 +214,9 @@ async def async_register_services(hass: HomeAssistant) -> None:
     )
     hass.services.async_register(
         DOMAIN, SERVICE_SET_DEVICE_MODE, handle_set_device_mode
+    )
+    hass.services.async_register(
+        DOMAIN, SERVICE_SET_OBSERVE, handle_set_observe
     )
     hass.services.async_register(
         DOMAIN, SERVICE_SET_SUPPORT_PAUSE, handle_set_support_pause
