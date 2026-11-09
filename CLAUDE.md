@@ -129,6 +129,8 @@ mode would hand that decision back to whoever set it.
 - **Action log**: `_log_action` keeps the last 40 entries in the `log` attribute (memory only, empty after a
   restart) and fires every entry as event `smart_climate_log` (the recorder keeps events) with room, outdoor,
   target and presence. `who`: user (service/card), hand (device changed outside us), control (we sent), observe.
+- **Primary off by hand = no heating** (1.4.5): `plan_routes` then sends no support device in, not as stand-in and not
+  as support. The fallback to the support heater stays for a primary that is unavailable or set to "not used".
 - **Off by hand** stays off: an auto device switched off outside us becomes manual without end
   (`off_by_hand`), and switching it on by hand hands it back. Other outside changes stay "until next node".
 - **One part at a time** (`_execute`): mode, setpoint and fan are sent separately, each after the device reported
