@@ -668,6 +668,7 @@ class SmartClimateEntity(ClimateEntity):
                 "min_temp": min_temp if isinstance(min_temp, (int, float)) else None,
                 "fan_modes": attrs.get("fan_modes") or None,
                 "hold": bool(self._conf(CONF_HOLD_PRIMARY, False)),
+                "off_by_hand": bool(entry.get("off_by_hand")) and control_mode != DEVICE_MODE_AUTO,
                 "trim": self._trim,
             })
         return caps

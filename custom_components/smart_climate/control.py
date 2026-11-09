@@ -368,11 +368,15 @@ def plan_routes(
       being parked; ``min_temp`` — below that the hold is off instead
     - ``fan`` — the fan mode to run at while heating or holding (None = leave it)
     - ``trim`` — setpoint offset applied to its hold setpoint (see ``hold_trim``)
+    - ``off_by_hand`` — the user switched this device off outside the coordinator
 
     Heating: primary devices heat alone; *support* devices join only while
     ``support_active``.  If no primary device can serve (none configured,
     unavailable, or unable to heat) the support devices heat regardless, so the
-    system never goes cold because the preferred heater is down.
+    system never goes cold because the preferred heater is down.  But a primary
+    heater the user switched **off by hand** means "no heating now": then no
+    support device heats either, not as a stand-in and not as support (9-11-2026:
+    the Qlima was switched off when leaving and the CV took over).
 
     Cooling: every device that can cool serves.
 
@@ -411,6 +415,11 @@ def plan_routes(
                 for d in devices
             )
             chosen = primary + support if (support_active or not primary_working) else primary
+            hand_off = any(
+                d.get("off_by_hand") and d.get("tier", TIER_PRIMARY) == TIER_PRIMARY for d in devices
+            )
+            if hand_off and not primary:
+                chosen = []
         else:
             chosen = candidates
         serving = {d["entity_id"] for d in chosen}

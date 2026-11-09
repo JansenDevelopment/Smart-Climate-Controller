@@ -86,3 +86,22 @@ def test_manual_device_is_never_held():
 def test_off_decision_beats_hold():
     cmds = control.plan_routes(Decision(control.OFF), [QLIMA], hold_target=21.0)
     assert cmds == [control.DeviceCommand("climate.qlima", "off")]
+
+
+def test_primary_off_by_hand_means_no_heating_at_all():
+    q = {**QLIMA, "control": "manual", "off_by_hand": True}
+    cmds = control.plan_routes(Decision(control.HEAT, 21.5), [q, CV], support_active=True)
+    assert cmds == [control.DeviceCommand("climate.cv", "off")]
+
+
+def test_unavailable_primary_still_hands_over_to_the_cv():
+    q = {**QLIMA, "available": False}
+    cmds = control.plan_routes(Decision(control.HEAT, 21.5), [q, CV])
+    assert control.DeviceCommand("climate.cv", "heat", 21.5) in cmds
+
+
+def test_primary_not_used_by_choice_still_hands_over_to_the_cv():
+    q = {**QLIMA, "control": "off"}
+    cmds = control.plan_routes(Decision(control.HEAT, 21.5), [q, CV])
+    assert control.DeviceCommand("climate.cv", "heat", 21.5) in cmds
+
