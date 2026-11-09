@@ -136,6 +136,9 @@ mode would hand that decision back to whoever set it.
   resent after `RETRY_SECONDS` 20, `RETRY_TIMES` 3, then every `RESEND_SECONDS`. Reason: the Qlima (Tuya, via
   localtuya which sends one DP per call) puts an earlier DP back when a second one arrives before it reported the
   first. Tests zero the waits in `conftest.py`.
+- **Override survives a restart** (1.4.3): `_sync_override` stores the active override (`CONF_OVERRIDE`: mode, temperature,
+  start+minutes or until) whenever it changes, `_restore_override` puts it back unless it ran out. The first presence
+  reading after a start (`_presence_known`) is not a homecoming, otherwise "interruptible" cancels the restored override.
 - After a restart nothing is driven until the configured room sensor has a value (max 120 s): the fallback to
   the devices' own sensors reads an airco's outlet air.
 
