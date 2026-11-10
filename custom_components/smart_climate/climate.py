@@ -917,7 +917,12 @@ class SmartClimateEntity(ClimateEntity):
                 self._defrosts[eid] = self._defrosts.get(eid, 0) + 1
                 self._log_action(WHO_DEVICE, eid, f"ontdooit (eigen sensor {own:g}°)", room_temp)
             self._defrosting[eid] = defrosting
-            if not boost or decision.intent != control.HEAT:
+            if (
+                not boost
+                or decision.intent != control.HEAT
+                or self._effective_device_mode(eid, dt_util.now()) != DEVICE_MODE_AUTO
+            ):
+                # Only a lead we really send: none for a device on manual or off.
                 self._lead.pop(eid, None)
                 continue
             self._lead[eid] = control.setpoint_lead(

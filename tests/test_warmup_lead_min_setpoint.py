@@ -220,3 +220,15 @@ def test_learning_sensors_read_the_climate_attribute():
     rate = SmartClimateWarmupRateSensor(hass, entry)
     rate._climate_entity_id = "climate.smart_climate"
     assert rate.native_value == 1.03
+
+
+async def test_no_lead_for_a_device_on_manual():
+    heat = {"state": "heat", "attributes": {**QLIMA["attributes"], "temperature": 22, "current_temperature": 24}}
+    states = {"climate.qlima": heat}
+    _room(states, 19.0)
+    entity, hass, _clock = _make(states, fan_boost=True, devices=[
+        {"entity_id": "climate.qlima", "role": "both", "tier": "primary"}])
+    entity._device_modes["climate.qlima"] = {"mode": "manual", "until": None, "source": "user"}
+    await entity._apply_control()
+    assert entity.extra_state_attributes["learning"]["climate.qlima"]["lead"] == 0
+    assert entity.extra_state_attributes["learning"]["climate.qlima"]["offset"] == 5.0   # still learns
