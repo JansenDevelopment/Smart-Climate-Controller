@@ -131,3 +131,37 @@ async def test_no_lead_without_boost():
     entity, hass, _clock = _make(states, devices=[{"entity_id": "climate.qlima", "role": "both", "tier": "primary"}])
     await entity._apply_control()
     assert entity._lead == {}
+
+
+async def test_next_node_override_does_not_crash_the_loop_and_ends_on_time():
+    # 9/10-11-2026: knop 4 set "15 deg until the next block" at 23:50; the naive end time
+    # crashed _update_state every 10 s all night.
+    from zoneinfo import ZoneInfo
+
+    from custom_components.smart_climate import schedule_helper
+
+    ams = ZoneInfo("Europe/Amsterdam")
+    nxt = schedule_helper.compute_next_node_datetime(SCHEDULE, datetime(2026, 11, 9, 23, 50, tzinfo=ams))
+    assert nxt == datetime(2026, 11, 10, 7, 0, tzinfo=ams)
+
+    states = {"climate.qlima": {"state": "off", "attributes": QLIMA["attributes"]}}
+    _room(states, 20.3)
+    entity, hass, clock = _make(states, schedule=SCHEDULE, devices=[
+        {"entity_id": "climate.qlima", "role": "both", "tier": "primary"}])
+    clock["now"] = datetime(2026, 11, 9, 23, 50, tzinfo=ams)
+    await entity.async_set_override_next_node(15)
+    clock["now"] = datetime(2026, 11, 10, 3, 0, tzinfo=ams)
+    await entity._update_state()                  # used to raise TypeError
+    assert entity._mode == "override_next_node"
+    clock["now"] = datetime(2026, 11, 10, 7, 0, 5, tzinfo=ams)
+    await entity._update_state()
+    assert entity._mode == "auto"
+
+
+def test_a_naive_stored_time_is_local_not_utc():
+    from custom_components.smart_climate import climate as climate_mod
+    from custom_components.smart_climate.climate import _parse_dt
+
+    climate_mod.dt_util.now = lambda: datetime(2026, 11, 10, 6, 0).astimezone()   # HA: aware
+    when = _parse_dt("2026-11-10T07:00:00")
+    assert (when.hour, when.utcoffset()) == (7, datetime.now().astimezone().utcoffset())

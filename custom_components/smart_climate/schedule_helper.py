@@ -206,10 +206,12 @@ def compute_next_node_datetime(schedule: dict | None, now: datetime) -> datetime
 
     for node_time in valid_times:
         if node_time > current_time:
-            return datetime.combine(now.date(), node_time)
+            return datetime.combine(now.date(), node_time, tzinfo=now.tzinfo)
 
     # All nodes are before current time → next node is the first one tomorrow
-    return datetime.combine(now.date() + timedelta(days=1), valid_times[0])
+    # Same time zone as *now*: a naive result crashed the comparison with the aware
+    # clock every tick while a "until the next block" override ran (9/10-11-2026).
+    return datetime.combine(now.date() + timedelta(days=1), valid_times[0], tzinfo=now.tzinfo)
 
 
 def get_next_node_minutes(schedule: dict | None, now: datetime) -> int | None:

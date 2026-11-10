@@ -167,7 +167,12 @@ def _parse_dt(value):
         when = dt_util.parse_datetime(str(value))
     except (TypeError, ValueError):
         return None
-    return dt_util.as_local(when) if when is not None else None
+    if when is None:
+        return None
+    if when.tzinfo is None:
+        # as_local would read a naive value as UTC (an hour off here).
+        return when.replace(tzinfo=dt_util.now().tzinfo)
+    return dt_util.as_local(when)
 
 
 async def async_setup_entry(
