@@ -123,8 +123,15 @@ mode would hand that decision back to whoever set it.
   Only primary devices with `fan_modes`. Measured on a Qlima: high warms 2-3x faster.
 - **Hold** (`hold_primary`, default off): while the intent is idle, a primary heater keeps heating at the target
   (`plan_routes(hold_target=...)`) instead of being parked; `control.hold_trim` lowers its setpoint 1 deg after the
-  room has been > 0.5 deg over the target for 20 min. A target below the device's `min_temp` or below
+  room has been > 0.5 deg over the target for 20 min. A hold below the device's `min_temp` or below
   `control.HOLD_FLOOR` 16 (night setback) = off: the Qlima reports `min_temp` 7 but ignores setpoints under ~16.
+  A heat target below `min_temp` is off as well. `min_temp` = the higher of the reported one and the device
+  subentry's `min_setpoint` (1.5).
+- **Warm-up lead** (1.5, part of the fan boost): a primary heater's own sensor reads the warm air near the unit (Qlima
+  +3..4 over the room sensor), so at the plain target it throttles down long before the room is there.
+  `control.update_offset` learns that offset while it heats (slow EMA; samples under the room = defrost, skipped) and
+  `control.setpoint_lead` adds it (whole degrees, max 3, capped at `max_temp`) to the heat setpoint while the room is
+  > 0.5 under the target, fixed until within 0.2 (every setpoint change beeps). Not used while holding.
 - **Observe** (`observe`, switch + `set_observe`): everything is decided and `plan` is published, but nothing is
   sent; changed plans go into the log as `who: observe`. Devices on manual (source user) are planned as auto then.
 - **Action log**: `_log_action` keeps the last 40 entries in the `log` attribute (memory only, empty after a
@@ -132,8 +139,9 @@ mode would hand that decision back to whoever set it.
   target and presence. `who`: user (service/card), hand (device changed outside us), control (we sent), observe.
 - **Primary off by hand = no heating** (1.4.5): `plan_routes` then sends no support device in, not as stand-in and not
   as support. The fallback to the support heater stays for a primary that is unavailable or set to "not used".
-- **Off by hand** stays off: an auto device switched off outside us becomes manual without end
-  (`off_by_hand`), and switching it on by hand hands it back. Other outside changes stay "until next node".
+- **Off by hand** stays off: an auto device switched off outside us becomes manual (`off_by_hand`) until it is
+  switched on by hand or the next schedule block starts (1.5; without a schedule: no end). Before 1.5 it had no end,
+  and a Qlima switched off at night left the 07:00 block cold. Other outside changes stay "until next node".
 - **One part at a time** (`_execute`): mode, setpoint and fan are sent separately, each after the device reported
   the previous one (`COMMAND_CONFIRM_SECONDS` 6, then `COMMAND_GAP_SECONDS` 1); a part that did not stick is
   resent after `RETRY_SECONDS` 20, `RETRY_TIMES` 3, then every `RESEND_SECONDS`. Reason: the Qlima (Tuya, via

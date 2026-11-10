@@ -89,6 +89,7 @@ from .const import (
     CONF_HVAC_MODE,
     CONF_HYSTERESIS,
     CONF_INTERRUPTIBLE,
+    CONF_MIN_SETPOINT,
     CONF_OBSERVE,
     CONF_OUTDOOR_CACHE,
     CONF_OUTDOOR_SENSOR,
@@ -322,6 +323,8 @@ class SmartClimateEntity(ClimateEntity):
         self._observe = bool(entry.data.get(CONF_OBSERVE, False))
         self._fan_state = {}       # entity_id -> (fan mode the boost chose, since)
         self._trim = 0.0
+        self._offset = {}          # entity_id -> how much warmer its own sensor reads than the room
+        self._lead = {}            # entity_id -> setpoint lead while warming up (whole degrees)
         self._above_since = None   # room more than TRIM_ABOVE over the hold target since
         self._hold_target = None
         self._eta = None
@@ -351,16 +354,19 @@ class SmartClimateEntity(ClimateEntity):
         devices = []
         seen = set()
 
-        def _add(entity_id, role, tier=None, park=None, control=None):
+        def _add(entity_id, role, tier=None, park=None, control=None, min_setpoint=None):
             if entity_id and entity_id not in seen:
                 seen.add(entity_id)
-                devices.append({
+                device = {
                     "entity_id": entity_id,
                     "role": role or ROLE_BOTH,
                     "tier": tier or TIER_PRIMARY,
                     "park": park or PARK_OFF,
                     "control": control or DEVICE_MODE_AUTO,
-                })
+                }
+                if isinstance(min_setpoint, (int, float)):
+                    device[CONF_MIN_SETPOINT] = min_setpoint
+                devices.append(device)
 
         subentries = getattr(entry, "subentries", None)
         if isinstance(subentries, Mapping):
@@ -370,12 +376,13 @@ class SmartClimateEntity(ClimateEntity):
                     _add(
                         data.get("entity_id"), data.get("role"),
                         data.get(CONF_TIER), data.get(CONF_PARK), data.get(CONF_CONTROL),
+                        data.get(CONF_MIN_SETPOINT),
                     )
 
         for d in entry.data.get(CONF_DEVICES, []) or []:
             _add(
                 d.get("entity_id"), d.get("role"), d.get(CONF_TIER), d.get(CONF_PARK),
-                d.get(CONF_CONTROL),
+                d.get(CONF_CONTROL), d.get(CONF_MIN_SETPOINT),
             )
 
         if not devices and wrapped_climate:
@@ -652,6 +659,12 @@ class SmartClimateEntity(ClimateEntity):
                 # switched by hand (remote, app) keeps that, just like for real.
                 control_mode = DEVICE_MODE_AUTO
             min_temp = attrs.get("min_temp")
+            min_temp = min_temp if isinstance(min_temp, (int, float)) else None
+            own_min = dev.get(CONF_MIN_SETPOINT)
+            if isinstance(own_min, (int, float)):
+                # The configured minimum wins over a too-wide reported range (localtuya says 7).
+                min_temp = own_min if min_temp is None else max(min_temp, own_min)
+            max_temp = attrs.get("max_temp")
             caps.append({
                 "entity_id": eid,
                 "role": dev.get("role", ROLE_BOTH),
@@ -665,11 +678,13 @@ class SmartClimateEntity(ClimateEntity):
                 "can_heat": modes is None or HVACMode.HEAT in modes,
                 "can_cool": modes is None or HVACMode.COOL in modes,
                 "step": step if isinstance(step, (int, float)) else None,
-                "min_temp": min_temp if isinstance(min_temp, (int, float)) else None,
+                "min_temp": min_temp,
+                "max_temp": max_temp if isinstance(max_temp, (int, float)) else None,
                 "fan_modes": attrs.get("fan_modes") or None,
                 "hold": bool(self._conf(CONF_HOLD_PRIMARY, False)),
                 "off_by_hand": bool(entry.get("off_by_hand")) and control_mode != DEVICE_MODE_AUTO,
                 "trim": self._trim,
+                "lead": self._lead.get(eid, 0),
             })
         return caps
 
@@ -835,8 +850,9 @@ class SmartClimateEntity(ClimateEntity):
         ):
             return
 
-        caps = self._device_caps()
         boost = bool(self._conf(CONF_FAN_BOOST, False))
+        self._update_lead(decision, room_temp, boost)
+        caps = self._device_caps()
         for cap in caps:
             cap["fan"] = None
             if boost and cap["fan_modes"] and cap.get("tier") == TIER_PRIMARY:
@@ -869,6 +885,27 @@ class SmartClimateEntity(ClimateEntity):
             return
         for cmd in commands:
             await self._execute(cmd)
+
+    def _update_lead(self, decision, room_temp, boost):
+        """Learn each primary heater's sensor offset and set its warm-up setpoint lead.
+
+        Part of the boost: without it (or outside heating) there is no lead.
+        """
+        for dev in self._devices:
+            eid = dev["entity_id"]
+            if dev.get("tier", TIER_PRIMARY) != TIER_PRIMARY:
+                continue
+            state = self.hass.states.get(eid)
+            if state is not None and state.state == "heat":
+                self._offset[eid] = control.update_offset(
+                    self._offset.get(eid), self._device_current_temp(eid), room_temp
+                )
+            if not boost or decision.intent != control.HEAT:
+                self._lead.pop(eid, None)
+                continue
+            self._lead[eid] = control.setpoint_lead(
+                room_temp, decision.target, self._lead.get(eid, 0), self._offset.get(eid)
+            )
 
     async def _execute(self, cmd):
         """Apply one DeviceCommand, only calling services when state differs.
@@ -1015,12 +1052,18 @@ class SmartClimateEntity(ClimateEntity):
         if self._effective_device_mode(entity_id, now) != DEVICE_MODE_AUTO:
             return
         if new_state.state == "off" and was_on and not (ours and mark.get("mode") == "off"):
+            # Off by hand lasts until it is switched on by hand or the next schedule block
+            # starts (10-11-2026: switched off at night, the 07:00 block then stayed cold).
+            end = schedule_helper.compute_next_node_datetime(self._schedule, dt_util.as_local(now))
             self._device_modes[entity_id] = {
-                "mode": DEVICE_MODE_MANUAL, "until": None, "source": SOURCE_EXTERNAL, "off_by_hand": True,
+                "mode": DEVICE_MODE_MANUAL, "until": end.isoformat() if end else None,
+                "source": SOURCE_EXTERNAL, "off_by_hand": True,
             }
             self._persist(**{CONF_DEVICE_MODES: dict(self._device_modes)})
             self._log_action(
-                WHO_HAND, entity_id, "met de hand uit: blijft uit tot hij weer met de hand aan gaat",
+                WHO_HAND, entity_id,
+                "met de hand uit: blijft uit tot hij weer met de hand aan gaat"
+                + (f" of tot {dt_util.as_local(end):%H:%M}" if end else ""),
                 self._room_temperature(),
             )
             return
@@ -1405,7 +1448,11 @@ class SmartClimateEntity(ClimateEntity):
         ]
         if expired:
             for eid in expired:
-                self._device_modes.pop(eid, None)
+                entry = self._device_modes.pop(eid, None) or {}
+                if entry.get("off_by_hand"):
+                    self._log_action(
+                        WHO_USER, eid, "nieuw blok: de regeling neemt het weer over", self._room_temperature()
+                    )
             self._persist(**{CONF_DEVICE_MODES: dict(self._device_modes)})
 
     def _next_skip_end(self, now):

@@ -58,13 +58,15 @@
             "role": "Role",
             "tier": "Heating tier",
             "park": "When not in use",
-            "control": "Start mode"
+            "control": "Start mode",
+            "min_setpoint": "Lowest setpoint"
           },
           "data_description": {
             "role": "Whether this device can heat, cool, or both",
             "tier": "Primary heats alone; a support device (e.g. the CV) only joins when the room is well below the target",
             "park": "What this device does when it is not the one serving the current demand",
-            "control": "How this device starts: auto (the coordinator drives it), off (kept off) or manual (hands off). Later changes are made with the device's mode select"
+            "control": "How this device starts: auto (the coordinator drives it), off (kept off) or manual (hands off). Later changes are made with the device's mode select",
+            "min_setpoint": "Lowest temperature the device really accepts (empty = what it reports itself). A lower target switches it off instead of heating at this minimum"
           }
         },
         "reconfigure": {
@@ -74,12 +76,14 @@
             "role": "Role",
             "tier": "Heating tier",
             "park": "When not in use",
-            "control": "Start mode"
+            "control": "Start mode",
+            "min_setpoint": "Lowest setpoint"
           },
           "data_description": {
             "tier": "Primary heats alone; a support device (e.g. the CV) only joins when the room is well below the target",
             "park": "What this device does when it is not the one serving the current demand",
-            "control": "How this device starts: auto (the coordinator drives it), off (kept off) or manual (hands off). Later changes are made with the device's mode select"
+            "control": "How this device starts: auto (the coordinator drives it), off (kept off) or manual (hands off). Later changes are made with the device's mode select",
+            "min_setpoint": "Lowest temperature the device really accepts (empty = what it reports itself). A lower target switches it off instead of heating at this minimum"
           }
         }
       }

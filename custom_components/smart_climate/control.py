@@ -259,6 +259,54 @@ TRIM_STEP = 1.0
 # but ignores anything under ~16, so a 12 deg hold kept it heating at 22).
 HOLD_FLOOR = 16.0
 
+# Setpoint lead while warming up: an airco regulates on its own sensor, which reads
+# the warm air near the unit (Qlima, 10-11-2026: 23-25 deg while the room sensor
+# read 20-21). With the plain target as setpoint it thinks it is there already and
+# throttles down far below the target. While the room is more than LEAD_ON under
+# the target, the setpoint goes up by the measured offset (whole degrees, at most
+# LEAD_MAX); back to the plain target once the deficit is under LEAD_OFF.
+LEAD_ON = 0.5
+LEAD_OFF = 0.2
+LEAD_MAX = 3
+OFFSET_ALPHA = 0.02   # per 10 s tick: about 8 min to follow a new offset
+
+
+def update_offset(prev: float | None, device_temp: float | None, room_temp: float | None) -> float | None:
+    """Running estimate of how much warmer a heating device's own sensor reads than the room.
+
+    Only fed while the device heats. A sample under the room temperature is a defrost
+    cycle (an air-to-air heat pump blows cold for a few minutes) and is skipped.
+    """
+    if device_temp is None or room_temp is None:
+        return prev
+    sample = device_temp - room_temp
+    if sample < 0:
+        return prev
+    if prev is None:
+        return sample
+    return prev + OFFSET_ALPHA * (sample - prev)
+
+
+def setpoint_lead(
+    room_temp: float | None,
+    target: float | None,
+    prev_lead: int,
+    offset: float | None,
+) -> int:
+    """Whole degrees to add to a heating primary's setpoint (0 = the plain target).
+
+    The lead is fixed when it starts and kept until the room is within ``LEAD_OFF``
+    of the target: every setpoint change beeps on some devices.
+    """
+    if room_temp is None or target is None:
+        return prev_lead
+    deficit = target - room_temp
+    if prev_lead:
+        return prev_lead if deficit > LEAD_OFF else 0
+    if deficit > LEAD_ON and offset is not None:
+        return int(min(max(offset, 0), LEAD_MAX) + 0.5)
+    return 0
+
 
 def fan_for(
     room_temp: float | None,
@@ -370,8 +418,10 @@ def plan_routes(
     - ``step`` — the device's temperature step (setpoints are rounded to it)
     - ``hold`` — a primary heater that keeps heating at ``hold_target`` while
       the coordinator idles (it then modulates on its own sensor) instead of
-      being parked; ``min_temp`` — below that (or below ``HOLD_FLOOR``) the
-      hold is off instead
+      being parked; ``min_temp`` — a heat or hold setpoint below that is off
+      instead (a hold also below ``HOLD_FLOOR``)
+    - ``lead`` — whole degrees added to its heat setpoint while warming up (see
+      ``setpoint_lead``), capped at ``max_temp``
     - ``fan`` — the fan mode to run at while heating or holding (None = leave it)
     - ``trim`` — setpoint offset applied to its hold setpoint (see ``hold_trim``)
     - ``off_by_hand`` — the user switched this device off outside the coordinator
@@ -441,9 +491,21 @@ def plan_routes(
             commands.append(DeviceCommand(entity_id, OFF))
         elif entity_id in serving:
             mode = HEAT if decision.intent == HEAT else COOL
+            temp = decision.target
+            min_temp = dev.get("min_temp")
+            if mode == HEAT and isinstance(min_temp, (int, float)) and temp is not None and temp < min_temp:
+                # A setpoint below its range (e.g. a 15 deg setback on an airco that
+                # does 16 at least) would be clamped up by the device: off instead.
+                commands.append(DeviceCommand(entity_id, OFF))
+                continue
+            if mode == HEAT and temp is not None and dev.get("lead"):
+                temp = temp + dev["lead"]
+                max_temp = dev.get("max_temp")
+                if isinstance(max_temp, (int, float)):
+                    temp = min(temp, max_temp)
             commands.append(
                 DeviceCommand(
-                    entity_id, mode, _round_to_step(decision.target, dev.get("step")),
+                    entity_id, mode, _round_to_step(temp, dev.get("step")),
                     dev.get("fan") if mode == HEAT else None,
                 )
             )

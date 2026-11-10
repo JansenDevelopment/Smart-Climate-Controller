@@ -58,13 +58,15 @@
             "role": "Rol",
             "tier": "Rol bij verwarmen",
             "park": "Als niet in gebruik",
-            "control": "Startstand"
+            "control": "Startstand",
+            "min_setpoint": "Laagste setpoint"
           },
           "data_description": {
             "role": "Of dit apparaat kan verwarmen, koelen of beide",
             "tier": "Primair verwarmt alleen; een ondersteunend apparaat (bijv. de CV) springt pas bij als de kamer ver onder het doel zit",
             "park": "Wat dit apparaat doet als het niet degene is die de huidige vraag bedient",
-            "control": "Hoe dit apparaat begint: auto (de coördinator stuurt het aan), uit (blijft uit) of handmatig (handen af). Later wijzig je dit met de keuzeschakelaar van het apparaat"
+            "control": "Hoe dit apparaat begint: auto (de coördinator stuurt het aan), uit (blijft uit) of handmatig (handen af). Later wijzig je dit met de keuzeschakelaar van het apparaat",
+            "min_setpoint": "Laagste temperatuur die het apparaat echt aanneemt (leeg = wat het zelf meldt). Een lager doel zet het uit in plaats van het op dit minimum te laten stoken"
           }
         },
         "reconfigure": {
@@ -74,12 +76,14 @@
             "role": "Rol",
             "tier": "Rol bij verwarmen",
             "park": "Als niet in gebruik",
-            "control": "Startstand"
+            "control": "Startstand",
+            "min_setpoint": "Laagste setpoint"
           },
           "data_description": {
             "tier": "Primair verwarmt alleen; een ondersteunend apparaat (bijv. de CV) springt pas bij als de kamer ver onder het doel zit",
             "park": "Wat dit apparaat doet als het niet degene is die de huidige vraag bedient",
-            "control": "Hoe dit apparaat begint: auto (de coördinator stuurt het aan), uit (blijft uit) of handmatig (handen af). Later wijzig je dit met de keuzeschakelaar van het apparaat"
+            "control": "Hoe dit apparaat begint: auto (de coördinator stuurt het aan), uit (blijft uit) of handmatig (handen af). Later wijzig je dit met de keuzeschakelaar van het apparaat",
+            "min_setpoint": "Laagste temperatuur die het apparaat echt aanneemt (leeg = wat het zelf meldt). Een lager doel zet het uit in plaats van het op dit minimum te laten stoken"
           }
         }
       }

@@ -45,6 +45,8 @@ CONF_OUTDOOR_CACHE = "outdoor_max_cache"
 CONF_CONTROL = "control"
 CONF_SKIP_UNTIL = "skip_until"
 CONF_PARK = "park"
+# Lowest setpoint a device really takes (some report a wider range than they accept).
+CONF_MIN_SETPOINT = "min_setpoint"
 # Observe ("proefdraaien"): decide and log what it would do, drive nothing.
 CONF_OBSERVE = "observe"
 # The active override (mode, temperature, start/minutes or until), restored after a restart.

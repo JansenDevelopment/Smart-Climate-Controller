@@ -25,6 +25,7 @@ from .const import (
     CONF_HYSTERESIS,
     CONF_INTEGRATION_DRIVEN_AUTO,
     CONF_INTERRUPTIBLE,
+    CONF_MIN_SETPOINT,
     CONF_OUTDOOR_SENSOR,
     CONF_PARK,
     CONF_PRIMARY_DEVICE,
@@ -105,6 +106,15 @@ def _device_schema(defaults=None):
                     options=DEVICE_MODES, translation_key="device_control"
                 )
             ),
+            vol.Optional(
+                CONF_MIN_SETPOINT,
+                description={"suggested_value": defaults.get(CONF_MIN_SETPOINT)},
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=5, max=30, step=0.5, unit_of_measurement="°C",
+                    mode=selector.NumberSelectorMode.BOX,
+                )
+            ),
         }
     )
 
@@ -117,6 +127,7 @@ def _device_data(user_input):
         CONF_TIER: user_input.get(CONF_TIER, TIER_PRIMARY),
         CONF_PARK: user_input.get(CONF_PARK, PARK_OFF),
         CONF_CONTROL: user_input.get(CONF_CONTROL, DEVICE_MODE_AUTO),
+        CONF_MIN_SETPOINT: user_input.get(CONF_MIN_SETPOINT),
     }
 
 
