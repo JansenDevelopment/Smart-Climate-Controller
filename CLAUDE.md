@@ -132,6 +132,10 @@ mode would hand that decision back to whoever set it.
   `control.update_offset` learns that offset while it heats (slow EMA; samples under the room = defrost, skipped) and
   `control.setpoint_lead` adds it (whole degrees, max 3, capped at `max_temp`) to the heat setpoint while the room is
   > 0.5 under the target, fixed until within 0.2 (every setpoint change beeps). Not used while holding.
+- **Measurement** (1.5.2, for "how do I heat most efficiently"): per primary heater the attribute `learning`
+  (own sensor, learned offset, lead, `defrosting`, `defrosts`) and sensors `<device> own temperature / sensor offset /
+  setpoint lead / defrosts` plus `Warm-up rate` (room_trend, deg/h), all with a state class so the recorder keeps
+  long-term statistics. A defrost = heating while its own sensor reads > 1 deg under the room; logged as `who: device`.
 - **Observe** (`observe`, switch + `set_observe`): everything is decided and `plan` is published, but nothing is
   sent; changed plans go into the log as `who: observe`. Devices on manual (source user) are planned as auto then.
 - **Action log**: `_log_action` keeps the last 40 entries in the `log` attribute (memory only, empty after a

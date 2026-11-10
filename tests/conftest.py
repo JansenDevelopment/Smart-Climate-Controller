@@ -107,6 +107,12 @@ _register_stub(
     "homeassistant.components.select",
     SelectEntity=type("SelectEntity", (), {}),
 )
+_register_stub(
+    "homeassistant.components.sensor",
+    SensorEntity=type("SensorEntity", (), {}),
+    SensorDeviceClass=MagicMock(TEMPERATURE="temperature"),
+    SensorStateClass=MagicMock(MEASUREMENT="measurement", TOTAL_INCREASING="total_increasing"),
+)
 
 # homeassistant.helpers
 _register_stub("homeassistant.helpers")

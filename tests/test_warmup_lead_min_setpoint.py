@@ -165,3 +165,58 @@ def test_a_naive_stored_time_is_local_not_utc():
     climate_mod.dt_util.now = lambda: datetime(2026, 11, 10, 6, 0).astimezone()   # HA: aware
     when = _parse_dt("2026-11-10T07:00:00")
     assert (when.hour, when.utcoffset()) == (7, datetime.now().astimezone().utcoffset())
+
+
+# ---- measurement ("hoe warm ik het efficiëntst?") --------------------------------
+
+async def test_defrost_is_counted_once_per_cycle_and_logged():
+    heat = {"state": "heat", "attributes": {**QLIMA["attributes"], "temperature": 22, "current_temperature": 24}}
+    states = {"climate.qlima": heat}
+    _room(states, 20.0)
+    entity, hass, clock = _make(states, fan_boost=True, schedule=SCHEDULE, devices=[
+        {"entity_id": "climate.qlima", "role": "both", "tier": "primary"}])
+    clock["now"] = datetime(2026, 11, 10, 8, 0).astimezone()
+    await entity._apply_control()
+    for own in (12, 10, 11):     # one defrost: cold air for a few ticks
+        states["climate.qlima"] = {"state": "heat", "attributes": {**heat["attributes"], "current_temperature": own}}
+        await entity._apply_control()
+    states["climate.qlima"] = heat
+    await entity._apply_control()
+    learning = entity.extra_state_attributes["learning"]["climate.qlima"]
+    assert learning["defrosts"] == 1
+    assert learning["defrosting"] is False
+    assert learning["offset"] == 4.0          # defrost samples did not drag it down
+    assert learning["own_temperature"] == 24
+    assert [e["who"] for e in entity._log if "ontdooit" in e["text"]] == ["device"]
+
+
+def test_learning_sensors_read_the_climate_attribute():
+    from unittest.mock import MagicMock
+
+    from custom_components.smart_climate.sensor import (
+        LEARNING_SENSORS,
+        SmartClimateLearningSensor,
+        SmartClimateWarmupRateSensor,
+    )
+
+    attrs = {"learning": {"climate.qlima_climate": {
+        "own_temperature": 24, "offset": 3.4, "lead": 3, "defrosting": True, "defrosts": 5}},
+        "room_trend": 1.03}
+    climate = MagicMock()
+    climate.attributes = attrs
+    hass = MagicMock()
+    hass.states.get = MagicMock(return_value=climate)
+    entry = MagicMock()
+    entry.entry_id = "e1"
+    got = {}
+    for key in LEARNING_SENSORS:
+        s = SmartClimateLearningSensor(hass, entry, "climate.qlima_climate", key)
+        s._climate_entity_id = "climate.smart_climate"
+        got[key] = s.native_value
+        if key == "defrosts":
+            assert s.extra_state_attributes == {"defrosting": True}
+            assert s._attr_unique_id == "smart_climate_defrosts_qlima_climate_e1"
+    assert got == {"own_temperature": 24, "offset": 3.4, "lead": 3, "defrosts": 5}
+    rate = SmartClimateWarmupRateSensor(hass, entry)
+    rate._climate_entity_id = "climate.smart_climate"
+    assert rate.native_value == 1.03

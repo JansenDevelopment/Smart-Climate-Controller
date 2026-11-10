@@ -47,6 +47,7 @@ from .const import (
     ATTR_HOLD_TARGET,
     ATTR_INTENT,
     ATTR_INTERRUPTIBLE,
+    ATTR_LEARNING,
     ATTR_LOG,
     ATTR_MODE,
     ATTR_OBSERVE,
@@ -148,6 +149,7 @@ from .const import (
     TOMORROW_FROM_HOUR,
     UNAVAILABLE_DEBOUNCE_SECONDS,
     WHO_CONTROL,
+    WHO_DEVICE,
     WHO_HAND,
     WHO_OBSERVE,
     WHO_USER,
@@ -330,6 +332,8 @@ class SmartClimateEntity(ClimateEntity):
         self._trim = 0.0
         self._offset = {}          # entity_id -> how much warmer its own sensor reads than the room
         self._lead = {}            # entity_id -> setpoint lead while warming up (whole degrees)
+        self._defrosting = {}      # entity_id -> True while its own sensor reads cold air while heating
+        self._defrosts = {}        # entity_id -> defrost cycles counted since the start
         self._above_since = None   # room more than TRIM_ABOVE over the hold target since
         self._hold_target = None
         self._eta = None
@@ -901,10 +905,18 @@ class SmartClimateEntity(ClimateEntity):
             if dev.get("tier", TIER_PRIMARY) != TIER_PRIMARY:
                 continue
             state = self.hass.states.get(eid)
-            if state is not None and state.state == "heat":
-                self._offset[eid] = control.update_offset(
-                    self._offset.get(eid), self._device_current_temp(eid), room_temp
-                )
+            own = self._device_current_temp(eid)
+            heating = state is not None and state.state == "heat"
+            if heating:
+                self._offset[eid] = control.update_offset(self._offset.get(eid), own, room_temp)
+            defrosting = (
+                heating and own is not None and room_temp is not None
+                and own < room_temp - control.DEFROST_BELOW_ROOM
+            )
+            if defrosting and not self._defrosting.get(eid):
+                self._defrosts[eid] = self._defrosts.get(eid, 0) + 1
+                self._log_action(WHO_DEVICE, eid, f"ontdooit (eigen sensor {own:g}°)", room_temp)
+            self._defrosting[eid] = defrosting
             if not boost or decision.intent != control.HEAT:
                 self._lead.pop(eid, None)
                 continue
@@ -1684,6 +1696,23 @@ class SmartClimateEntity(ClimateEntity):
             "model": "Smart Climate Controller",
         }
 
+    def _learning(self):
+        """What the measurement sensors record per primary heater."""
+        out = {}
+        for dev in self._devices:
+            eid = dev["entity_id"]
+            if dev.get("tier", TIER_PRIMARY) != TIER_PRIMARY:
+                continue
+            offset = self._offset.get(eid)
+            out[eid] = {
+                "own_temperature": self._device_current_temp(eid),
+                "offset": None if offset is None else round(offset, 2),
+                "lead": self._lead.get(eid, 0),
+                "defrosting": bool(self._defrosting.get(eid)),
+                "defrosts": self._defrosts.get(eid, 0),
+            }
+        return out
+
     def _rounded_trend(self):
         """Warming rate (°C/h) over the last 30 minutes, or None."""
         rate = self._room_trend.rise_per_hour()
@@ -1750,4 +1779,5 @@ class SmartClimateEntity(ClimateEntity):
             ATTR_HOLD_TARGET: self._hold_target,
             ATTR_ETA_MINUTES: None if self._eta is None else round(self._eta),
             ATTR_LOG: list(self._log),
+            ATTR_LEARNING: self._learning(),
         }

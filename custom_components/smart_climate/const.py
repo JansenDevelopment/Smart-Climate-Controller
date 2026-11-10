@@ -64,6 +64,7 @@ WHO_USER = "user"          # through the coordinator (card, service, helper enti
 WHO_HAND = "hand"          # on the device itself (remote, its own app, a dashboard)
 WHO_CONTROL = "control"    # a command the coordinator sent
 WHO_OBSERVE = "observe"    # what it would have sent while observing
+WHO_DEVICE = "device"      # something the device did by itself (a defrost cycle)
 
 # Device roles
 ROLE_HEAT = "heat"
@@ -194,6 +195,8 @@ ATTR_OBSERVE = "observe"
 ATTR_FAN_BOOST = "fan_boost"
 ATTR_HOLD_PRIMARY = "hold_primary"
 ATTR_LOG = "log"
+# Per primary heater: own sensor, learned offset, lead, defrosts (for the measurement sensors).
+ATTR_LEARNING = "learning"
 ATTR_PLAN = "plan"
 ATTR_ETA_MINUTES = "eta_minutes"
 ATTR_HOLD_TARGET = "hold_target"

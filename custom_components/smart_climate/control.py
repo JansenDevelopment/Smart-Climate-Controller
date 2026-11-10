@@ -269,6 +269,9 @@ LEAD_ON = 0.5
 LEAD_OFF = 0.2
 LEAD_MAX = 3
 OFFSET_ALPHA = 0.02   # per 10 s tick: about 8 min to follow a new offset
+# A heating air-to-air unit whose own sensor reads this far under the room is defrosting
+# (it blows cold for a few minutes; Qlima 10-11-2026: 24 -> 10 deg every ~35 min at 0-2 outside).
+DEFROST_BELOW_ROOM = 1.0
 
 
 def update_offset(prev: float | None, device_temp: float | None, room_temp: float | None) -> float | None:
