@@ -301,6 +301,7 @@ class SmartClimateEntity(ClimateEntity):
         self._cooling_allowed = False
         self._support_enabled = entry.data.get(CONF_SUPPORT_ENABLED, True)
         self._support_active = False
+        self._slow_since = None  # since when the room warms slower than the support min_rise
         self._room_trend = control.RoomTrend()
         # Per-device control choice: {entity_id: {"mode": auto|off|manual, "until": iso|None}}
         self._device_modes = {
@@ -802,6 +803,13 @@ class SmartClimateEntity(ClimateEntity):
         # The support heater only ever joins while we are heating, and only
         # when the user has not switched it off.
         if self._support_enabled and decision.intent == control.HEAT:
+            min_rise = self._conf(CONF_SUPPORT_MIN_RISE, DEFAULT_SUPPORT_MIN_RISE)
+            rise = self._room_trend.rise_per_hour(since=self._heat_since, min_span_minutes=10)
+            if rise is not None and rise < min_rise:
+                if self._slow_since is None:
+                    self._slow_since = now
+            else:
+                self._slow_since = None
             self._support_active = control.support_needed(
                 room_temp,
                 decision.target if decision.target is not None else heat_target,
@@ -811,14 +819,15 @@ class SmartClimateEntity(ClimateEntity):
                     (now - self._heat_since).total_seconds() / 60
                     if self._heat_since else None
                 ),
-                rise_per_hour=self._room_trend.rise_per_hour(
-                    since=self._heat_since, min_span_minutes=10
-                ),
+                rise_per_hour=rise,
                 grace_minutes=self._conf(CONF_SUPPORT_GRACE, DEFAULT_SUPPORT_GRACE_MIN),
-                min_rise=self._conf(CONF_SUPPORT_MIN_RISE, DEFAULT_SUPPORT_MIN_RISE),
+                min_rise=min_rise,
+                slow_minutes=(now - self._slow_since).total_seconds() / 60 if self._slow_since else None,
+                slow_need=control.SUPPORT_SLOW_MINUTES,
             )
         else:
             self._support_active = False
+            self._slow_since = None
 
         # Hold target: what a holding primary heater runs at while the coordinator
         # idles (the override, else the band's heat target). Trimmed down when the

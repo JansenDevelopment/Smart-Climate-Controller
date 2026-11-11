@@ -195,6 +195,13 @@ class RoomTrend:
         return (v1 - v0) / hours
 
 
+# The room must warm slower than min_rise for this long before the support heater
+# joins: one sensor tick down during a 3-hour morning warm-up (Qlima 11-11-2026,
+# 18.4 -> 18.3 at 08:30 while rising ~1.2 deg/h) otherwise latched the CV on until
+# the room was within half the margin.
+SUPPORT_SLOW_MINUTES = 20
+
+
 def support_needed(
     room_temp: float | None,
     heat_target: float,
@@ -206,6 +213,8 @@ def support_needed(
     grace_minutes: float = 0.0,
     min_rise: float = 0.0,
     release_fraction: float = SUPPORT_RELEASE_FRACTION,
+    slow_minutes: float | None = None,
+    slow_need: float = 0.0,
 ) -> bool:
     """Should the *support* heater (e.g. the CV) join the primary one?
 
@@ -214,7 +223,8 @@ def support_needed(
     - Joins when the room is at least ``delta`` below the heat target — and,
       when a grace period is configured, only after the primary heater has had
       ``grace_minutes`` of heating to close the gap *and* the room is warming
-      slower than ``min_rise`` °C/h.  Warming up after arriving home is slow
+      slower than ``min_rise`` °C/h — for ``slow_need`` minutes in a row
+      (``slow_minutes``: how long it has been that slow).  Warming up after arriving home is slow
       but steady, so the support heater is not needed; a flat or falling room
       means the primary heater cannot keep up.
     Without a room temperature the previous state is kept.
@@ -234,7 +244,9 @@ def support_needed(
         # No trend yet (e.g. just after a restart): do not guess; only join
         # once the primary heater has had twice the grace period.
         return heating_minutes >= grace_minutes * 2
-    return rise_per_hour < min_rise
+    if rise_per_hour >= min_rise:
+        return False
+    return slow_need <= 0 or (slow_minutes is not None and slow_minutes >= slow_need)
 
 
 # Fan boost while heating (measured on a Qlima split unit, 6-11-2026, room =

@@ -16,10 +16,11 @@ from custom_components.smart_climate.control import (
     HEAT,
     IDLE,
     OFF,
+    SUPPORT_SLOW_MINUTES,
     Decision,
+    RoomTrend,
     decide,
     plan_routes,
-    RoomTrend,
     support_needed,
 )
 
@@ -491,3 +492,14 @@ async def test_entity_cv_waits_then_joins_when_the_room_does_not_warm():
         assert entity._support_active is True
     finally:
         climate_mod.dt_util.now = real_now
+
+
+def test_support_waits_for_a_sustained_slow_rise():
+    # 11-11-2026: one tick down (18.4 -> 18.3) during a ~1.2 deg/h morning warm-up latched the CV on
+    kw = {"heating_minutes": 90, "rise_per_hour": 0.0, "grace_minutes": 15, "min_rise": 0.3,
+          "slow_need": SUPPORT_SLOW_MINUTES}
+    assert support_needed(18.3, 21.5, 1.5, False, slow_minutes=None, **kw) is False
+    assert support_needed(18.3, 21.5, 1.5, False, slow_minutes=5, **kw) is False
+    assert support_needed(18.3, 21.5, 1.5, False, slow_minutes=20, **kw) is True
+    kw["rise_per_hour"] = 1.2                                                     # warming fine
+    assert support_needed(18.3, 21.5, 1.5, False, slow_minutes=40, **kw) is False

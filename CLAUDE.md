@@ -143,6 +143,9 @@ mode would hand that decision back to whoever set it.
 - **Action log**: `_log_action` keeps the last 40 entries in the `log` attribute (memory only, empty after a
   restart) and fires every entry as event `smart_climate_log` (the recorder keeps events) with room, outdoor,
   target and presence. `who`: user (service/card), hand (device changed outside us), control (we sent), observe.
+- **Support joins on a sustained stall** (1.5.5): besides deficit >= `support_delta` and `support_grace` minutes of
+  heating, the room must warm slower than `support_min_rise` for `SUPPORT_SLOW_MINUTES` (20) in a row
+  (`_slow_since` in climate.py). One sensor tick down during a morning warm-up latched the CV on until deficit < 0.75.
 - **Primary off by hand = no heating** (1.4.5): `plan_routes` then sends no support device in, not as stand-in and not
   as support. The fallback to the support heater stays for a primary that is unavailable or set to "not used".
 - **Off by hand** stays off: an auto device switched off outside us becomes manual (`off_by_hand`) until it is
