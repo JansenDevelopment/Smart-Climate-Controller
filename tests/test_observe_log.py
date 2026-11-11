@@ -300,3 +300,22 @@ async def test_a_restored_override_survives_the_first_presence_reading():
     await entity._update_state()
     assert entity._mode == "auto"
 
+
+
+async def test_back_to_the_schedule_switches_an_off_regeling_on():
+    states = {"climate.qlima": QLIMA, "climate.cv": CV}
+    _room(states, 20.0)
+    entity, _, _ = _make(states)
+    entity._hvac_mode = "off"
+    await entity.async_clear_override()
+    assert entity._hvac_mode == "auto"
+    assert any(e["text"] == "regeling weer aan" for e in entity._log)
+
+
+async def test_a_temporary_temperature_switches_an_off_regeling_on():
+    states = {"climate.qlima": QLIMA, "climate.cv": CV}
+    _room(states, 20.0)
+    entity, _, _ = _make(states)
+    entity._hvac_mode = "off"
+    await entity.async_set_override_timer(30, 22)
+    assert entity._hvac_mode == "auto"
