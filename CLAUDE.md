@@ -130,8 +130,10 @@ mode would hand that decision back to whoever set it.
 - **Warm-up lead** (1.5, part of the fan boost): a primary heater's own sensor reads the warm air near the unit (Qlima
   +3..4 over the room sensor), so at the plain target it throttles down long before the room is there.
   `control.update_offset` learns that offset while it heats (slow EMA; samples under the room = defrost, skipped) and
-  `control.setpoint_lead` adds it (whole degrees, max 3, capped at `max_temp`) to the heat setpoint while the room is
-  > 0.5 under the target, fixed until within 0.2 (every setpoint change beeps). Not used while holding.
+  `control.setpoint_lead` adds it (whole degrees, max 6, capped at `max_temp`) to the heat setpoint while the room is
+  > 0.5 under the target, until within 0.2 (every setpoint change beeps). While short it only goes up, once the
+  offset has grown a whole degree past it (1.5.4: fan up + swing off took the offset to 5-6 with the lead stuck at
+  3, room hung 0.5-1 under the target for hours). Not used while holding.
 - **Measurement** (1.5.2, for "how do I heat most efficiently"): per primary heater the attribute `learning`
   (own sensor, learned offset, lead, `defrosting`, `defrosts`) and sensors `<device> own temperature / sensor offset /
   setpoint lead / defrosts` plus `Warm-up rate` (room_trend, deg/h), all with a state class so the recorder keeps

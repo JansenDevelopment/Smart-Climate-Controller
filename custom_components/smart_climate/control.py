@@ -265,9 +265,13 @@ HOLD_FLOOR = 16.0
 # throttles down far below the target. While the room is more than LEAD_ON under
 # the target, the setpoint goes up by the measured offset (whole degrees, at most
 # LEAD_MAX); back to the plain target once the deficit is under LEAD_OFF.
+# While the room stays short the lead follows a growing offset upwards once the offset
+# is LEAD_STEP above it (Qlima 10/11-11-2026: lead 3, offset 5-6 after fan up and swing
+# off, room stuck 0.5-1 deg under the target for hours). It never goes down on the way.
 LEAD_ON = 0.5
 LEAD_OFF = 0.2
-LEAD_MAX = 3
+LEAD_MAX = 6
+LEAD_STEP = 1.0
 OFFSET_ALPHA = 0.02   # per 10 s tick: about 8 min to follow a new offset
 # A heating air-to-air unit whose own sensor reads this far under the room is defrosting
 # (it blows cold for a few minutes; Qlima 10-11-2026: 24 -> 10 deg every ~35 min at 0-2 outside).
@@ -298,16 +302,23 @@ def setpoint_lead(
 ) -> int:
     """Whole degrees to add to a heating primary's setpoint (0 = the plain target).
 
-    The lead is fixed when it starts and kept until the room is within ``LEAD_OFF``
-    of the target: every setpoint change beeps on some devices.
+    Every setpoint change beeps on some devices, so the lead only changes when it has
+    to: it starts at the measured offset, goes up while the room stays short and the
+    offset has grown ``LEAD_STEP`` past it, and drops to 0 once the room is within
+    ``LEAD_OFF`` of the target.
     """
     if room_temp is None or target is None:
         return prev_lead
     deficit = target - room_temp
+    wanted = int(min(max(offset, 0), LEAD_MAX) + 0.5) if offset is not None else 0
     if prev_lead:
-        return prev_lead if deficit > LEAD_OFF else 0
+        if deficit <= LEAD_OFF:
+            return 0
+        if offset is not None and offset >= prev_lead + LEAD_STEP:
+            return max(prev_lead, wanted)
+        return prev_lead
     if deficit > LEAD_ON and offset is not None:
-        return int(min(max(offset, 0), LEAD_MAX) + 0.5)
+        return wanted
     return 0
 
 

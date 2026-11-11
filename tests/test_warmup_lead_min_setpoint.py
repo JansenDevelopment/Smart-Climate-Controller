@@ -22,7 +22,8 @@ def test_offset_follows_slowly_and_skips_defrost():
 
 def test_lead_starts_well_under_the_target_and_holds_until_close():
     assert control.setpoint_lead(18.0, 21.5, 0, 3.4) == 3
-    assert control.setpoint_lead(18.0, 21.5, 0, 5.0) == control.LEAD_MAX
+    assert control.setpoint_lead(18.0, 21.5, 0, 5.0) == 5
+    assert control.setpoint_lead(18.0, 21.5, 0, 9.4) == control.LEAD_MAX
     assert control.setpoint_lead(18.0, 21.5, 0, None) == 0          # nothing learned yet
     assert control.setpoint_lead(21.2, 21.5, 0, 3.4) == 0           # close: no lead
     assert control.setpoint_lead(21.2, 21.5, 3, 1.0) == 3           # keeps its value (beeps)
@@ -232,3 +233,14 @@ async def test_no_lead_for_a_device_on_manual():
     await entity._apply_control()
     assert entity.extra_state_attributes["learning"]["climate.qlima"]["lead"] == 0
     assert entity.extra_state_attributes["learning"]["climate.qlima"]["offset"] == 5.0   # still learns
+
+
+def test_lead_follows_a_growing_offset_while_short():
+    # 10-11 evening: lead 3, offset grew to 5+ while the room hung at 21.1 under 22
+    assert control.setpoint_lead(21.1, 22.0, 3, 3.9) == 3          # under a whole step: keep
+    assert control.setpoint_lead(21.1, 22.0, 3, 4.0) == 4          # one step up
+    assert control.setpoint_lead(21.1, 22.0, 3, 5.4) == 5          # straight to the offset
+    assert control.setpoint_lead(21.1, 22.0, 5, 9.0) == control.LEAD_MAX
+    assert control.setpoint_lead(21.1, 22.0, 5, 2.0) == 5          # never down on the way
+    assert control.setpoint_lead(21.1, 22.0, 5, None) == 5
+    assert control.setpoint_lead(21.85, 22.0, 5, 6.0) == 0         # target reached: back
