@@ -1,5 +1,6 @@
 import { LitElement, html, css, svg } from "https://unpkg.com/lit@3/index.js?module";
 import { SmartClimateBaseEditor } from "./smart-climate-base-editor.js";
+import { translate, fmtTemp, coolingInfo, supportDevices, supportName } from "./smart-climate-shared.js";
 
 // SVG graph layout constants (viewBox units)
 const GL = 52;   // graph left x
@@ -21,6 +22,116 @@ const COOL_COLOR = "#4aa8ff";
 // Friendly-name suffix used to identify a presence sensor when the derived ID
 // (sensor.<name>_presence) is not found in hass.states.
 const PRESENCE_FRIENDLY_NAME_SUFFIX = " Presence";
+const CEILING_COLOR = "#ef5350";
+const SUPPORT_COLOR = "var(--sc-support, #9e9e9e)";
+const DEFAULT_SUPPORT_DELTA = 1.5;
+
+// Texts of the card (nl/en, picked with hass.language). `{support}` is the support
+// heater's name: "CV" in Dutch, its friendly name in English.
+const TEXT = {
+  nl: {
+    title: "Schema",
+    entityNotFound: "Entiteit niet gevonden",
+    entityNotFoundHint: "Controleer of {entity} bestaat en de Smart Climate-integratie is geladen.",
+    loading: "Laden…",
+    unreadable: "Schema kon niet worden gelezen van de integratie — opslaan uitgeschakeld",
+    unreadableHint: "Werk de Smart Climate-integratie bij en herlaad Home Assistant.",
+    cooling: "Koelen",
+    coolToggle: "Koelen",
+    coolToggleTitle: "Toon verwarmen en koelen als band",
+    allowed: "toegestaan",
+    notAllowed: "niet toegestaan",
+    unsaved: "Niet opgeslagen",
+    saved: "Opgeslagen",
+    save: "Opslaan",
+    modeDaily: "Alle dagen",
+    mode52: "Werkdagen / weekend",
+    modeIndividual: "Losse dagen",
+    weekday: "Werkdag",
+    weekend: "Weekend",
+    monday: "Ma",
+    tuesday: "Di",
+    wednesday: "Wo",
+    thursday: "Do",
+    friday: "Vr",
+    saturday: "Za",
+    sunday: "Zo",
+    axisTemp: "Temperatuur (°C)",
+    axisTime: "Tijd (24 uur)",
+    editNode: "Punt bewerken",
+    time: "Tijd",
+    heatTo: "Verwarmen tot (°C)",
+    coolAbove: "Koelen boven (°C)",
+    remove: "Verwijderen",
+    home: "Thuis",
+    leaving: "Bijna weg",
+    away: "Weg",
+    legendHeat: "Verwarmen tot",
+    legendCool: "Koelen boven",
+    legendIdle: "Niets actief",
+    hint: "Dubbelklik om toe te voegen • Sleep een punt om te verplaatsen",
+    hintCool: " (🔥 onder, ❄ boven)",
+    hintRemove: " • Selecteer en verwijder om te wissen",
+    awayLine: "Bij afwezigheid: {heat} verwarmen / {cool} koelen",
+    awayLineHeat: "Bij afwezigheid: {heat} verwarmen",
+    ceilingLabel: "Altijd koelen > {t}",
+    ceilingLegend: "Koelen altijd toegestaan boven {t}",
+    supportLabel: "{support} mag bijspringen onder {t}",
+    supportLabelShort: "{support} onder {t}",
+    supportLegend: "{support}-drempel (stookdoel − {d})",
+  },
+  en: {
+    title: "Schedule",
+    entityNotFound: "Entity not found",
+    entityNotFoundHint: "Check that {entity} exists and the Smart Climate integration is loaded.",
+    loading: "Loading…",
+    unreadable: "Schedule could not be read from the integration — saving is disabled",
+    unreadableHint: "Update the Smart Climate integration and reload Home Assistant.",
+    cooling: "Cooling",
+    coolToggle: "Cooling",
+    coolToggleTitle: "Show heating + cooling band",
+    allowed: "allowed",
+    notAllowed: "not allowed",
+    unsaved: "Unsaved",
+    saved: "Saved",
+    save: "Save",
+    modeDaily: "All days",
+    mode52: "Weekdays / weekend",
+    modeIndividual: "Individual days",
+    weekday: "Weekday",
+    weekend: "Weekend",
+    monday: "Mon",
+    tuesday: "Tue",
+    wednesday: "Wed",
+    thursday: "Thu",
+    friday: "Fri",
+    saturday: "Sat",
+    sunday: "Sun",
+    axisTemp: "Temperature (°C)",
+    axisTime: "Time (24 hours)",
+    editNode: "Edit node",
+    time: "Time",
+    heatTo: "Heat to (°C)",
+    coolAbove: "Cool above (°C)",
+    remove: "Remove",
+    home: "Home",
+    leaving: "Leaving",
+    away: "Away",
+    legendHeat: "Heat to",
+    legendCool: "Cool above",
+    legendIdle: "Idle band",
+    hint: "Double-click to add • Drag a dot to move",
+    hintCool: " (🔥 lower, ❄ upper)",
+    hintRemove: " • Select then remove to delete",
+    awayLine: "When away: heat to {heat} / cool to {cool}",
+    awayLineHeat: "When away: heat to {heat}",
+    ceilingLabel: "Always cool > {t}",
+    ceilingLegend: "Cooling always allowed above {t}",
+    supportLabel: "{support} may join below {t}",
+    supportLabelShort: "{support} below {t}",
+    supportLegend: "{support} threshold (heat target − {d})",
+  },
+};
 
 class SmartClimateScheduleCard extends LitElement {
   static properties = {
@@ -38,6 +149,7 @@ class SmartClimateScheduleCard extends LitElement {
     _dirty: { state: true },
     _selectedIdx: { state: true },
     _showCooling: { state: true },
+    _scheduleUnreadable: { state: true },
   };
 
   static getConfigElement() {
@@ -58,6 +170,7 @@ class SmartClimateScheduleCard extends LitElement {
   updated(changedProps) {
     if (changedProps.has("hass") && this.hass) {
       if (this._schedule === undefined) this._syncFromEntity();
+      else if (this._scheduleUnreadable && !this._dirty) this._syncFromEntity();
       if (this.config.show_history !== false && this._history === undefined) this._fetchHistory();
       if (this.config.show_yesterday !== false && this._yesterdayHistory === undefined) this._fetchYesterdayHistory();
       if (this.config.show_presence !== false && this._presenceHistory === undefined) this._fetchPresenceHistory();
@@ -81,10 +194,18 @@ class SmartClimateScheduleCard extends LitElement {
   _syncFromEntity() {
     const entity = this.hass?.states[this.config.entity];
     if (!entity) return;
-    const raw = entity.attributes.schedule;
+    const attrs = entity.attributes;
+    // An integration that has never saved a schedule publishes `schedule: null`;
+    // an older one has no `schedule` attribute at all. In that case we cannot
+    // know the real schedule, so never offer defaults that could overwrite it.
+    this._scheduleUnreadable = !("schedule" in attrs);
+    const raw = attrs.schedule;
     if (raw) {
       this._schedule = raw;
       this._scheduleMode = raw.mode || "daily";
+    } else if (this._scheduleUnreadable) {
+      this._scheduleMode = "daily";
+      this._schedule = { mode: "daily", daily: [] };
     } else {
       this._scheduleMode = "daily";
       this._schedule = {
@@ -112,6 +233,106 @@ class SmartClimateScheduleCard extends LitElement {
   _coolOf(node) {
     if (node?.cool_temp != null) return node.cool_temp;
     return Math.min(TMAX, (node?.temp ?? 21) + COOL_GAP_DEFAULT);
+  }
+
+  _t(key, vars) {
+    return translate(TEXT, this.hass, key, vars);
+  }
+
+  /** Label of a weekday/weekend/day tab. */
+  _dayLabel(day) {
+    return TEXT.nl[day] !== undefined ? this._t(day) : day;
+  }
+
+  /** Home Assistant's own dark-mode flag (the graph colours differ per scheme). */
+  _isDark() {
+    // Dashboards often use their own (dark) theme while the profile's dark-mode
+    // flag stays off, so judge the actual text colour first and only fall back
+    // to the flag when it cannot be read.
+    try {
+      const raw = getComputedStyle(this).getPropertyValue("--primary-text-color").trim();
+      if (raw) {
+        const probe = document.createElement("span");
+        probe.style.color = raw;
+        document.body.appendChild(probe);
+        const m = getComputedStyle(probe).color.match(/\d+(\.\d+)?/g);
+        probe.remove();
+        if (m && m.length >= 3) {
+          const [r, g, b] = m.slice(0, 3).map(Number);
+          return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.5;
+        }
+      }
+    } catch (_) { /* fall through */ }
+    return this.hass?.themes?.darkMode !== false;
+  }
+
+  /**
+   * Find a spot for a line label that does not overlap the nodes or their
+   * labels. `lines` is a list of `{ y, x0, x1, text }` candidates (a horizontal
+   * stretch of the line the label may sit on); `ys` the offsets from the line
+   * to try. The first spot that fits wins; returns null when nothing fits.
+   */
+  _placeLabel(lines, ys, obstacles) {
+    const hit = (r, o) => r[0] < o[2] && r[2] > o[0] && r[1] < o[3] && r[3] > o[1];
+    for (const { x0, x1, text, y: lineY } of lines) {
+      const w = text.length * 6.3 + 4;
+      if (x1 - x0 < w) continue;
+      for (const dy of ys) {
+        const y = lineY + dy;
+        if (y - 12 < GT || y + 4 > GB - PBAR_H) continue;
+        // Try positions starting from the middle of the stretch and moving out.
+        const mid = (x0 + x1 - w) / 2;
+        for (let d = 0; d <= (x1 - x0 - w) / 2 + 1; d += 4) {
+          for (const x of d ? [mid - d, mid + d] : [mid]) {
+            if (x < x0 || x + w > x1) continue;
+            const r = [x - 2, y - 12, x + w, y + 4];
+            if (!obstacles.some((o) => hit(r, o))) return { x, y, text, rect: r };
+          }
+        }
+      }
+    }
+    return null;
+  }
+
+  /** Boxes the policy labels must keep clear of: nodes, node labels, "now" label. */
+  _labelObstacles(sortedNodes, nowX) {
+    const boxes = [[nowX, GT, nowX + 46, GT + 18], [nowX - 2, GT, nowX + 2, GB]];
+    for (const node of sortedNodes) {
+      const cx = this._toX(this._timeToHour(node.time));
+      const cy = this._toY(node.temp);
+      boxes.push([cx - 20, cy - NR - 17, cx + 20, cy + NR + 28]);
+      if (this._showCooling) {
+        const cool = this._toY(this._coolOf(node));
+        boxes.push([cx - 18, cool - NR - 16, cx + 18, cool + NR + 3]);
+      }
+    }
+    return boxes;
+  }
+
+  /** Status line: "Koelen: Auto — niet toegestaan (verwachte max 19°, drempel 22°)". */
+  _coolingStatus(attrs) {
+    const info = coolingInfo(attrs, this.hass);
+    if (!info) return null;
+    let text = `${this._t("cooling")}: ${info.label}`;
+    if (info.mode === "auto" && info.allowed !== null) {
+      const detail = info.allowed
+        ? [info.why, info.facts].filter(Boolean).join(", ")
+        : info.facts;
+      text += ` — ${this._t(info.allowed ? "allowed" : "notAllowed")}${detail ? ` (${detail})` : ""}`;
+    }
+    return { text, allowed: info.mode === "auto" ? info.allowed : info.mode === "on" ? true : null };
+  }
+
+  /** Thin line under the status: the temperatures used when nobody is home. */
+  _awayLine(attrs) {
+    const heat = attrs.away_temperature;
+    if (typeof heat !== "number") return "";
+    const cool = attrs.cool_away_temperature;
+    const showCool = typeof cool === "number" && attrs.cooling_mode !== "off";
+    const text = showCool
+      ? this._t("awayLine", { heat: fmtTemp(heat, this.hass), cool: fmtTemp(cool, this.hass) })
+      : this._t("awayLineHeat", { heat: fmtTemp(heat, this.hass) });
+    return html`<div class="away-line">${text}</div>`;
   }
 
   _toggleCooling() {
@@ -349,7 +570,7 @@ class SmartClimateScheduleCard extends LitElement {
   }
 
   async _saveSchedule() {
-    if (!this.hass) return;
+    if (!this.hass || this._scheduleUnreadable) return;
     try {
       let schedule = { ...(this._schedule ?? {}), mode: this._scheduleMode ?? "daily" };
       // When cooling is enabled, make every node's cool limit explicit so the
@@ -514,6 +735,9 @@ class SmartClimateScheduleCard extends LitElement {
       const prevCool = i === 0 ? lastCool : this._coolOf(s[i - 1]);
       cool.push(`L${this._toX(h)},${this._toY(prevCool)}`);
     }
+    // Back to x=0 on the last node's cool value (the same wrap the step lines draw), so the
+    // closing edge is vertical instead of a diagonal from the first node's time.
+    cool.push(`L${this._toX(0)},${this._toY(lastCool)}`);
     return heat.join(" ") + " " + cool.join(" ") + " Z";
   }
 
@@ -616,8 +840,20 @@ class SmartClimateScheduleCard extends LitElement {
   render() {
     if (!this.hass) return html``;
     const entity = this.hass.states[this.config.entity];
-    if (!entity) return html`<ha-card><div class="content">Entity not found</div></ha-card>`;
-    if (this._schedule === undefined) return html`<ha-card><div class="content">Loading…</div></ha-card>`;
+    if (!entity) {
+      return html`
+        <ha-card>
+          <div class="content error" role="alert">
+            <ha-icon icon="mdi:alert-circle-outline"></ha-icon>
+            <div>
+              <div class="error-title">${this._t("entityNotFound")}</div>
+              <div class="error-text">${this._t("entityNotFoundHint", { entity: this.config.entity })}</div>
+            </div>
+          </div>
+        </ha-card>
+      `;
+    }
+    if (this._schedule === undefined) return html`<ha-card><div class="content">${this._t("loading")}</div></ha-card>`;
 
     const schedMode = this._scheduleMode ?? "daily";
     const activeDay = this._activeDay ?? "daily";
@@ -637,11 +873,6 @@ class SmartClimateScheduleCard extends LitElement {
         ? ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
       : [];
 
-    const dayLabel = {
-      weekday: "Weekday", weekend: "Weekend",
-      monday: "Mon", tuesday: "Tue", wednesday: "Wed",
-      thursday: "Thu", friday: "Fri", saturday: "Sat", sunday: "Sun",
-    };
 
     const stepPathD = this._stepPath(nodes);
     const coolPathD = this._showCooling ? this._stepPath(nodes, (n) => this._coolOf(n)) : "";
@@ -657,26 +888,85 @@ class SmartClimateScheduleCard extends LitElement {
 
     const selectedNode = this._selectedIdx != null ? sortedNodes[this._selectedIdx] : null;
 
+    // Policy overlays (only when the integration publishes the attributes).
+    const attrs = entity.attributes;
+    const coolingStatus = this._coolingStatus(attrs);
+    const ceiling =
+      typeof attrs.hard_ceiling === "number" && attrs.cooling_mode !== "off" ? attrs.hard_ceiling : null;
+    const supportDelta = attrs.support_delta ?? DEFAULT_SUPPORT_DELTA;
+    const supportLabelName = supportName(attrs, this.hass);
+    const showSupport =
+      attrs.support_enabled === true && supportDevices(attrs).length > 0 && sortedNodes.length > 0;
+    const supportOf = (n) => Math.max(TMIN, (n.temp ?? 21) - supportDelta);
+    const supportPathD = showSupport ? this._stepPath(nodes, supportOf) : "";
+    const isDark = this._isDark();
+    // The ceiling often equals a cool limit (26°): then it would draw a second line on top of the
+    // blue one, so it is dimmed and drawn underneath.
+    const ceilingOverlaps =
+      ceiling != null && this._showCooling && sortedNodes.some((n) => Math.abs(this._coolOf(n) - ceiling) < 0.01);
+
+    // Labels for the policy lines, placed where they overlap nothing.
+    const obstacles = this._labelObstacles(sortedNodes, nowX);
+    let ceilingLabel = null;
+    if (ceiling != null) {
+      const text = this._t("ceilingLabel", { t: fmtTemp(ceiling, this.hass) });
+      ceilingLabel = this._placeLabel([{ x0: GL + 2, x1: GR - 2, y: this._toY(ceiling), text }], [-5, 15], obstacles);
+      if (ceilingLabel) obstacles.push(ceilingLabel.rect);
+    }
+    let supportLabel = null;
+    if (showSupport) {
+      // The label sits on one stretch of the stepped line and names that stretch's value.
+      const xs = sortedNodes.map((n) => this._toX(this._timeToHour(n.time)));
+      const stretches = [{ a: GL, b: xs[0], n: sortedNodes[sortedNodes.length - 1] }];
+      sortedNodes.forEach((n, i) => stretches.push({ a: xs[i], b: i + 1 < xs.length ? xs[i + 1] : GR, n }));
+      const widest = stretches.sort((p, q) => q.b - q.a - (p.b - p.a));
+      for (const variant of ["supportLabel", "supportLabelShort"]) {
+        const lines = widest.map(({ a, b, n }) => ({
+          x0: a + 2, x1: b - 2, y: this._toY(supportOf(n)),
+          text: this._t(variant, { t: fmtTemp(supportOf(n), this.hass), support: supportLabelName }),
+        }));
+        supportLabel = this._placeLabel(lines, [15, -5], obstacles);
+        if (supportLabel) break;
+      }
+    }
+
     return html`
       <ha-card>
-        <div class="content">
+        <div class="content" data-scheme=${isDark ? "dark" : "light"}>
           <div class="header">
             <div class="title">
-              📅 Schedule${activeDay !== "daily" ? ` (${dayLabel[activeDay] ?? activeDay})` : ""}
+              📅 ${this._t("title")}${activeDay !== "daily" ? ` (${this._dayLabel(activeDay)})` : ""}
             </div>
             <div class="header-actions">
               <button class="cool-toggle ${this._showCooling ? "cool-toggle--on" : ""}"
-                title="Show heating + cooling band" @click=${this._toggleCooling}>
-                ❄ Cooling
+                title=${this._t("coolToggleTitle")} aria-pressed=${this._showCooling ? "true" : "false"}
+                @click=${this._toggleCooling}>
+                ❄ ${this._t("coolToggle")}
               </button>
-              ${this._dirty ? html`<span class="unsaved-badge">● Unsaved</span>` : ""}
-              ${this._saved ? html`<span class="saved-badge">✓ Saved</span>` : ""}
-              <button class="save-btn ${this._dirty ? "save-btn--dirty" : ""}"
-                @click=${this._saveSchedule} ?disabled=${!this._dirty}>
-                Save
+              ${this._dirty ? html`<span class="unsaved-badge">● ${this._t("unsaved")}</span>` : ""}
+              ${this._saved ? html`<span class="saved-badge">✓ ${this._t("saved")}</span>` : ""}
+              <button class="save-btn ${this._dirty && !this._scheduleUnreadable ? "save-btn--dirty" : ""}"
+                @click=${this._saveSchedule} ?disabled=${!this._dirty || this._scheduleUnreadable}>
+                ${this._t("save")}
               </button>
             </div>
           </div>
+
+          ${this._scheduleUnreadable ? html`
+            <div class="warning" role="alert">
+              <strong>${this._t("unreadable")}</strong>
+              <span>${this._t("unreadableHint")}</span>
+            </div>
+          ` : ""}
+
+          ${coolingStatus ? html`
+            <div class="policy-line">
+              <span class="policy-dot ${coolingStatus.allowed === true ? "policy-dot--on" : ""}"></span>
+              ${coolingStatus.text}
+            </div>
+          ` : ""}
+
+          ${this._awayLine(attrs)}
 
           <div class="mode-row">
             ${["daily", "5/2", "individual"].map(m => html`
@@ -684,7 +974,7 @@ class SmartClimateScheduleCard extends LitElement {
                 <input type="radio" name="sc-mode-${this.config.entity}" .value=${m}
                   ?checked=${schedMode === m}
                   @change=${() => this._setMode(m)} />
-                ${m === "daily" ? "All Days" : m === "5/2" ? "5/2 (Weekday/Weekend)" : "Individual Days"}
+                ${m === "daily" ? this._t("modeDaily") : m === "5/2" ? this._t("mode52") : this._t("modeIndividual")}
               </label>
             `)}
           </div>
@@ -694,7 +984,7 @@ class SmartClimateScheduleCard extends LitElement {
               ${dayTabs.map(d => html`
                 <button class="day-tab ${activeDay === d ? "active" : ""}"
                   @click=${() => { this._activeDay = d; this._selectedIdx = null; }}>
-                  ${dayLabel[d] ?? d}
+                  ${this._dayLabel(d)}
                 </button>
               `)}
             </div>
@@ -710,14 +1000,14 @@ class SmartClimateScheduleCard extends LitElement {
             >
               <!-- graph background -->
               <rect x="${GL}" y="${GT}" width="${GR - GL}" height="${GB - GT}"
-                fill="rgba(0,0,0,0.25)" rx="3"/>
+                fill="var(--sc-graph-bg)" rx="3"/>
 
               <!-- y grid lines + labels -->
               ${yTicks.map(t => {
                 const gy = this._toY(t);
                 return svg`
                   <line x1="${GL}" y1="${gy}" x2="${GR}" y2="${gy}"
-                    stroke="rgba(255,255,255,0.1)" stroke-width="1"/>
+                    stroke="var(--sc-grid)" stroke-width="1"/>
                   <text x="${GL - 5}" y="${gy + 4}" text-anchor="end" class="ax">${t}°</text>
                 `;
               })}
@@ -727,8 +1017,8 @@ class SmartClimateScheduleCard extends LitElement {
                 const gx = this._toX(h);
                 return svg`
                   <line x1="${gx}" y1="${GT}" x2="${gx}" y2="${GB}"
-                    stroke="rgba(255,255,255,0.07)" stroke-width="1"/>
-                  <circle cx="${gx}" cy="${GB + 3}" r="1.5" fill="rgba(255,255,255,0.3)"/>
+                    stroke="var(--sc-grid)" stroke-opacity="0.7" stroke-width="1"/>
+                  <circle cx="${gx}" cy="${GB + 3}" r="1.5" fill="var(--sc-node-sub)"/>
                   <text x="${gx}" y="${GB + 15}" text-anchor="middle" class="ax">${h}</text>
                 `;
               })}
@@ -736,11 +1026,11 @@ class SmartClimateScheduleCard extends LitElement {
               <!-- y axis title -->
               <text transform="rotate(-90,12,${(GT + GB) / 2})"
                 x="12" y="${(GT + GB) / 2}"
-                text-anchor="middle" class="ax-title">Temperature (°C)</text>
+                text-anchor="middle" class="ax-title">${this._t("axisTemp")}</text>
 
               <!-- x axis title -->
               <text x="${(GL + GR) / 2}" y="${VH - 1}"
-                text-anchor="middle" class="ax-title">Time (24 hours)</text>
+                text-anchor="middle" class="ax-title">${this._t("axisTime")}</text>
 
               <!-- presence history bar -->
               ${this.config.show_presence !== false ? this._presenceBar() : ""}
@@ -766,8 +1056,16 @@ class SmartClimateScheduleCard extends LitElement {
 
               <!-- comfort band fill (between heat and cool) -->
               ${bandPathD ? svg`
-                <path d="${bandPathD}" fill="${COOL_COLOR}" opacity="0.08"
+                <path d="${bandPathD}" fill="${COOL_COLOR}" opacity="${isDark ? 0.08 : 0.16}"
                   stroke="none"/>
+              ` : ""}
+
+              <!-- hard ceiling: above this the room is always cooled (under the cool line) -->
+              ${ceiling != null ? svg`
+                <line x1="${GL}" y1="${this._toY(ceiling)}" x2="${GR}" y2="${this._toY(ceiling)}"
+                  stroke="${CEILING_COLOR}" stroke-width="${ceilingOverlaps ? 1 : 1.5}"
+                  stroke-opacity="${ceilingOverlaps ? 0.45 : 1}" stroke-dasharray="1.5,4"
+                  stroke-linecap="round"/>
               ` : ""}
 
               <!-- cooling step path -->
@@ -780,6 +1078,17 @@ class SmartClimateScheduleCard extends LitElement {
               ${stepPathD ? svg`
                 <path d="${stepPathD}" fill="none"
                   stroke="${HEAT_COLOR}" stroke-width="2.5" stroke-linejoin="round"/>
+              ` : ""}
+
+              ${ceiling != null && ceilingLabel ? svg`<text x="${ceilingLabel.x}" y="${ceilingLabel.y}"
+                class="line-lbl line-lbl--ceiling">${ceilingLabel.text}</text>` : ""}
+
+              <!-- support (CV) threshold: heat target minus support_delta -->
+              ${supportPathD ? svg`
+                <path d="${supportPathD}" fill="none" stroke="${SUPPORT_COLOR}" stroke-width="1.5"
+                  stroke-dasharray="5,4" stroke-linejoin="round"/>
+                ${supportLabel ? svg`<text x="${supportLabel.x}" y="${supportLabel.y}"
+                  class="line-lbl line-lbl--support">${supportLabel.text}</text>` : ""}
               ` : ""}
 
               <!-- current time marker -->
@@ -835,21 +1144,21 @@ class SmartClimateScheduleCard extends LitElement {
 
           ${selectedNode != null ? html`
             <div class="edit-panel">
-              <span class="edit-panel-title">Edit Node</span>
+              <span class="edit-panel-title">${this._t("editNode")}</span>
               <label class="edit-field">
-                <span>Time</span>
+                <span>${this._t("time")}</span>
                 <input type="time" class="edit-input" .value=${selectedNode.time}
                   @input=${(e) => this._editNodeTime(this._selectedIdx, e.target.value)} />
               </label>
               <label class="edit-field">
-                <span>🔥 Heat to (°C)</span>
+                <span>🔥 ${this._t("heatTo")}</span>
                 <input type="number" class="edit-input" min="${TMIN}" max="${TMAX}" step="0.5"
                   .value=${String(selectedNode.temp)}
                   @input=${(e) => this._editNodeTemp(this._selectedIdx, e.target.value)} />
               </label>
               ${this._showCooling ? html`
                 <label class="edit-field">
-                  <span>❄ Cool above (°C)</span>
+                  <span>❄ ${this._t("coolAbove")}</span>
                   <input type="number" class="edit-input" min="${TMIN}" max="${TMAX}" step="0.5"
                     .value=${String(this._coolOf(selectedNode))}
                     @input=${(e) => this._editNodeCoolTemp(this._selectedIdx, e.target.value)} />
@@ -857,7 +1166,7 @@ class SmartClimateScheduleCard extends LitElement {
               ` : ""}
               <button class="edit-remove-btn"
                 @click=${() => this._removeNode(null, this._selectedIdx)}>
-                🗑 Remove
+                🗑 ${this._t("remove")}
               </button>
               <button class="edit-close-btn"
                 @click=${() => { this._selectedIdx = null; }}>
@@ -869,13 +1178,13 @@ class SmartClimateScheduleCard extends LitElement {
           ${this.config.show_presence !== false && this._presenceHistory?.length ? html`
             <div class="presence-legend">
               <span class="presence-legend-item">
-                <span class="presence-dot presence-dot--home"></span>🏠 Home
+                <span class="presence-dot presence-dot--home"></span>🏠 ${this._t("home")}
               </span>
               <span class="presence-legend-item">
-                <span class="presence-dot presence-dot--leaving"></span>⏳ Leaving
+                <span class="presence-dot presence-dot--leaving"></span>⏳ ${this._t("leaving")}
               </span>
               <span class="presence-legend-item">
-                <span class="presence-dot presence-dot--away"></span>🏃 Away
+                <span class="presence-dot presence-dot--away"></span>🏃 ${this._t("away")}
               </span>
             </div>
           ` : ""}
@@ -892,20 +1201,36 @@ class SmartClimateScheduleCard extends LitElement {
           ${this._showCooling ? html`
             <div class="presence-legend">
               <span class="presence-legend-item">
-                <span class="presence-dot" style="background:${HEAT_COLOR}"></span>🔥 Heat to
+                <span class="presence-dot" style="background:${HEAT_COLOR}"></span>🔥 ${this._t("legendHeat")}
               </span>
               <span class="presence-legend-item">
-                <span class="presence-dot" style="background:${COOL_COLOR}"></span>❄ Cool above
+                <span class="presence-dot" style="background:${COOL_COLOR}"></span>❄ ${this._t("legendCool")}
               </span>
               <span class="presence-legend-item">
-                <span class="presence-dot" style="background:${COOL_COLOR};opacity:0.25"></span>Idle band
+                <span class="presence-dot" style="background:${COOL_COLOR};opacity:0.25"></span>${this._t("legendIdle")}
               </span>
             </div>
           ` : ""}
 
+          ${ceiling != null || showSupport ? html`
+            <div class="presence-legend">
+              ${ceiling != null ? html`
+                <span class="presence-legend-item">
+                  <span class="legend-line" style="border-top:2px dotted ${CEILING_COLOR}"></span>
+                  ${this._t("ceilingLegend", { t: fmtTemp(ceiling, this.hass) })}
+                </span>
+              ` : ""}
+              ${showSupport ? html`
+                <span class="presence-legend-item">
+                  <span class="legend-line" style="border-top:2px dashed ${SUPPORT_COLOR}"></span>
+                  ${this._t("supportLegend", { d: fmtTemp(supportDelta, this.hass), support: supportLabelName })}
+                </span>
+              ` : ""}
+            </div>
+          ` : ""}
+
           <div class="hint">
-            Double-click to add • Drag a dot to move
-            ${this._showCooling ? " (🔥 lower, ❄ upper)" : ""} • Select then remove to delete
+            ${this._t("hint")}${this._showCooling ? this._t("hintCool") : ""}${this._t("hintRemove")}
           </div>
         </div>
       </ha-card>
@@ -920,6 +1245,71 @@ class SmartClimateScheduleCard extends LitElement {
 
     .content {
       padding: 10px 12px;
+      /* Graph colours: the dark scheme is the original look, light gets its own set. */
+      --sc-graph-bg: rgba(0, 0, 0, 0.25);
+      --sc-grid: rgba(255, 255, 255, 0.1);
+      --sc-node-text: #fff;
+      --sc-node-sub: rgba(255, 255, 255, 0.7);
+      --sc-cool-text: #7cc4ff;
+      --sc-halo: rgba(0, 0, 0, 0.45);
+      --sc-ceiling: #ff8a80;
+      --sc-support: #d6d6d6;
+      --sc-now: #4caf50;
+      --sc-unsaved: #ff9800;
+    }
+
+    /* Small text needs 4.5:1; the plain secondary text colour falls short on tinted areas. */
+    .content {
+      --sc-muted: var(--secondary-text-color);
+      --sc-strong: var(--accent-color, #f5a623);
+    }
+
+    @supports (color: color-mix(in srgb, red, blue)) {
+      .content {
+        --sc-muted: color-mix(in srgb, var(--secondary-text-color) 70%, var(--primary-text-color));
+        --sc-strong: color-mix(in srgb, var(--accent-color, #f5a623) 60%, #000);
+      }
+    }
+
+    .content.error {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+    }
+
+    .error ha-icon {
+      --mdc-icon-size: 28px;
+      color: var(--warning-color, #ffa600);
+    }
+
+    .error-title {
+      font-size: 16px;
+      font-weight: 500;
+    }
+
+    .error-text {
+      margin-top: 2px;
+      font-size: 14px;
+      color: var(--sc-muted);
+    }
+
+    .away-line {
+      margin: -4px 0 8px;
+      font-size: 12px;
+      color: var(--sc-muted);
+    }
+
+    .content[data-scheme="light"] {
+      --sc-graph-bg: rgba(0, 0, 0, 0.05);
+      --sc-grid: rgba(0, 0, 0, 0.13);
+      --sc-node-text: #212121;
+      --sc-node-sub: #616161;
+      --sc-cool-text: #1565c0;
+      --sc-halo: rgba(255, 255, 255, 0.85);
+      --sc-ceiling: #c62828;
+      --sc-support: #4f4f4f;
+      --sc-now: #2a6f2e;
+      --sc-unsaved: #a35200;
     }
 
     .header {
@@ -961,7 +1351,7 @@ class SmartClimateScheduleCard extends LitElement {
 
     .cool-toggle--on {
       background: rgba(74, 168, 255, 0.15);
-      color: #4aa8ff;
+      color: var(--sc-cool-text);
       border-color: #4aa8ff;
     }
 
@@ -971,9 +1361,9 @@ class SmartClimateScheduleCard extends LitElement {
     }
 
     .save-btn--dirty {
-      background: var(--accent-color, #f5a623);
+      background: var(--sc-strong);
       color: white;
-      border-color: var(--accent-color, #f5a623);
+      border-color: var(--sc-strong);
       animation: pulse-save 1.2s ease-in-out infinite;
     }
 
@@ -983,8 +1373,8 @@ class SmartClimateScheduleCard extends LitElement {
     }
 
     .unsaved-badge {
-      font-size: 11px;
-      color: #ff9800;
+      font-size: 12px;
+      color: var(--sc-unsaved);
       font-weight: 600;
     }
 
@@ -1034,9 +1424,9 @@ class SmartClimateScheduleCard extends LitElement {
     }
 
     .day-tab.active {
-      background: var(--accent-color);
+      background: var(--sc-strong);
       color: white;
-      border-color: var(--accent-color);
+      border-color: var(--sc-strong);
     }
 
     .day-tab:hover {
@@ -1072,7 +1462,7 @@ class SmartClimateScheduleCard extends LitElement {
 
     .now-label {
       font-size: 14px;
-      fill: #4caf50;
+      fill: var(--sc-now);
       font-weight: 700;
       font-family: sans-serif;
     }
@@ -1176,7 +1566,11 @@ class SmartClimateScheduleCard extends LitElement {
 
     .node-lbl {
       font-size: 13px;
-      fill: white;
+      fill: var(--sc-node-text);
+      paint-order: stroke;
+      stroke: var(--sc-halo);
+      stroke-width: 3px;
+      stroke-linejoin: round;
       font-weight: 700;
       font-family: sans-serif;
       pointer-events: none;
@@ -1184,7 +1578,11 @@ class SmartClimateScheduleCard extends LitElement {
 
     .node-cool-lbl {
       font-size: 12px;
-      fill: #7cc4ff;
+      fill: var(--sc-cool-text);
+      paint-order: stroke;
+      stroke: var(--sc-halo);
+      stroke-width: 3px;
+      stroke-linejoin: round;
       font-weight: 700;
       font-family: sans-serif;
       pointer-events: none;
@@ -1192,14 +1590,18 @@ class SmartClimateScheduleCard extends LitElement {
 
     .node-time {
       font-size: 12px;
-      fill: rgba(255, 255, 255, 0.7);
+      fill: var(--sc-node-sub);
+      paint-order: stroke;
+      stroke: var(--sc-halo);
+      stroke-width: 3px;
+      stroke-linejoin: round;
       font-family: sans-serif;
       pointer-events: none;
     }
 
     .hint {
-      font-size: 10px;
-      color: var(--secondary-text-color);
+      font-size: 11px;
+      color: var(--sc-muted);
       margin-top: 4px;
       text-align: center;
     }
@@ -1207,8 +1609,8 @@ class SmartClimateScheduleCard extends LitElement {
     .presence-legend {
       display: flex;
       gap: 12px;
-      font-size: 10px;
-      color: var(--secondary-text-color);
+      font-size: 11px;
+      color: var(--sc-muted);
       margin-top: 3px;
       justify-content: center;
     }
@@ -1224,6 +1626,65 @@ class SmartClimateScheduleCard extends LitElement {
       height: 8px;
       border-radius: 50%;
       display: inline-block;
+      flex-shrink: 0;
+    }
+
+    .warning {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      margin-bottom: 8px;
+      padding: 8px 12px;
+      border-radius: 8px;
+      font-size: 13px;
+      background: rgba(244, 67, 54, 0.12);
+      border: 1px solid #ef5350;
+      color: var(--primary-text-color);
+    }
+
+    .warning span {
+      font-size: 12px;
+      color: var(--sc-muted);
+    }
+
+    .policy-line {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+      font-size: 13px;
+      color: var(--secondary-text-color);
+    }
+
+    .policy-dot {
+      width: 8px;
+      height: 8px;
+      flex-shrink: 0;
+      border-radius: 50%;
+      background: var(--disabled-text-color, #9e9e9e);
+    }
+
+    .policy-dot--on {
+      background: #4aa8ff;
+    }
+
+    .line-lbl {
+      font-size: 12px;
+      font-family: sans-serif;
+      font-weight: 600;
+      pointer-events: none;
+      paint-order: stroke;
+      stroke: var(--sc-halo);
+      stroke-width: 3px;
+      stroke-linejoin: round;
+    }
+
+    .line-lbl--ceiling { fill: var(--sc-ceiling); }
+    .line-lbl--support { fill: var(--sc-support); }
+
+    .legend-line {
+      display: inline-block;
+      width: 18px;
       flex-shrink: 0;
     }
 

@@ -1,14 +1,26 @@
 """Sensor platform for Smart Climate — exposes presence state for history logging."""
 import logging
 
-from homeassistant.components.sensor import SensorEntity
+from homeassistant.components.sensor import (
+    SensorDeviceClass,
+    SensorEntity,
+    SensorStateClass,
+)
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_state_change_event
 
-from .const import ATTR_PRESENCE, DOMAIN
+from .const import (
+    ATTR_LEARNING,
+    ATTR_PRESENCE,
+    ATTR_ROOM_TREND,
+    CONF_WRAPPED_CLIMATE,
+    DOMAIN,
+    TIER_PRIMARY,
+)
+from .entity_base import SmartClimateChildEntity
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -19,7 +31,75 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up Smart Climate sensor platform."""
-    async_add_entities([SmartClimatePresenceSensor(hass, entry)])
+    from .climate import SmartClimateEntity
+
+    devices = SmartClimateEntity._build_devices(entry, entry.data.get(CONF_WRAPPED_CLIMATE))
+    primaries = [d["entity_id"] for d in devices if d.get("tier", TIER_PRIMARY) == TIER_PRIMARY]
+    async_add_entities([
+        SmartClimatePresenceSensor(hass, entry),
+        SmartClimateWarmupRateSensor(hass, entry),
+        *(
+            SmartClimateLearningSensor(hass, entry, eid, key)
+            for eid in primaries
+            for key in LEARNING_SENSORS
+        ),
+    ])
+
+
+# Measurement sensors for "how do I heat most efficiently": with a state class the
+# recorder keeps long-term statistics (5-min/hourly means) next to the history.
+#   key: (name, unit, device class, state class, icon)
+LEARNING_SENSORS = {
+    "own_temperature": ("own temperature", "°C", SensorDeviceClass.TEMPERATURE,
+                        SensorStateClass.MEASUREMENT, "mdi:thermometer"),
+    "offset": ("sensor offset", "°C", None, SensorStateClass.MEASUREMENT, "mdi:thermometer-chevron-up"),
+    "lead": ("setpoint lead", "°C", None, SensorStateClass.MEASUREMENT, "mdi:thermometer-plus"),
+    "defrosts": ("defrosts", None, None, SensorStateClass.TOTAL_INCREASING, "mdi:snowflake-melt"),
+}
+
+
+class SmartClimateLearningSensor(SmartClimateChildEntity, SensorEntity):
+    """One learned/measured value of a primary heater (see ``ATTR_LEARNING``)."""
+
+    def __init__(self, hass, entry, device_entity_id: str, key: str) -> None:
+        slug = device_entity_id.split(".", 1)[-1]
+        super().__init__(hass, entry, f"{key}_{slug}")
+        name, unit, device_class, state_class, icon = LEARNING_SENSORS[key]
+        self._device = device_entity_id
+        self._value_key = key
+        self._attr_name = f"{slug.replace('_', ' ').title()} {name}"
+        self._attr_native_unit_of_measurement = unit
+        self._attr_device_class = device_class
+        self._attr_state_class = state_class
+        self._attr_icon = icon
+
+    @property
+    def native_value(self):
+        values = (self._climate_attr(ATTR_LEARNING) or {}).get(self._device) or {}
+        return values.get(self._value_key)
+
+    @property
+    def extra_state_attributes(self):
+        if self._value_key != "defrosts":
+            return None
+        values = (self._climate_attr(ATTR_LEARNING) or {}).get(self._device) or {}
+        return {"defrosting": bool(values.get("defrosting"))}
+
+
+class SmartClimateWarmupRateSensor(SmartClimateChildEntity, SensorEntity):
+    """How fast the room warms (°C per hour over the last 30 min)."""
+
+    _attr_native_unit_of_measurement = "°C/h"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_icon = "mdi:chart-line"
+
+    def __init__(self, hass, entry) -> None:
+        super().__init__(hass, entry, "warmup_rate")
+        self._attr_name = "Warm-up rate"
+
+    @property
+    def native_value(self):
+        return self._climate_attr(ATTR_ROOM_TREND)
 
 
 class SmartClimatePresenceSensor(SensorEntity):

@@ -55,17 +55,35 @@
           "title": "Add actuator device",
           "data": {
             "entity_id": "Climate device",
-            "role": "Role"
+            "role": "Role",
+            "tier": "Heating tier",
+            "park": "When not in use",
+            "control": "Start mode",
+            "min_setpoint": "Lowest setpoint"
           },
           "data_description": {
-            "role": "Whether this device can heat, cool, or both"
+            "role": "Whether this device can heat, cool, or both",
+            "tier": "Primary heats alone; a support device (e.g. the CV) only joins when the room is well below the target",
+            "park": "What this device does when it is not the one serving the current demand",
+            "control": "How this device starts: auto (the coordinator drives it), off (kept off) or manual (hands off). Later changes are made with the device's mode select",
+            "min_setpoint": "Lowest temperature the device really accepts (empty = what it reports itself). A lower target switches it off instead of heating at this minimum"
           }
         },
         "reconfigure": {
           "title": "Edit actuator device",
           "data": {
             "entity_id": "Climate device",
-            "role": "Role"
+            "role": "Role",
+            "tier": "Heating tier",
+            "park": "When not in use",
+            "control": "Start mode",
+            "min_setpoint": "Lowest setpoint"
+          },
+          "data_description": {
+            "tier": "Primary heats alone; a support device (e.g. the CV) only joins when the room is well below the target",
+            "park": "What this device does when it is not the one serving the current demand",
+            "control": "How this device starts: auto (the coordinator drives it), off (kept off) or manual (hands off). Later changes are made with the device's mode select",
+            "min_setpoint": "Lowest temperature the device really accepts (empty = what it reports itself). A lower target switches it off instead of heating at this minimum"
           }
         }
       }
@@ -80,14 +98,32 @@
           "temperature_sensor": "Temperature sensor",
           "primary_device": "Primary device",
           "hysteresis": "Hysteresis (°C)",
-          "integration_driven_auto": "Integration-driven auto"
+          "integration_driven_auto": "Integration-driven auto",
+          "weather_entity": "Weather entity",
+          "outdoor_sensor": "Outdoor temperature sensor",
+          "warm_threshold": "Warm threshold (°C)",
+          "hard_ceiling": "Hard cooling ceiling (°C)",
+          "support_delta": "Support heater joins below target by (°C)",
+          "support_grace": "Support waits (minutes)",
+          "support_min_rise": "Support joins only below this warming rate (°C/h)",
+          "skip_until": "Skip support until (time)",
+          "external_takeover": "Hand operation wins"
         },
         "data_description": {
           "temperature_source": "How the room temperature is measured: mean of devices, a primary device, or a dedicated sensor",
           "temperature_sensor": "Used when the source is 'Dedicated sensor'",
           "primary_device": "Used when the source is 'Primary device'",
           "hysteresis": "Deadband around the switch points to avoid rapid heat/cool flapping",
-          "integration_driven_auto": "In auto, let Smart Climate decide heat vs cool (recommended, required for multiple devices)"
+          "integration_driven_auto": "In auto, let Smart Climate decide heat vs cool (recommended, required for multiple devices)",
+          "weather_entity": "Source of the daily forecast; used to decide whether automatic cooling is allowed. Optional",
+          "outdoor_sensor": "Optional measured outdoor temperature; also the fallback when the weather entity is unavailable",
+          "warm_threshold": "Auto cooling is allowed when a forecast or measured outdoor high (last 24 h) reaches this value",
+          "hard_ceiling": "Auto cooling is always allowed when the room is at or above this temperature",
+          "support_delta": "The support heater joins when the room is this far below the heat target, and leaves again below half of it",
+          "support_grace": "How long the primary heater gets to close the gap before the support heater may join (0 = join immediately)",
+          "support_min_rise": "The support heater only joins when the room warms slower than this. A steady warm-up (e.g. after arriving home) does not need support",
+          "skip_until": "'Skip support until morning' pauses the support heater until this time (default 10:00)",
+          "external_takeover": "When a device is operated outside the coordinator (remote, its own app) it is left alone as 'manual' for the default override duration instead of being set back"
         }
       }
     }
@@ -105,6 +141,25 @@
         "mean": "Mean of devices",
         "primary": "Primary device",
         "sensor": "Dedicated sensor"
+      }
+    },
+    "device_tier": {
+      "options": {
+        "primary": "Primary (heats first)",
+        "support": "Support (joins when far below target)"
+      }
+    },
+    "device_park": {
+      "options": {
+        "off": "Off",
+        "fan_only": "Fan only"
+      }
+    },
+    "device_control": {
+      "options": {
+        "auto": "Auto (coordinator drives it)",
+        "off": "Off (kept off, never used)",
+        "manual": "Manual (hands off)"
       }
     }
   },

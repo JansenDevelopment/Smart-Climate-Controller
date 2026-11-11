@@ -150,15 +150,22 @@ async def test_auto_inside_band_keeps_airflow_when_fan_capable():
         entry_data={CONF_COOL_AUTO_TEMPERATURE: 25},
     )
     entity._auto_temperature = 21
+    entity._devices[0]["park"] = "fan_only"  # parking on fan_only is opt-in per device
     await entity._apply_control()
     assert _last_mode(hass) == "fan_only"
 
 
-async def test_off_mode_powers_device_off():
-    entity, hass, _ = _make_entity(hvac_mode="off", device_state="heat", presence="home")
-    await entity._apply_control()
+async def test_switching_off_powers_device_off():
+    entity, hass, _ = _make_entity(hvac_mode="heat", device_state="heat", presence="home")
+    await entity.async_set_hvac_mode("off")
     assert _last_mode(hass) == "off"
     assert _svc(hass, "set_temperature") == []
+
+
+async def test_off_mode_leaves_the_device_alone():
+    entity, hass, _ = _make_entity(hvac_mode="off", device_state="heat", presence="home")
+    await entity._apply_control()
+    assert _last_mode(hass) is None
 
 
 async def test_no_devices_does_nothing():
@@ -216,7 +223,9 @@ def test_hvac_action_reflects_intent():
 
 def test_migration_from_single_wrapped_climate():
     entity, _, _ = _make_entity()
-    assert entity._devices == [{"entity_id": WRAPPED, "role": "both"}]
+    assert entity._devices == [
+        {"entity_id": WRAPPED, "role": "both", "tier": "primary", "park": "off", "control": "auto"}
+    ]
 
 
 def test_devices_list_from_entry():
@@ -269,4 +278,6 @@ def test_build_devices_migrates_wrapped_when_no_list():
     entry.subentries = {}
     entry.data = {}
     devices = SmartClimateEntity._build_devices(entry, "climate.legacy")
-    assert devices == [{"entity_id": "climate.legacy", "role": "both"}]
+    assert devices == [
+        {"entity_id": "climate.legacy", "role": "both", "tier": "primary", "park": "off", "control": "auto"}
+    ]

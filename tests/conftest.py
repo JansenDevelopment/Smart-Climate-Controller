@@ -51,8 +51,19 @@ _register_stub(
 # homeassistant.util + homeassistant.util.dt (climate.py: `from homeassistant.util import dt`)
 _dt_stub = types.ModuleType("homeassistant.util.dt")
 _dt_stub.now = lambda: _datetime.datetime.now()
+_dt_stub.parse_datetime = lambda value: _datetime.datetime.fromisoformat(value)
+_dt_stub.as_local = lambda d: (
+    d.astimezone() if d.tzinfo else d.replace(tzinfo=_datetime.datetime.now().astimezone().tzinfo)
+)
 _register_stub("homeassistant.util", dt=_dt_stub)
 sys.modules["homeassistant.util.dt"] = _dt_stub
+
+# homeassistant.exceptions
+_register_stub(
+    "homeassistant.exceptions",
+    HomeAssistantError=type("HomeAssistantError", (Exception,), {}),
+    ServiceValidationError=type("ServiceValidationError", (Exception,), {}),
+)
 
 # homeassistant.components
 _register_stub("homeassistant.components")
@@ -96,6 +107,12 @@ _register_stub(
     "homeassistant.components.select",
     SelectEntity=type("SelectEntity", (), {}),
 )
+_register_stub(
+    "homeassistant.components.sensor",
+    SensorEntity=type("SensorEntity", (), {}),
+    SensorDeviceClass=MagicMock(TEMPERATURE="temperature"),
+    SensorStateClass=MagicMock(MEASUREMENT="measurement", TOTAL_INCREASING="total_increasing"),
+)
 
 # homeassistant.helpers
 _register_stub("homeassistant.helpers")
@@ -138,3 +155,21 @@ _vol.Optional = lambda key, **kw: key
 _vol.All = lambda *args: args[-1]
 _vol.ALLOW_EXTRA = 1
 sys.modules["voluptuous"] = _vol
+
+
+import pytest  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _no_command_waits():
+    """Multi-part commands wait for device confirmations; the stubs never confirm, so do not wait."""
+    try:
+        from custom_components.smart_climate.climate import SmartClimateEntity
+    except Exception:  # noqa: BLE001 - modules that do not import the entity
+        yield
+        return
+    old = (SmartClimateEntity._confirm_seconds, SmartClimateEntity._command_gap)
+    SmartClimateEntity._confirm_seconds = 0
+    SmartClimateEntity._command_gap = 0
+    yield
+    SmartClimateEntity._confirm_seconds, SmartClimateEntity._command_gap = old

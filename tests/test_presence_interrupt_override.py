@@ -54,6 +54,7 @@ def _make_entity(interruptible: bool = True, mode: str = MODE_AUTO) -> "object":
     )
     entity._mode = mode
     entity._presence = "away"
+    entity._presence_known = True  # a running entity, not the first reading after a restart
     entity._auto_temperature = 21.0
     entity._override_temperature = 22.0
 

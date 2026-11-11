@@ -34,16 +34,18 @@ custom_components/smart_climate/     # the integration (all backend + frontend a
   services.yaml                      # service metadata/selectors shown in the HA UI
   config_flow.py                     # UI config + reconfigure flow
   schedule_helper.py                 # PURE, HA-independent schedule math (unit-testable)
-  frontend.py                        # copies + registers the main Lovelace card as a resource
+  frontend.py                        # copies all card modules to www/community + registers the 3 cards as resources
   const.py                           # DOMAIN, modes, config keys, attribute names, service names
   manifest.json                      # integration manifest (domain, version, codeowners)
   strings.json / translations/       # en.json, nl.json — config-flow + entity translations
-  smart-climate-card.js              # main control card (LitElement)
+  smart-climate-card.js              # main control card (LitElement), nl/en via hass.language
+  smart-climate-shared.js            # helpers shared by the cards: language, number format, cooling explanation
   smart-climate-config-card.js       # settings card (LitElement) + its editor
   smart-climate-schedule-card.js     # interactive schedule editor card + its editor
   smart-climate-base-editor.js       # shared base class for card GUI editors
   smart-climate-card.new.js          # EMPTY placeholder — future work, ignore
   smart-climate-card-clean.js        # EMPTY placeholder — future work, ignore
+tools/card-preview/                  # local card harness (mock hass + Playwright shots), see "Frontend cards"
 tests/
   conftest.py                        # stubs out homeassistant + voluptuous so tests run without HA
   test_presence_interrupt_override.py
@@ -100,12 +102,65 @@ attribute for backward compatibility — **do not remove the `mode` attribute.**
 **owned here**, not mirrored from a device: it is persisted as `CONF_HVAC_MODE`
 and fed into `control.decide` as an input.
 
+**Off means hands off.** Switching *to* `off` powers the auto devices down
+once (`_apply_control(force=True)`); while `off`, `_apply_control` still
+resolves state but sends nothing, and `_detect_external_change` records no
+takeovers. `control.decide` returning `OFF` is not the same thing: in `auto`
+that just means "no heat needed" and the devices are still driven off. Keep
+that distinction in `climate.py`, not in `control.py`.
+
 **The coordinator leads.** `decide` resolves a single intent
 (`off`/`idle`/`heat`/`cool`) from the room temperature and the band, and
 `plan_routes` then writes each device's HVAC mode *and* setpoint — so a
 third-party thermostat never gets to pick heating-versus-cooling by itself.
 That is why `async_turn_on` selects `auto` instead of pinning `heat`: pinning a
 mode would hand that decision back to whoever set it.
+
+### Fan boost, hold, observe and the action log (1.4)
+
+- **Fan boost** (`fan_boost`, switch + `set_behaviour`, default off): `control.fan_for` picks high / medium /
+  auto from the deficit (> 1 deg / > 0.3 deg / near), steps up at once, down only after 10 min and a 0.2 deg backoff.
+  Only primary devices with `fan_modes`. Measured on a Qlima: high warms 2-3x faster.
+- **Hold** (`hold_primary`, default off): while the intent is idle, a primary heater keeps heating at the target
+  (`plan_routes(hold_target=...)`) instead of being parked; `control.hold_trim` lowers its setpoint 1 deg after the
+  room has been > 0.5 deg over the target for 20 min. A hold below the device's `min_temp` or below
+  `control.HOLD_FLOOR` 16 (night setback) = off: the Qlima reports `min_temp` 7 but ignores setpoints under ~16.
+  A heat target below `min_temp` is off as well. `min_temp` = the higher of the reported one and the device
+  subentry's `min_setpoint` (1.5).
+- **Warm-up lead** (1.5, part of the fan boost): a primary heater's own sensor reads the warm air near the unit (Qlima
+  +3..4 over the room sensor), so at the plain target it throttles down long before the room is there.
+  `control.update_offset` learns that offset while it heats (slow EMA; samples under the room = defrost, skipped) and
+  `control.setpoint_lead` adds it (whole degrees, max 6, capped at `max_temp`) to the heat setpoint while the room is
+  > 0.5 under the target, until within 0.2 (every setpoint change beeps). While short it only goes up, once the
+  offset has grown a whole degree past it (1.5.4: fan up + swing off took the offset to 5-6 with the lead stuck at
+  3, room hung 0.5-1 under the target for hours). Not used while holding.
+- **Measurement** (1.5.2, for "how do I heat most efficiently"): per primary heater the attribute `learning`
+  (own sensor, learned offset, lead, `defrosting`, `defrosts`) and sensors `<device> own temperature / sensor offset /
+  setpoint lead / defrosts` plus `Warm-up rate` (room_trend, deg/h), all with a state class so the recorder keeps
+  long-term statistics. A defrost = heating while its own sensor reads > 1 deg under the room; logged as `who: device`.
+- **Observe** (`observe`, switch + `set_observe`): everything is decided and `plan` is published, but nothing is
+  sent; changed plans go into the log as `who: observe`. Devices on manual (source user) are planned as auto then.
+- **Action log**: `_log_action` keeps the last 40 entries in the `log` attribute (memory only, empty after a
+  restart) and fires every entry as event `smart_climate_log` (the recorder keeps events) with room, outdoor,
+  target and presence. `who`: user (service/card), hand (device changed outside us), control (we sent), observe.
+- **Support joins on a sustained stall** (1.5.5): besides deficit >= `support_delta` and `support_grace` minutes of
+  heating, the room must warm slower than `support_min_rise` for `SUPPORT_SLOW_MINUTES` (20) in a row
+  (`_slow_since` in climate.py). One sensor tick down during a morning warm-up latched the CV on until deficit < 0.75.
+- **Primary off by hand = no heating** (1.4.5): `plan_routes` then sends no support device in, not as stand-in and not
+  as support. The fallback to the support heater stays for a primary that is unavailable or set to "not used".
+- **Off by hand** stays off: an auto device switched off outside us becomes manual (`off_by_hand`) until it is
+  switched on by hand or the next schedule block starts (1.5; without a schedule: no end). Before 1.5 it had no end,
+  and a Qlima switched off at night left the 07:00 block cold. Other outside changes stay "until next node".
+- **One part at a time** (`_execute`): mode, setpoint and fan are sent separately, each after the device reported
+  the previous one (`COMMAND_CONFIRM_SECONDS` 6, then `COMMAND_GAP_SECONDS` 1); a part that did not stick is
+  resent after `RETRY_SECONDS` 20, `RETRY_TIMES` 3, then every `RESEND_SECONDS`. Reason: the Qlima (Tuya, via
+  localtuya which sends one DP per call) puts an earlier DP back when a second one arrives before it reported the
+  first. Tests zero the waits in `conftest.py`.
+- **Override survives a restart** (1.4.3): `_sync_override` stores the active override (`CONF_OVERRIDE`: mode, temperature,
+  start+minutes or until) whenever it changes, `_restore_override` puts it back unless it ran out. The first presence
+  reading after a start (`_presence_known`) is not a homecoming, otherwise "interruptible" cancels the restored override.
+- After a restart nothing is driven until the configured room sensor has a value (max 120 s): the fallback to
+  the devices' own sensors reads an airco's outlet air.
 
 ### Presence & away delay
 
@@ -174,12 +229,60 @@ in `async_added_to_hass`. When adding a service:
 
 ### Frontend cards
 
-`frontend.py` copies `smart-climate-card.js` into HA's HACS community dir and
-registers it as a Lovelace resource with an md5-hash cache-buster. Cards are
+`frontend.py` copies **all** card modules (`MODULE_FILES`: the three cards, the
+base editor and `smart-climate-shared.js`) into HA's HACS community dir and
+registers the three cards as Lovelace resources with one md5-hash cache-buster
+over all modules. While copying it appends `?hacstag=<hash>` to the relative
+imports of the helper modules, otherwise the browser could pair a new card with
+a stale `smart-climate-shared.js`. **A new JS module that a card imports must be
+added to `MODULE_FILES`** (`tests/test_frontend.py` checks this). Cards are
 LitElement classes that `window.customCards.push({...})` to appear in the picker.
-Config/schedule card GUI editors extend `SmartClimateBaseEditor`. Cards are thin
-clients: they call `smart_climate.*` services and re-render on state change — all
-logic stays in the backend.
+Config/schedule/main card GUI editors extend `SmartClimateBaseEditor`. Cards are
+thin clients: they call `smart_climate.*` services and re-render on state change
+— all logic stays in the backend.
+
+- Cards are bilingual: `translate(dict, hass, key)` from `smart-climate-shared.js`
+  picks `nl` when `hass.language` starts with `nl`, otherwise `en`. The schedule
+  card is bilingual too (own `TEXT` dict).
+- Cards must **degrade on an older backend**: the new attributes (`cooling_mode`,
+  `support_*`, `forecast_*`, `devices`, `intent`, ...) may be missing — leave that
+  part out, never crash. The schedule card reads `attributes.schedule`: if the key
+  is absent it shows a warning and disables Save (so defaults can never overwrite
+  a real schedule); `schedule: null` means "no schedule saved yet" and is fine.
+- Main card device control: the header device chips are buttons (>= 44 px) that open an inline menu
+  (Auto / Niet gebruiken / Handmatig, plus 30 min / 1 h / until 10:00 / permanent for the latter two;
+  permanent is the quiet option) -> `set_device_mode`. A chip shows name + hvac state ("Airco · verwarmt")
+  and, when not on Auto, the control label ("Niet gebruiken · nog 25 min", "Handmatig (afstandsbediening)").
+  State comes from `device_modes[id] = {mode, until, source}` (already effective, so an expired temporary
+  mode reads `auto`; `source` user | pause | external, missing = user). "Until 10:00" is sent as `minutes`,
+  computed in the HA time zone (`minutesUntilClock` in `smart-climate-shared.js`), never from the browser's
+  zone. A device left on Off/Manual without end (or > 12 h) and not set by the pause buttons gets a quiet
+  line under the headline with a "Weer automatisch" button. The header sentence only names devices on `auto`
+  and says "X niet beschikbaar" for `unavailable` ones.
+- Support pause: `supportPause()` in the shared module reads `support_paused_until` + `support_pause_kind`
+  (`until_morning` | `minutes` | `open` | null). `until_morning` -> toggle chip pressed with the real end
+  time; `minutes` / `open` -> "CV gepauzeerd ... Hervat" row. `kind` null = the support device is off by
+  user choice, which is NOT a pause. Only an old backend without `support_pause_kind` falls back to the
+  duration heuristic (<= 125 min = "leaving soon"). English texts use the support device's friendly name
+  (`supportName`), never a hardcoded "CV".
+- The cooling block is folded to one line ("Koelen: Auto · nu niet nodig") while `coolingRelevant()` is false
+  (mode auto, not allowed, no forecast/measured high >= warm_threshold); the forecast tiles live inside the
+  unfolded block. `room_temperature_source` ({kind mean|primary|sensor, entity}) is shown small under the target.
+- Touch targets: every button/switch is >= 44 px; segmented controls are `aria-pressed` buttons (no radiogroup).
+  Small/white-on-colour text uses `--sc-muted` / `--sc-strong` (color-mix) to stay >= 4.5:1 - the harness checks it.
+- Override state shown on the main card comes from the `mode` attribute
+  (`override_timer` → remaining time, `override_infinity`, `override_next_node`).
+
+**Card preview harness** (`tools/card-preview/`, no HA needed, needs internet for
+lit from unpkg): `index.html?card=main|schedule&scenario=<name>&theme=light|dark&lang=nl|en&w=<px>`
+renders a card against a mock `hass` (`mock.js`: scenarios, stateful `callService`,
+history API). `node tools/card-preview/shoot.mjs [filter]` serves the repo root,
+writes screenshots to `tools/card-preview/shots/`, runs interaction smoke tests and
+prints console/page errors plus audits (every main-card button >= 44 px, text contrast >= WCAG AA, card heights) (Playwright is taken from `PLAYWRIGHT_PATH`, default
+`D:/git/Martijn/HomeAssistant/tools/node_modules/playwright`). `viewer.html` +
+`serve.py` (port 8777) run the same cards on the real simulation.
+The harness stubs `ha-card`/`ha-icon` as custom elements with a shadow root
+(document styles do not reach into the cards' shadow DOM).
 
 ## Development workflow
 

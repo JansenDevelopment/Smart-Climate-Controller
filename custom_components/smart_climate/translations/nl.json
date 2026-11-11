@@ -55,17 +55,35 @@
           "title": "Klimaatapparaat toevoegen",
           "data": {
             "entity_id": "Klimaatapparaat",
-            "role": "Rol"
+            "role": "Rol",
+            "tier": "Rol bij verwarmen",
+            "park": "Als niet in gebruik",
+            "control": "Startstand",
+            "min_setpoint": "Laagste setpoint"
           },
           "data_description": {
-            "role": "Of dit apparaat kan verwarmen, koelen of beide"
+            "role": "Of dit apparaat kan verwarmen, koelen of beide",
+            "tier": "Primair verwarmt alleen; een ondersteunend apparaat (bijv. de CV) springt pas bij als de kamer ver onder het doel zit",
+            "park": "Wat dit apparaat doet als het niet degene is die de huidige vraag bedient",
+            "control": "Hoe dit apparaat begint: auto (de coördinator stuurt het aan), uit (blijft uit) of handmatig (handen af). Later wijzig je dit met de keuzeschakelaar van het apparaat",
+            "min_setpoint": "Laagste temperatuur die het apparaat echt aanneemt (leeg = wat het zelf meldt). Een lager doel zet het uit in plaats van het op dit minimum te laten stoken"
           }
         },
         "reconfigure": {
           "title": "Klimaatapparaat bewerken",
           "data": {
             "entity_id": "Klimaatapparaat",
-            "role": "Rol"
+            "role": "Rol",
+            "tier": "Rol bij verwarmen",
+            "park": "Als niet in gebruik",
+            "control": "Startstand",
+            "min_setpoint": "Laagste setpoint"
+          },
+          "data_description": {
+            "tier": "Primair verwarmt alleen; een ondersteunend apparaat (bijv. de CV) springt pas bij als de kamer ver onder het doel zit",
+            "park": "Wat dit apparaat doet als het niet degene is die de huidige vraag bedient",
+            "control": "Hoe dit apparaat begint: auto (de coördinator stuurt het aan), uit (blijft uit) of handmatig (handen af). Later wijzig je dit met de keuzeschakelaar van het apparaat",
+            "min_setpoint": "Laagste temperatuur die het apparaat echt aanneemt (leeg = wat het zelf meldt). Een lager doel zet het uit in plaats van het op dit minimum te laten stoken"
           }
         }
       }
@@ -80,14 +98,32 @@
           "temperature_sensor": "Temperatuursensor",
           "primary_device": "Primair apparaat",
           "hysteresis": "Hysterese (°C)",
-          "integration_driven_auto": "Auto door integratie gestuurd"
+          "integration_driven_auto": "Auto door integratie gestuurd",
+          "weather_entity": "Weer-entiteit",
+          "outdoor_sensor": "Buitentemperatuursensor",
+          "warm_threshold": "Warmtedrempel (°C)",
+          "hard_ceiling": "Hard koelplafond (°C)",
+          "support_delta": "Ondersteuning springt bij onder doel met (°C)",
+          "support_grace": "Ondersteuning wacht (minuten)",
+          "support_min_rise": "Ondersteuning springt alleen bij onder deze opwarmsnelheid (°C/u)",
+          "skip_until": "Ondersteuning overslaan tot (tijd)",
+          "external_takeover": "Handbediening wint"
         },
         "data_description": {
           "temperature_source": "Hoe de kamertemperatuur wordt gemeten: gemiddelde van apparaten, een primair apparaat, of een aparte sensor",
           "temperature_sensor": "Gebruikt wanneer de bron 'Aparte sensor' is",
           "primary_device": "Gebruikt wanneer de bron 'Primair apparaat' is",
           "hysteresis": "Dode band rond de schakelpunten om snel wisselen tussen verwarmen/koelen te voorkomen",
-          "integration_driven_auto": "Laat Smart Climate in auto zelf verwarmen vs koelen bepalen (aanbevolen, vereist bij meerdere apparaten)"
+          "integration_driven_auto": "Laat Smart Climate in auto zelf verwarmen vs koelen bepalen (aanbevolen, vereist bij meerdere apparaten)",
+          "weather_entity": "Bron van de dagverwachting; bepaalt of automatisch koelen is toegestaan. Optioneel",
+          "outdoor_sensor": "Optioneel gemeten buitentemperatuur; ook de terugval als de weer-entiteit niet beschikbaar is",
+          "warm_threshold": "Automatisch koelen mag als een verwachte of gemeten buitenhoogte (laatste 24 uur) deze waarde haalt",
+          "hard_ceiling": "Automatisch koelen mag altijd als de kamer op of boven deze temperatuur zit",
+          "support_delta": "De ondersteuning springt bij als de kamer zoveel onder het stookdoel zit, en gaat weer uit onder de helft",
+          "support_grace": "Hoe lang de hoofdverwarming de tijd krijgt om het gat te dichten voordat de ondersteuning mag bijspringen (0 = meteen)",
+          "support_min_rise": "De ondersteuning springt alleen bij als de kamer langzamer opwarmt dan dit. Een gestage opwarming (bijv. na thuiskomst) heeft geen ondersteuning nodig",
+          "skip_until": "'Geen ondersteuning tot morgenochtend' pauzeert de ondersteuning tot dit tijdstip (standaard 10:00)",
+          "external_takeover": "Wordt een apparaat buiten de coördinator om bediend (afstandsbediening, eigen app), dan blijft het als 'handmatig' met rust gedurende de standaard override-duur, in plaats van teruggezet te worden"
         }
       }
     }
@@ -105,6 +141,25 @@
         "mean": "Gemiddelde van apparaten",
         "primary": "Primair apparaat",
         "sensor": "Aparte sensor"
+      }
+    },
+    "device_tier": {
+      "options": {
+        "primary": "Primair (verwarmt eerst)",
+        "support": "Ondersteuning (springt bij ver onder doel)"
+      }
+    },
+    "device_park": {
+      "options": {
+        "off": "Uit",
+        "fan_only": "Alleen ventileren"
+      }
+    },
+    "device_control": {
+      "options": {
+        "auto": "Auto (coördinator stuurt aan)",
+        "off": "Uit (blijft uit, nooit gebruikt)",
+        "manual": "Handmatig (handen af)"
       }
     }
   },
