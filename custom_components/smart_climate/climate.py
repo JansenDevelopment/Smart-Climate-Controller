@@ -1262,6 +1262,15 @@ class SmartClimateEntity(ClimateEntity):
         if released:
             self._persist(**{CONF_DEVICE_MODES: dict(self._device_modes)})
 
+    def _switch_on_if_off(self):
+        """A temperature or "back to the schedule" while the regeling is off means: switch it on.
+        Otherwise the choice is stored but nothing happens, and that looks like a broken button."""
+        if self._hvac_mode != HVACMode.OFF:
+            return
+        self._hvac_mode = HVACMode.AUTO
+        self._persist(**{CONF_HVAC_MODE: HVACMode.AUTO})
+        self._log_action(WHO_USER, None, "regeling weer aan", self._room_temperature())
+
     async def async_set_override_timer(self, minutes: int, temperature: float):
         """Set override timer mode."""
         self._mode = MODE_OVERRIDE_TIMER
@@ -1270,6 +1279,7 @@ class SmartClimateEntity(ClimateEntity):
         self._override_duration_minutes = minutes
         self._log_action(WHO_USER, None, f"tijdelijk {temperature:g}° voor {minutes:g} min", self._room_temperature())
         self._release_hand_takeovers()
+        self._switch_on_if_off()
         self._sync_override()
         await self._apply_control()
         self.async_write_ha_state()
@@ -1281,6 +1291,7 @@ class SmartClimateEntity(ClimateEntity):
         self._override_start_time = None
         self._log_action(WHO_USER, None, f"tijdelijk {temperature:g}° zonder einde", self._room_temperature())
         self._release_hand_takeovers()
+        self._switch_on_if_off()
         self._sync_override()
         await self._apply_control()
         self.async_write_ha_state()
@@ -1301,6 +1312,7 @@ class SmartClimateEntity(ClimateEntity):
         self._next_node_datetime = next_dt
         self._log_action(WHO_USER, None, f"tijdelijk {temperature:g}° tot het volgende blok", self._room_temperature())
         self._release_hand_takeovers()
+        self._switch_on_if_off()
         self._sync_override()
         await self._apply_control()
         self.async_write_ha_state()
@@ -1312,6 +1324,7 @@ class SmartClimateEntity(ClimateEntity):
         self._next_node_datetime = None
         self._log_action(WHO_USER, None, "terug naar het schema", self._room_temperature())
         self._release_hand_takeovers()
+        self._switch_on_if_off()
         self._sync_override()
         await self._apply_control()
         self.async_write_ha_state()
