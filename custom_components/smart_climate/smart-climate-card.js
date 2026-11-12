@@ -25,7 +25,6 @@ const DEFAULT_SUPPORT_DELTA = 1.5;
 // A temporary device mode shows "N min left" below this, "until HH:MM" above it.
 const REMAINING_SHOW_MIN = 90;
 // A device left on Off/Manual for longer than this (or without an end) is worth a reminder line.
-const LONG_DEVIATION_MIN = 720;
 
 // hvac_action → intent, for backends that do not publish `intent`.
 const ACTION_TO_INTENT = { heating: "heat", cooling: "cool", idle: "idle", off: "off" };
@@ -116,8 +115,6 @@ const TEXT = {
     devForever: "Blijvend",
     devUntilShort: "tot {t}",
     devLeft: "nog {t}",
-    devStays: "{name} staat op {mode}",
-    devBackAuto: "Weer automatisch",
     close: "Sluiten",
     tileToday: "Verwacht max vandaag",
     tileTomorrow: "Verwacht max morgen",
@@ -223,8 +220,6 @@ const TEXT = {
     devForever: "Permanent",
     devUntilShort: "until {t}",
     devLeft: "{t} left",
-    devStays: "{name} is set to {mode}",
-    devBackAuto: "Back to automatic",
     close: "Close",
     tileToday: "Forecast high today",
     tileTomorrow: "Forecast high tomorrow",
@@ -445,7 +440,6 @@ class SmartClimateCard extends LitElement {
       </div>
       <div class="sentence">${this._sentence(attrs, isOff)}</div>
       ${this._renderDeviceMenu(attrs)}
-      ${this._renderDeviations(attrs)}
     `;
   }
 
@@ -553,33 +547,6 @@ class SmartClimateCard extends LitElement {
     if (left === null) return "";
     if (left <= REMAINING_SHOW_MIN) return this._t("devLeft", { t: this._minutes(left) });
     return this._t("devUntilShort", { t: fmtClock(until, this.hass) });
-  }
-
-  /**
-   * Quiet reminders for devices left on Off/Manual with no end (or a very distant
-   * one): "CV staat op Niet gebruiken — Weer automatisch". Devices that are off
-   * because of the pause buttons are shown by the pause controls instead.
-   */
-  _renderDeviations(attrs) {
-    const rows = [];
-    for (const d of this._devices(attrs)) {
-      const { mode, until, source } = deviceMode(attrs, d.entity_id);
-      if (mode === "auto" || source === "pause") continue;
-      const left = minutesLeft(until);
-      if (left !== null && left <= LONG_DEVIATION_MIN) continue;
-      const label = this._t(mode === "off" ? "devOff" : "devManual") +
-        (mode === "manual" && source === "external" ? ` ${this._t("devExternal")}` : "");
-      rows.push(html`
-        <div class="deviation" data-device=${d.entity_id}>
-          <ha-icon icon=${mode === "off" ? "mdi:power-plug-off" : "mdi:hand-back-left"}></ha-icon>
-          <span>${this._t("devStays", { name: entityName(this.hass, d.entity_id), mode: label })} —</span>
-          <button class="link" @click=${() => this.onDeviceMode(d.entity_id, "auto")}>
-            ${this._t("devBackAuto")}
-          </button>
-        </div>
-      `);
-    }
-    return rows;
   }
 
   /** Compact panel under the header to pick Auto / Off / Manual for one device. */
@@ -857,6 +824,9 @@ class SmartClimateCard extends LitElement {
   _renderSupport(attrs) {
     const support = supportDevices(attrs);
     if (!support.length) return "";
+    // Every support heater on "Niet gebruiken": nothing to set here (its chip in
+    // the header says so and leads back to Auto).
+    if (support.every((d) => deviceMode(attrs, d.entity_id).mode === "off")) return "";
     const enabled = attrs.support_enabled !== false;
     const delta = attrs.support_delta ?? DEFAULT_SUPPORT_DELTA;
     return html`
@@ -1405,37 +1375,6 @@ class SmartClimateCard extends LitElement {
       font-size: 12px;
       font-weight: 500;
       color: var(--primary-text-color);
-    }
-
-    /* Quiet reminder for a device left on Off/Manual */
-    .deviation {
-      display: flex;
-      align-items: center;
-      gap: 0 6px;
-      margin-top: 4px;
-      font-size: 13px;
-      color: var(--sc-muted);
-    }
-
-    .deviation ha-icon {
-      color: var(--warning-color, #ffa600);
-    }
-
-    .deviation > span {
-      flex: 1 1 0;
-      min-width: 0;
-    }
-
-    .link {
-      flex: none;
-      min-height: var(--sc-tap);
-      padding: 0 4px;
-      border: none;
-      background: transparent;
-      font-size: 13px;
-      font-weight: 500;
-      color: var(--sc-link);
-      text-decoration: underline;
     }
 
     /* Device control menu (inline panel under the header) */
