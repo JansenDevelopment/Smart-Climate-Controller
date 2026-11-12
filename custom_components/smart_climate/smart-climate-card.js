@@ -857,6 +857,9 @@ class SmartClimateCard extends LitElement {
   _renderSupport(attrs) {
     const support = supportDevices(attrs);
     if (!support.length) return "";
+    // Every support heater on "Niet gebruiken": nothing to set here (the deviation
+    // line above says so and has "Weer automatisch").
+    if (support.every((d) => deviceMode(attrs, d.entity_id).mode === "off")) return "";
     const enabled = attrs.support_enabled !== false;
     const delta = attrs.support_delta ?? DEFAULT_SUPPORT_DELTA;
     return html`
