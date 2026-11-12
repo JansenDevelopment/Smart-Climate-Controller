@@ -319,3 +319,38 @@ async def test_a_temporary_temperature_switches_an_off_regeling_on():
     entity._hvac_mode = "off"
     await entity.async_set_override_timer(30, 22)
     assert entity._hvac_mode == "auto"
+
+
+def _fan_states():
+    from homeassistant.components.climate import ClimateEntityFeature
+
+    qlima = {"state": "heat", "attributes": {**QLIMA["attributes"], "fan_mode": "high",
+                                             "supported_features": int(ClimateEntityFeature.FAN_MODE)}}
+    return {"climate.qlima": qlima, "climate.cv": CV}
+
+
+def test_fan_mode_reads_auto_while_the_boost_chooses():
+    entity, _, _ = _make(_fan_states(), fan_boost=True)
+    assert entity.fan_mode == "auto"
+    entity, _, _ = _make(_fan_states(), fan_boost=False)
+    assert entity.fan_mode == "high"
+
+
+async def test_a_fixed_fan_mode_switches_the_boost_off_and_holds_it():
+    states = _fan_states()
+    _room(states, 19)
+    entity, hass, _ = _make(states, fan_boost=True)
+    await entity.async_set_fan_mode("medium")
+    persisted = [c.kwargs["data"] for c in hass.config_entries.async_update_entry.call_args_list]
+    assert any(d.get("fan_boost") is False for d in persisted)
+    assert _calls(hass, "set_fan_mode")[-1] == {"entity_id": "climate.qlima", "fan_mode": "medium"}
+
+
+async def test_choosing_auto_switches_the_boost_back_on():
+    states = _fan_states()
+    _room(states, 19)
+    entity, hass, _ = _make(states, fan_boost=False)
+    await entity.async_set_fan_mode("auto")
+    persisted = [c.kwargs["data"] for c in hass.config_entries.async_update_entry.call_args_list]
+    assert any(d.get("fan_boost") is True for d in persisted)
+    assert {"entity_id": "climate.qlima", "fan_mode": "auto"} not in _calls(hass, "set_fan_mode")
