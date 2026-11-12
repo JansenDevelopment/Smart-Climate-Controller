@@ -146,6 +146,8 @@ mode would hand that decision back to whoever set it.
 - **Support joins on a sustained stall** (1.5.5): besides deficit >= `support_delta` and `support_grace` minutes of
   heating, the room must warm slower than `support_min_rise` for `SUPPORT_SLOW_MINUTES` (20) in a row
   (`_slow_since` in climate.py). One sensor tick down during a morning warm-up latched the CV on until deficit < 0.75.
+- **`fan_mode` is the boost setting, not the device** (1.5.7): "auto" while `fan_boost` is on; choosing a fixed mode
+  switches the boost off and holds the device there, "auto" switches it back on. Before, it mirrored the device ("high").
 - **A temperature or "back to the schedule" switches an off regeling on** (1.5.6): `_switch_on_if_off` in the
   override setters and `clear_override` (log "regeling weer aan"). Before, the choice was stored but nothing ran.
 - **Primary off by hand = no heating** (1.4.5): `plan_routes` then sends no support device in, not as stand-in and not

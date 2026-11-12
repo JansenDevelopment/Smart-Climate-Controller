@@ -89,6 +89,14 @@ const TEXT = {
     noCvUntil: "Geen CV tot {t}",
     noCvOpen: "Geen CV (tot je hem weer aanzet)",
     leavingSoon: "Ik ga zo weg",
+    fanTitle: "Ventilator",
+    fan_auto: "Slim",
+    fan_low: "Laag",
+    fan_medium: "Midden",
+    fan_high: "Hoog",
+    fanSmart: "Smart Climate kiest: hoog als het ver te koud is, dicht bij het doel kiest {d} zelf.",
+    fanNow: "nu {f}",
+    fanFixed: "{d} blijft op deze stand tot je Slim kiest.",
     cvPaused: "{Support} gepauzeerd, nog {t}",
     cvPausedOpen: "{Support} gepauzeerd (tot je hem hervat)",
     resume: "Hervat",
@@ -188,6 +196,14 @@ const TEXT = {
     noCvUntil: "No heating support until {t}",
     noCvOpen: "No heating support (until you switch it back on)",
     leavingSoon: "I'm leaving soon",
+    fanTitle: "Fan",
+    fan_auto: "Smart",
+    fan_low: "Low",
+    fan_medium: "Medium",
+    fan_high: "High",
+    fanSmart: "Smart Climate chooses: high when far too cold, near the target {d} chooses itself.",
+    fanNow: "now {f}",
+    fanFixed: "{d} stays at this speed until you pick Smart.",
     cvPaused: "{Support} paused, {t} left",
     cvPausedOpen: "{Support} paused (until you resume it)",
     resume: "Resume",
@@ -367,6 +383,7 @@ class SmartClimateCard extends LitElement {
           ${this._renderHeader(entity, attrs, isOff)}
           <div class="body" ?dimmed=${isOff}>
             ${this._renderOverride(attrs)}
+            ${this._renderFan()}
             ${this._renderCooling(attrs)}
             ${this._renderSupport(attrs)}
           </div>
@@ -796,6 +813,45 @@ class SmartClimateCard extends LitElement {
           : ""}
       </section>
     `;
+  }
+
+  /** Fan speed: "auto" = Smart Climate's boost chooses, a fixed speed holds the device there. */
+  _renderFan() {
+    const st = this.hass.states[this.config.entity];
+    const modes = (st?.attributes.fan_modes || []).filter((m) => ["auto", "low", "medium", "high"].includes(m));
+    if (!modes.length) return "";
+    const current = st.attributes.fan_mode;
+    const fanDevice = (st.attributes.devices || []).find(
+      (d) => (this.hass.states[d.entity_id]?.attributes.fan_modes || []).length
+    );
+    const devState = fanDevice ? this.hass.states[fanDevice.entity_id] : undefined;
+    const devName = fanDevice ? entityName(this.hass, fanDevice.entity_id) : "";
+    const devFan = devState?.attributes.fan_mode;
+    const label = (m) => (["auto", "low", "medium", "high"].includes(m) ? this._t(`fan_${m}`) : m);
+    return html`
+      <section class="block">
+        <div class="row">
+          <div class="label">${this._t("fanTitle")}</div>
+          ${current === "auto" && devFan
+            ? html`<div class="status">${this._t("fanNow", { f: devFan === "auto" ? "auto" : label(devFan).toLowerCase() })}</div>`
+            : ""}
+        </div>
+        <div class="choices">
+          ${modes.map(
+            (m) => html`<button class="choice" ?active=${current === m} @click=${() => this.onFanMode(m)}>
+              ${label(m)}
+            </button>`
+          )}
+        </div>
+        <div class="hint">
+          <span>${current === "auto" ? this._t("fanSmart", { d: devName }) : this._t("fanFixed", { d: devName })}</span>
+        </div>
+      </section>
+    `;
+  }
+
+  onFanMode(mode) {
+    this.hass.callService("climate", "set_fan_mode", { entity_id: this.config.entity, fan_mode: mode });
   }
 
   _renderSupport(attrs) {

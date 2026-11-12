@@ -1448,9 +1448,13 @@ class SmartClimateEntity(ClimateEntity):
         self.async_write_ha_state()
 
     async def async_set_fan_mode(self, fan_mode: str) -> None:
-        """Delegate fan mode to the single fan-capable device, if any."""
+        """"auto" lets the fan boost choose; any other mode switches the boost off
+        and holds the single fan-capable device at that mode."""
         device_id = self._single_fan_device()
-        if device_id:
+        boost = fan_mode == "auto"
+        if boost != bool(self._conf(CONF_FAN_BOOST, False)):
+            await self.async_set_behaviour(fan_boost=boost)
+        if device_id and not boost:
             await self.hass.services.async_call(
                 "climate", "set_fan_mode",
                 {"entity_id": device_id, "fan_mode": fan_mode},
@@ -1681,7 +1685,10 @@ class SmartClimateEntity(ClimateEntity):
 
     @property
     def fan_mode(self):
+        """"auto" while the fan boost chooses, else the device's own fan mode."""
         device_id = self._single_fan_device()
+        if device_id and self._conf(CONF_FAN_BOOST, False):
+            return "auto"
         state = self.hass.states.get(device_id) if device_id else None
         return state.attributes.get("fan_mode") if state else None
 
