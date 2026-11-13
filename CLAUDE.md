@@ -152,6 +152,8 @@ mode would hand that decision back to whoever set it.
   `support_delta`), for `minutes` (default 60) or until the room reaches the target; ends by itself and logs why.
   Persisted as `support_boost_until` (survives a restart). Lifts a support *pause*; a support device the user set to
   off/manual keeps that. Card: button under CV-ondersteuning, shown only when the attribute exists.
+  1.6.1: during the boost the support heater's setpoint is its own reading + 1 (`support_boost_lead`, min target+1,
+  max +3): a CV thermostat that already reads warm from the Qlima would not fire at the plain target.
 - **A temperature or "back to the schedule" switches an off regeling on** (1.5.6): `_switch_on_if_off` in the
   override setters and `clear_override` (log "regeling weer aan"). Before, the choice was stored but nothing ran.
 - **Primary off by hand = no heating** (1.4.5): `plan_routes` then sends no support device in, not as stand-in and not

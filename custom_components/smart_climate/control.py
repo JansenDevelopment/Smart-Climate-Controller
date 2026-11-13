@@ -290,6 +290,24 @@ OFFSET_ALPHA = 0.02   # per 10 s tick: about 8 min to follow a new offset
 DEFROST_BELOW_ROOM = 1.0
 
 
+# 'CV erbij': the support heater (a CV thermostat) regulates on its own sensor. With the plain
+# target as setpoint it does not fire once that sensor reads warm enough, e.g. when the Qlima
+# has already warmed the air around the thermostat (Martijn, 13-11-2026). During the boost its
+# setpoint sits BOOST_LEAD above its own reading (at least BOOST_LEAD above the target, at most
+# BOOST_LEAD_MAX); the boost itself ends once the room reaches the target.
+BOOST_LEAD = 1.0
+BOOST_LEAD_MAX = 3.0
+
+
+def support_boost_lead(own_temp: float | None, target: float | None) -> float:
+    """Degrees to add to a support heater's setpoint during 'CV erbij'."""
+    if target is None:
+        return 0.0
+    if own_temp is None:
+        return BOOST_LEAD
+    return min(BOOST_LEAD_MAX, max(BOOST_LEAD, own_temp + BOOST_LEAD - target))
+
+
 def update_offset(prev: float | None, device_temp: float | None, room_temp: float | None) -> float | None:
     """Running estimate of how much warmer a heating device's own sensor reads than the room.
 

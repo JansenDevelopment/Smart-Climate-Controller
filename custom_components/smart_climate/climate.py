@@ -890,6 +890,8 @@ class SmartClimateEntity(ClimateEntity):
         caps = self._device_caps()
         for cap in caps:
             cap["fan"] = None
+            if self._support_boost_until is not None and cap.get("tier") == TIER_SUPPORT and decision.intent == control.HEAT:
+                cap["lead"] = control.support_boost_lead(self._device_current_temp(cap["entity_id"]), decision.target)
             if boost and cap["fan_modes"] and cap.get("tier") == TIER_PRIMARY:
                 prev, since = self._fan_state.get(cap["entity_id"], (None, None))
                 cap["fan"] = control.fan_for(
