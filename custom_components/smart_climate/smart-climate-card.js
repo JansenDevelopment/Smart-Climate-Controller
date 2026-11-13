@@ -84,6 +84,9 @@ const TEXT = {
     supportTitle: "CV-ondersteuning",
     supportText: "Mag bijspringen als de kamer {d} onder het doel zit",
     supportActive: "Actief",
+    boostStart: "{Support} erbij (1 uur)",
+    boostActive: "{Support} doet mee tot {t} of tot het doel",
+    boostStop: "Stoppen",
     noCvMorning: "Geen CV tot morgenochtend",
     noCvUntil: "Geen CV tot {t}",
     noCvOpen: "Geen CV (tot je hem weer aanzet)",
@@ -189,6 +192,9 @@ const TEXT = {
     supportTitle: "Heat support",
     supportText: "May join in when the room is {d} below the target",
     supportActive: "Active",
+    boostStart: "{Support} join now (1 hour)",
+    boostActive: "{Support} joins until {t} or the target",
+    boostStop: "Stop",
     noCvMorning: "No heating support until tomorrow morning",
     noCvUntil: "No heating support until {t}",
     noCvOpen: "No heating support (until you switch it back on)",
@@ -855,8 +861,33 @@ class SmartClimateCard extends LitElement {
             <span class="muted">(${support.map((d) => entityName(this.hass, d.entity_id)).join(", ")})</span>
           </span>
         </div>
+        ${this._renderSupportBoost(attrs)}
         ${this._renderSupportPause(attrs)}
       </section>
+    `;
+  }
+
+  /** "CV erbij": let the support heater join now; hidden on backends without the boost (no attribute). */
+  _renderSupportBoost(attrs) {
+    if (!("support_boost_until" in attrs)) return "";
+    const until = attrs.support_boost_until;
+    return html`
+      <div class="boost">
+        ${until
+          ? html`
+              <div class="leaving-active">
+                <span>${this._ts("boostActive", attrs, { t: fmtClock(until, this.hass) })}</span>
+                <button class="choice" @click=${() => this.onSupportBoost(false)}>
+                  <ha-icon icon="mdi:stop"></ha-icon>${this._t("boostStop")}
+                </button>
+              </div>
+            `
+          : html`
+              <button class="toggle-chip" @click=${() => this.onSupportBoost(true)}>
+                <ha-icon icon="mdi:radiator"></ha-icon>${this._ts("boostStart", attrs)}
+              </button>
+            `}
+      </div>
     `;
   }
 
@@ -1076,6 +1107,10 @@ class SmartClimateCard extends LitElement {
       "set_support_pause",
       on ? { entity_id, enabled: true, until_morning: true } : { entity_id, enabled: false }
     );
+  }
+
+  onSupportBoost(on) {
+    this.hass.callService("smart_climate", "set_support_boost", { entity_id: this.config.entity, enabled: on });
   }
 
   onSupportPause(minutes) {
@@ -1432,6 +1467,12 @@ class SmartClimateCard extends LitElement {
       margin: 10px 0 6px;
       font-size: 13px;
       color: var(--sc-muted);
+    }
+
+    /* "CV erbij" */
+    .boost {
+      margin-top: 12px;
+      display: flex;
     }
 
     /* Support pause shortcuts */

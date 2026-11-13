@@ -148,6 +148,10 @@ mode would hand that decision back to whoever set it.
   (`_slow_since` in climate.py). One sensor tick down during a morning warm-up latched the CV on until deficit < 0.75.
 - **`fan_mode` is the boost setting, not the device** (1.5.7): "auto" while `fan_boost` is on; choosing a fixed mode
   switches the boost off and holds the device there, "auto" switches it back on. Before, it mirrored the device ("high").
+- **"CV erbij" = `set_support_boost`** (1.6.0): forces the support tier on while heating (ignores the support switch and
+  `support_delta`), for `minutes` (default 60) or until the room reaches the target; ends by itself and logs why.
+  Persisted as `support_boost_until` (survives a restart). Lifts a support *pause*; a support device the user set to
+  off/manual keeps that. Card: button under CV-ondersteuning, shown only when the attribute exists.
 - **A temperature or "back to the schedule" switches an off regeling on** (1.5.6): `_switch_on_if_off` in the
   override setters and `clear_override` (log "regeling weer aan"). Before, the choice was stored but nothing ran.
 - **Primary off by hand = no heating** (1.4.5): `plan_routes` then sends no support device in, not as stand-in and not

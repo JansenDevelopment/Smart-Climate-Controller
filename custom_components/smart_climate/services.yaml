@@ -488,3 +488,36 @@ set_support_pause:
       default: false
       selector:
         boolean:
+
+set_support_boost:
+  name: Set support boost
+  description: >-
+    "CV erbij": let the support heater (e.g. the CV) join right now, for a while
+    (default an hour) or until the room reaches its target, whichever comes first.
+    Lifts a support pause; a support heater set to off or manual keeps that choice.
+  fields:
+    entity_id:
+      name: Entity
+      description: The Smart Climate entity.
+      required: true
+      selector:
+        entity:
+          domain: climate
+          integration: smart_climate
+    enabled:
+      name: Boost
+      description: true to start, false to stop.
+      required: false
+      default: true
+      selector:
+        boolean:
+    minutes:
+      name: Minutes
+      description: How long at most (default 60).
+      required: false
+      selector:
+        number:
+          min: 10
+          max: 480
+          step: 10
+          unit_of_measurement: min

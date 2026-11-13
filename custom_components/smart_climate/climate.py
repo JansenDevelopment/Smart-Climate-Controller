@@ -62,6 +62,7 @@ from .const import (
     ATTR_ROOM_TREND,
     ATTR_SCHEDULE,
     ATTR_SUPPORT_ACTIVE,
+    ATTR_SUPPORT_BOOST_UNTIL,
     ATTR_SUPPORT_DELTA,
     ATTR_SUPPORT_ENABLED,
     ATTR_SUPPORT_PAUSE_KIND,
@@ -99,6 +100,7 @@ from .const import (
     CONF_PRIMARY_DEVICE,
     CONF_SCHEDULE,
     CONF_SKIP_UNTIL,
+    CONF_SUPPORT_BOOST_UNTIL,
     CONF_SUPPORT_DELTA,
     CONF_SUPPORT_ENABLED,
     CONF_SUPPORT_GRACE,
@@ -115,6 +117,7 @@ from .const import (
     DEFAULT_HARD_CEILING,
     DEFAULT_HYSTERESIS,
     DEFAULT_SKIP_UNTIL,
+    DEFAULT_SUPPORT_BOOST_MIN,
     DEFAULT_SUPPORT_DELTA,
     DEFAULT_SUPPORT_GRACE_MIN,
     DEFAULT_SUPPORT_MIN_RISE,
@@ -301,6 +304,8 @@ class SmartClimateEntity(ClimateEntity):
         self._cooling_allowed = False
         self._support_enabled = entry.data.get(CONF_SUPPORT_ENABLED, True)
         self._support_active = False
+        # 'CV erbij': the support heater joins until this time (or until the room reaches its target).
+        self._support_boost_until = _parse_dt(entry.data.get(CONF_SUPPORT_BOOST_UNTIL))
         self._slow_since = None  # since when the room warms slower than the support min_rise
         self._room_trend = control.RoomTrend()
         # Per-device control choice: {entity_id: {"mode": auto|off|manual, "until": iso|None}}
@@ -800,9 +805,21 @@ class SmartClimateEntity(ClimateEntity):
         self._intent = decision.intent
         self._active_target = decision.target
 
+        # 'CV erbij' (support boost): the support heater joins while heating, whatever
+        # the support switch and the gap, until its end time or until the room reaches
+        # the target; then it ends by itself.
+        boost_target = decision.target if decision.target is not None else heat_target
+        if self._support_boost_until is not None:
+            if now >= self._support_boost_until:
+                self._end_support_boost("tijd om", room_temp)
+            elif room_temp is not None and boost_target is not None and room_temp >= boost_target:
+                self._end_support_boost("doel bereikt", room_temp)
+        if self._support_boost_until is not None and decision.intent == control.HEAT:
+            self._support_active = True
+            self._slow_since = None
         # The support heater only ever joins while we are heating, and only
         # when the user has not switched it off.
-        if self._support_enabled and decision.intent == control.HEAT:
+        elif self._support_enabled and decision.intent == control.HEAT:
             min_rise = self._conf(CONF_SUPPORT_MIN_RISE, DEFAULT_SUPPORT_MIN_RISE)
             rise = self._room_trend.rise_per_hour(since=self._heat_since, min_span_minutes=10)
             if rise is not None and rise < min_rise:
@@ -1578,6 +1595,43 @@ class SmartClimateEntity(ClimateEntity):
         await self._apply_control()
         self.async_write_ha_state()
 
+    async def async_set_support_boost(self, enabled=True, minutes=None):
+        """'CV erbij': let the support heater join now, for ``minutes`` (default an hour)
+        or until the room reaches its target, whichever comes first. Lifts a support
+        pause; a support heater the user set to off or manual keeps that choice."""
+        now = dt_util.now()
+        room = self._room_temperature()
+        if enabled:
+            mins = float(minutes) if minutes else DEFAULT_SUPPORT_BOOST_MIN
+            self._support_boost_until = now + timedelta(minutes=mins)
+            for dev in self._devices:
+                entry = self._device_modes.get(dev["entity_id"])
+                if dev.get("tier") == TIER_SUPPORT and entry and entry.get("source") == SOURCE_PAUSE:
+                    self._device_modes.pop(dev["entity_id"], None)
+            for dev in self._devices:
+                if dev.get("tier") == TIER_SUPPORT:
+                    self._log_action(
+                        WHO_USER, dev["entity_id"],
+                        f"erbij tot {dt_util.as_local(self._support_boost_until):%H:%M} of tot het doel", room,
+                    )
+            self._persist(**{
+                CONF_SUPPORT_BOOST_UNTIL: self._support_boost_until.isoformat(),
+                CONF_DEVICE_MODES: dict(self._device_modes),
+            })
+        elif self._support_boost_until is not None:
+            self._end_support_boost("gestopt", room)
+        await self._apply_control()
+        self.async_write_ha_state()
+
+    def _end_support_boost(self, why, room_temp=None):
+        """End 'CV erbij' (persisted); the normal support rules apply again."""
+        self._support_boost_until = None
+        self._support_active = False
+        for dev in self._devices:
+            if dev.get("tier") == TIER_SUPPORT:
+                self._log_action(WHO_USER, dev["entity_id"], f"niet meer erbij: {why}", room_temp)
+        self._persist(**{CONF_SUPPORT_BOOST_UNTIL: None})
+
     def _pause_entries(self):
         """Active pause entries of the support devices."""
         out = []
@@ -1795,6 +1849,7 @@ class SmartClimateEntity(ClimateEntity):
             },
             ATTR_SUPPORT_PAUSED_UNTIL: self._support_paused_until(),
             ATTR_SUPPORT_PAUSE_KIND: self._support_pause_kind(),
+            ATTR_SUPPORT_BOOST_UNTIL: self._support_boost_until.isoformat() if self._support_boost_until else None,
             ATTR_ROOM_TEMPERATURE_SOURCE: self._room_temperature_source(),
             ATTR_EXTERNAL_TAKEOVER: bool(self._conf(CONF_EXTERNAL_TAKEOVER, True)),
             ATTR_SUPPORT_DELTA: self._conf(CONF_SUPPORT_DELTA, DEFAULT_SUPPORT_DELTA),
