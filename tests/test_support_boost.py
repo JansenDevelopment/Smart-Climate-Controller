@@ -4,7 +4,6 @@ import copy
 from datetime import timedelta
 
 import pytest
-
 import test_device_modes as tdm
 from test_device_modes import _hvac, _make
 
@@ -95,3 +94,24 @@ async def test_stopping_the_boost_and_restart_persistence():
     entity, hass, _ = _make({"support_enabled": False, "support_boost_until": until})
     await entity._apply_control()
     assert ("climate.cv", "heat") in _hvac(hass)
+
+
+async def test_boost_sets_the_cv_above_its_own_reading():
+    """A CV thermostat that already reads warm (the Qlima warmed the air around it) would not fire
+    at the plain target: during the boost its setpoint sits a degree above its own reading."""
+    _room_at(20.0)  # the room is the mean of both devices: (20.0 + 21.6) / 2 = 20.8, still under 21
+    tdm.CV_STATE["attributes"]["current_temperature"] = 21.6
+    entity, hass, _ = _make()
+    await entity.async_set_support_boost(True)
+    cv = next(p for p in entity._plan if p["entity_id"] == "climate.cv")
+    assert cv["hvac_mode"] == "heat" and cv["temperature"] >= 22.5
+
+
+def test_boost_lead_bounds():
+    from custom_components.smart_climate.control import support_boost_lead
+
+    assert support_boost_lead(None, 21) == 1.0
+    assert support_boost_lead(19, 21) == 1.0     # cold sensor: just above the target
+    assert support_boost_lead(21.6, 21) == pytest.approx(1.6)   # warm sensor: a degree above its reading
+    assert support_boost_lead(25, 21) == 3.0     # capped
+    assert support_boost_lead(20, None) == 0.0
