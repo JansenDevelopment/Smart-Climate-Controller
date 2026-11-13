@@ -32,6 +32,7 @@ from .const import (
     SERVICE_SET_OVERRIDE_NEXT_NODE,
     SERVICE_SET_OVERRIDE_TIMER,
     SERVICE_SET_SCHEDULE,
+    SERVICE_SET_SUPPORT_BOOST,
     SERVICE_SET_SUPPORT_PAUSE,
 )
 
@@ -231,4 +232,16 @@ async def async_register_services(hass: HomeAssistant) -> None:
     )
     hass.services.async_register(
         DOMAIN, SERVICE_SET_SUPPORT_PAUSE, handle_set_support_pause
+    )
+
+    async def handle_set_support_boost(call: ServiceCall) -> None:
+        entity = _get_entity(hass, call)
+        if entity:
+            await entity.async_set_support_boost(
+                enabled=call.data.get("enabled", True),
+                minutes=call.data.get("minutes"),
+            )
+
+    hass.services.async_register(
+        DOMAIN, SERVICE_SET_SUPPORT_BOOST, handle_set_support_boost
     )

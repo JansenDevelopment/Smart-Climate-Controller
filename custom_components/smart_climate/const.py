@@ -37,6 +37,7 @@ CONF_SUPPORT_ENABLED = "support_enabled"
 CONF_SUPPORT_DELTA = "support_delta"
 CONF_SUPPORT_GRACE = "support_grace"
 CONF_SUPPORT_MIN_RISE = "support_min_rise"
+CONF_SUPPORT_BOOST_UNTIL = "support_boost_until"  # 'CV erbij': support forced on until (ISO)
 CONF_TIER = "tier"
 CONF_DEVICE_MODES = "device_modes"
 CONF_DEVICE_SEEDED = "device_modes_seeded"
@@ -151,6 +152,7 @@ DEFAULT_SUPPORT_DELTA = 1.5
 # keep up.
 DEFAULT_SUPPORT_GRACE_MIN = 15
 DEFAULT_SUPPORT_MIN_RISE = 0.3
+DEFAULT_SUPPORT_BOOST_MIN = 60
 
 # Attributes
 ATTR_MODE = "mode"
@@ -182,6 +184,7 @@ ATTR_ROOM_TREND = "room_trend"
 ATTR_DEVICE_MODES = "device_modes"
 ATTR_SUPPORT_PAUSED_UNTIL = "support_paused_until"
 ATTR_SUPPORT_PAUSE_KIND = "support_pause_kind"
+ATTR_SUPPORT_BOOST_UNTIL = "support_boost_until"
 ATTR_ROOM_TEMPERATURE_SOURCE = "room_temperature_source"
 ATTR_EXTERNAL_TAKEOVER = "external_takeover"
 ATTR_WARM_THRESHOLD = "warm_threshold"
@@ -219,6 +222,7 @@ SERVICE_SET_COOLING_MODE = "set_cooling_mode"
 SERVICE_SET_HEAT_SUPPORT = "set_heat_support"
 SERVICE_SET_DEVICE_MODE = "set_device_mode"
 SERVICE_SET_SUPPORT_PAUSE = "set_support_pause"
+SERVICE_SET_SUPPORT_BOOST = "set_support_boost"
 SERVICE_SET_OBSERVE = "set_observe"
 SERVICE_SET_BEHAVIOUR = "set_behaviour"
 
