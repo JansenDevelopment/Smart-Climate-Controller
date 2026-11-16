@@ -208,10 +208,20 @@ def compute_next_node_datetime(schedule: dict | None, now: datetime) -> datetime
         if node_time > current_time:
             return datetime.combine(now.date(), node_time, tzinfo=now.tzinfo)
 
-    # All nodes are before current time → next node is the first one tomorrow
-    # Same time zone as *now*: a naive result crashed the comparison with the aware
-    # clock every tick while a "until the next block" override ran (9/10-11-2026).
-    return datetime.combine(now.date() + timedelta(days=1), valid_times[0], tzinfo=now.tzinfo)
+    # All nodes are before current time → next node is the first one of the next day
+    # that has nodes, from THAT day's list: with 5/2 or per-day schedules tomorrow can
+    # start at another time (16-11-2026: a Sunday-night override ran to 09:00 instead of
+    # Monday 07:00). Same time zone as *now*: a naive result crashed the comparison with
+    # the aware clock every tick while a "until the next block" override ran (9/10-11-2026).
+    for days in range(1, 8):
+        day = now + timedelta(days=days)
+        times = sorted(
+            t for node in get_schedule_nodes(schedule, day)
+            if (t := _parse_time(node.get("time", ""))) is not None
+        )
+        if times:
+            return datetime.combine(day.date(), times[0], tzinfo=now.tzinfo)
+    return None
 
 
 def get_next_node_minutes(schedule: dict | None, now: datetime) -> int | None:
