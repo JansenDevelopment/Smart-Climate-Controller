@@ -56,6 +56,7 @@ CONF_OVERRIDE = "override"
 # while idle instead of switching it off (both default off: an option per install).
 CONF_FAN_BOOST = "fan_boost"
 CONF_HOLD_PRIMARY = "hold_primary"
+CONF_QUIET_HOLD = "quiet_hold"
 
 # Action log: the last LOG_SIZE entries as an attribute, every entry also as a
 # bus event (the recorder keeps those) for later analysis.
@@ -197,6 +198,7 @@ ATTR_OUTDOOR_SENSOR = "outdoor_sensor"
 ATTR_OBSERVE = "observe"
 ATTR_FAN_BOOST = "fan_boost"
 ATTR_HOLD_PRIMARY = "hold_primary"
+ATTR_QUIET_HOLD = "quiet_hold"
 ATTR_LOG = "log"
 # Per primary heater: own sensor, learned offset, lead, defrosts (for the measurement sensors).
 ATTR_LEARNING = "learning"

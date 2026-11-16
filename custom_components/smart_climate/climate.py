@@ -57,6 +57,7 @@ from .const import (
     ATTR_OVERRIDE_TEMPERATURE,
     ATTR_PLAN,
     ATTR_PRESENCE,
+    ATTR_QUIET_HOLD,
     ATTR_REMAINING_MINUTES,
     ATTR_ROOM_TEMPERATURE_SOURCE,
     ATTR_ROOM_TREND,
@@ -98,6 +99,7 @@ from .const import (
     CONF_OVERRIDE,
     CONF_PARK,
     CONF_PRIMARY_DEVICE,
+    CONF_QUIET_HOLD,
     CONF_SCHEDULE,
     CONF_SKIP_UNTIL,
     CONF_SUPPORT_BOOST_UNTIL,
@@ -859,6 +861,7 @@ class SmartClimateEntity(ClimateEntity):
         self._trim = control.hold_trim(
             room_temp, hold_target, self._trim,
             (now - self._above_since).total_seconds() / 60 if self._above_since else None,
+            quiet=bool(self._conf(CONF_QUIET_HOLD, False)),
         )
         self._hold_target = hold_target
         fan_target = decision.target if decision.intent == control.HEAT else hold_target
@@ -886,6 +889,7 @@ class SmartClimateEntity(ClimateEntity):
             return
 
         boost = bool(self._conf(CONF_FAN_BOOST, False))
+        quiet = bool(self._conf(CONF_QUIET_HOLD, False))
         self._update_lead(decision, room_temp, boost)
         caps = self._device_caps()
         for cap in caps:
@@ -898,7 +902,17 @@ class SmartClimateEntity(ClimateEntity):
                     room_temp, fan_target, prev,
                     (now - since).total_seconds() / 60 if since else None,
                     cap["fan_modes"],
+                    # Quiet hold: near the target the setpoint corrects, the fan only steps down.
+                    step_up=not quiet or (
+                        room_temp is not None and fan_target is not None
+                        and fan_target - room_temp > control.LEAD_ON
+                    ),
                 )
+            if (
+                quiet and self._trim > 0 and decision.intent == control.HEAT
+                and cap.get("tier") == TIER_PRIMARY and not cap.get("lead")
+            ):
+                cap["lead"] = self._trim  # the quiet-hold nudge, sent like a warm-up lead
         commands = control.plan_routes(
             decision, caps, support_active=self._support_active,
             hold_target=hold_target if bool(self._conf(CONF_HOLD_PRIMARY, False)) else None,
@@ -1447,21 +1461,21 @@ class SmartClimateEntity(ClimateEntity):
         await self._apply_control()
         self.async_write_ha_state()
 
-    async def async_set_behaviour(self, fan_boost=None, hold_primary=None) -> None:
-        """Switch the fan boost and/or holding the primary heater at the target."""
+    async def async_set_behaviour(self, fan_boost=None, hold_primary=None, quiet_hold=None) -> None:
+        """Switch the fan boost, holding the primary heater at the target and/or the quiet hold."""
         changes = {}
         if fan_boost is not None:
             changes[CONF_FAN_BOOST] = bool(fan_boost)
         if hold_primary is not None:
             changes[CONF_HOLD_PRIMARY] = bool(hold_primary)
+        if quiet_hold is not None:
+            changes[CONF_QUIET_HOLD] = bool(quiet_hold)
         if not changes:
             return
         self._persist(**changes)
         self._plan_key = None
-        text = ", ".join(
-            f"{'ventilator-boost' if k == CONF_FAN_BOOST else 'aanhouden'} {'aan' if v else 'uit'}"
-            for k, v in changes.items()
-        )
+        names = {CONF_FAN_BOOST: "ventilator-boost", CONF_HOLD_PRIMARY: "aanhouden", CONF_QUIET_HOLD: "stil aanhouden"}
+        text = ", ".join(f"{names[k]} {'aan' if v else 'uit'}" for k, v in changes.items())
         self._log_action(WHO_USER, None, text, self._room_temperature())
         await self._apply_control()
         self.async_write_ha_state()
@@ -1866,6 +1880,7 @@ class SmartClimateEntity(ClimateEntity):
             ATTR_OBSERVE: self._observe,
             ATTR_FAN_BOOST: bool(self._conf(CONF_FAN_BOOST, False)),
             ATTR_HOLD_PRIMARY: bool(self._conf(CONF_HOLD_PRIMARY, False)),
+            ATTR_QUIET_HOLD: bool(self._conf(CONF_QUIET_HOLD, False)),
             ATTR_PLAN: self._plan,
             ATTR_HOLD_TARGET: self._hold_target,
             ATTR_ETA_MINUTES: None if self._eta is None else round(self._eta),

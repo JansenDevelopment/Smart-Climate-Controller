@@ -10,6 +10,7 @@ from .const import (
     ATTR_HOLD_PRIMARY,
     ATTR_INTERRUPTIBLE,
     ATTR_OBSERVE,
+    ATTR_QUIET_HOLD,
     ATTR_SUPPORT_ENABLED,
     ATTR_SUPPORT_PAUSED_UNTIL,
     SERVICE_SET_BEHAVIOUR,
@@ -34,6 +35,7 @@ async def async_setup_entry(
         SmartClimateObserveSwitch(hass, entry),
         SmartClimateFanBoostSwitch(hass, entry),
         SmartClimateHoldSwitch(hass, entry),
+        SmartClimateQuietHoldSwitch(hass, entry),
     ])
 
 
@@ -153,3 +155,22 @@ class SmartClimateHoldSwitch(SmartClimateChildEntity, SwitchEntity):
 
     async def async_turn_off(self, **kwargs) -> None:
         await self._call_service(SERVICE_SET_BEHAVIOUR, hold_primary=False)
+
+
+class SmartClimateQuietHoldSwitch(SmartClimateChildEntity, SwitchEntity):
+    """While holding, correct with the setpoint (+1 degree) instead of stepping the fan up."""
+
+    def __init__(self, hass, entry) -> None:
+        super().__init__(hass, entry, "quiet_hold")
+        self._attr_name = "Quiet Hold"
+        self._attr_icon = "mdi:volume-off"
+
+    @property
+    def is_on(self):
+        return bool(self._climate_attr(ATTR_QUIET_HOLD, False))
+
+    async def async_turn_on(self, **kwargs) -> None:
+        await self._call_service(SERVICE_SET_BEHAVIOUR, quiet_hold=True)
+
+    async def async_turn_off(self, **kwargs) -> None:
+        await self._call_service(SERVICE_SET_BEHAVIOUR, quiet_hold=False)

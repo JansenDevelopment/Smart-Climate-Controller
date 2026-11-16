@@ -159,7 +159,8 @@ async def async_register_services(hass: HomeAssistant) -> None:
         entity = _get_entity(hass, call)
         if entity:
             await entity.async_set_behaviour(
-                fan_boost=call.data.get("fan_boost"), hold_primary=call.data.get("hold_primary")
+                fan_boost=call.data.get("fan_boost"), hold_primary=call.data.get("hold_primary"),
+                quiet_hold=call.data.get("quiet_hold"),
             )
 
     async def handle_set_device_mode(call: ServiceCall) -> None:
