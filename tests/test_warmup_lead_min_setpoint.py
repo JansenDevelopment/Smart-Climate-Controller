@@ -159,6 +159,26 @@ async def test_next_node_override_does_not_crash_the_loop_and_ends_on_time():
     assert entity._mode == "auto"
 
 
+def test_next_node_after_the_last_block_comes_from_tomorrows_list():
+    """5/2: an override set on Sunday night ends at Monday's first block (07:00), not at
+    Sunday's first time (09:00) on Monday; Friday night ends at Saturday's 09:00."""
+    from zoneinfo import ZoneInfo
+
+    from custom_components.smart_climate import schedule_helper
+
+    ams = ZoneInfo("Europe/Amsterdam")
+    sched = {"mode": "5/2",
+             "weekday": [{"time": "07:00", "temp": 21.5}, {"time": "23:30", "temp": 11.5}],
+             "weekend": [{"time": "09:00", "temp": 21}, {"time": "22:29", "temp": 14}]}
+    nxt = schedule_helper.compute_next_node_datetime
+    assert nxt(sched, datetime(2026, 11, 15, 23, 8, tzinfo=ams)) == datetime(2026, 11, 16, 7, 0, tzinfo=ams)
+    assert nxt(sched, datetime(2026, 11, 13, 23, 45, tzinfo=ams)) == datetime(2026, 11, 14, 9, 0, tzinfo=ams)
+    # a day without blocks is skipped
+    per_day = {"mode": "individual", "sunday": [{"time": "22:00", "temp": 14}],
+               "tuesday": [{"time": "06:30", "temp": 20}]}
+    assert nxt(per_day, datetime(2026, 11, 15, 23, 0, tzinfo=ams)) == datetime(2026, 11, 17, 6, 30, tzinfo=ams)
+
+
 def test_a_naive_stored_time_is_local_not_utc():
     from custom_components.smart_climate import climate as climate_mod
     from custom_components.smart_climate.climate import _parse_dt
