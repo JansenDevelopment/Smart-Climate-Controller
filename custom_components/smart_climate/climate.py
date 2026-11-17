@@ -253,7 +253,7 @@ class SmartClimateEntity(ClimateEntity):
         self.entry = entry
         self._attr_name = name
         self._attr_unique_id = f"smart_climate_{entry.entry_id}"
-        self._attr_temperature_unit = UnitOfTemperature.CELSIUS
+        self._attr_native_temperature_unit = UnitOfTemperature.CELSIUS
         self._attr_should_poll = False
 
         # Config
@@ -1781,11 +1781,11 @@ class SmartClimateEntity(ClimateEntity):
         return max(steps) if steps else 0.5
 
     @property
-    def current_temperature(self):
+    def native_current_temperature(self):
         return self._room_temperature()
 
     @property
-    def target_temperature(self):
+    def native_target_temperature(self):
         if self._active_target is not None:
             return self._active_target
         return self._heat_target
