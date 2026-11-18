@@ -861,7 +861,6 @@ class SmartClimateEntity(ClimateEntity):
         self._trim = control.hold_trim(
             room_temp, hold_target, self._trim,
             (now - self._above_since).total_seconds() / 60 if self._above_since else None,
-            quiet=bool(self._conf(CONF_QUIET_HOLD, False)),
         )
         self._hold_target = hold_target
         fan_target = decision.target if decision.intent == control.HEAT else hold_target
@@ -902,17 +901,8 @@ class SmartClimateEntity(ClimateEntity):
                     room_temp, fan_target, prev,
                     (now - since).total_seconds() / 60 if since else None,
                     cap["fan_modes"],
-                    # Quiet hold: near the target the setpoint corrects, the fan only steps down.
-                    step_up=not quiet or (
-                        room_temp is not None and fan_target is not None
-                        and fan_target - room_temp > control.LEAD_ON
-                    ),
+                    quiet=quiet,  # quiet hold: medium stays around the target
                 )
-            if (
-                quiet and self._trim > 0 and decision.intent == control.HEAT
-                and cap.get("tier") == TIER_PRIMARY and not cap.get("lead")
-            ):
-                cap["lead"] = self._trim  # the quiet-hold nudge, sent like a warm-up lead
         commands = control.plan_routes(
             decision, caps, support_active=self._support_active,
             hold_target=hold_target if bool(self._conf(CONF_HOLD_PRIMARY, False)) else None,
@@ -968,7 +958,8 @@ class SmartClimateEntity(ClimateEntity):
                 self._lead.pop(eid, None)
                 continue
             self._lead[eid] = control.setpoint_lead(
-                room_temp, decision.target, self._lead.get(eid, 0), self._offset.get(eid)
+                room_temp, decision.target, self._lead.get(eid, 0), self._offset.get(eid),
+                lead_on=control.QUIET_LEAD_ON if self._conf(CONF_QUIET_HOLD, False) else control.LEAD_ON,
             )
 
     async def _execute(self, cmd):
