@@ -402,8 +402,8 @@ set_behaviour:
     quiet_hold:
       name: Quiet hold
       description: >-
-        While holding, correct a sagging room with the setpoint (+1 degree)
-        instead of stepping the fan up. Fewer commands, so fewer beeps.
+        While holding, keep the fan on medium around the target instead of
+        stepping it between medium and auto. Fewer commands, so fewer beeps.
       required: false
       selector:
         boolean:

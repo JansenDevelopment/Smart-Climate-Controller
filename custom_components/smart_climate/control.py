@@ -265,11 +265,17 @@ FAN_ORDER = ("auto", "low", "medium", "high")
 TRIM_ABOVE = 0.5
 TRIM_MINUTES = 20
 TRIM_STEP = 1.0
-# Quiet hold (an extra mode, 1.7): every command beeps, and the fan boost stepping
+# Quiet hold (an extra mode, 1.7.2): every command beeps, and the fan boost stepping
 # medium <-> auto around the target gave 18 beeps in one evening (Qlima, 16-11-2026).
-# Near the target (deficit up to LEAD_ON) the fan then never steps up; a room more than
-# BOOST_AUTO under the target gets the setpoint TRIM_STEP higher instead, back once the
-# room is at the target. Further under the target the warm-up (lead + fan) takes over.
+# 1.7.0 raised the setpoint instead and kept the fan on auto: on auto the Qlima regulates
+# on its own (warm) sensor, so the room sat at 21.1-21.2 under a 21.5 target for 97% of
+# the evening (17-11-2026). Now the fan *stays* on medium around the target: up to medium
+# once the room is BOOST_AUTO under it, back to auto only once the room is
+# QUIET_AUTO_ABOVE over it and the step has run QUIET_HOLD_MINUTES; the warm-up lead
+# only starts QUIET_LEAD_ON under the target.
+QUIET_AUTO_ABOVE = 0.2
+QUIET_HOLD_MINUTES = 30
+QUIET_LEAD_ON = 1.0
 
 # Below this a hold is a night setback, not a hold: the device goes off. Some
 # devices report a min_temp they do not honour (the Qlima via localtuya says 7
@@ -334,6 +340,7 @@ def setpoint_lead(
     target: float | None,
     prev_lead: int,
     offset: float | None,
+    lead_on: float = LEAD_ON,
 ) -> int:
     """Whole degrees to add to a heating primary's setpoint (0 = the plain target).
 
@@ -352,7 +359,7 @@ def setpoint_lead(
         if offset is not None and offset >= prev_lead + LEAD_STEP:
             return max(prev_lead, wanted)
         return prev_lead
-    if deficit > LEAD_ON and offset is not None:
+    if deficit > lead_on and offset is not None:
         return wanted
     return 0
 
@@ -363,7 +370,7 @@ def fan_for(
     prev_fan: str | None,
     held_minutes: float | None,
     fan_modes: list[str] | None,
-    step_up: bool = True,
+    quiet: bool = False,
 ) -> str | None:
     """The fan mode a heating device should run at, or None to leave it alone.
 
@@ -372,25 +379,26 @@ def fan_for(
     room should start warming at once); stepping *down* waits for
     ``BOOST_HOLD_MINUTES`` and an extra ``BOOST_BACKOFF`` so the fan does not
     flap around a threshold.  Only modes the device advertises are returned.
-    ``step_up=False`` (quiet hold, near the target): never a higher step than
-    ``prev_fan`` (None = auto).
+    ``quiet`` (quiet hold): medium stays until the room is ``QUIET_AUTO_ABOVE``
+    over the target and the step has run ``QUIET_HOLD_MINUTES``.
     """
     if room_temp is None or target is None or not fan_modes:
         return None
     available = [f for f in FAN_ORDER if f in fan_modes]
     if not available:
         return None
-    deficit = target - room_temp
+    deficit = round(target - room_temp, 2)  # sensors report tenths: 21.5 - 21.7 must be -0.2
     want = "high" if deficit > BOOST_HIGH else "medium" if deficit > BOOST_AUTO else "auto"
+    held = held_minutes if held_minutes is not None else 0
     if prev_fan in FAN_ORDER and FAN_ORDER.index(want) < FAN_ORDER.index(prev_fan):
-        held = held_minutes if held_minutes is not None else 0
         threshold = BOOST_HIGH if prev_fan == "high" else BOOST_AUTO
         if held < BOOST_HOLD_MINUTES or deficit > threshold - BOOST_BACKOFF:
             want = prev_fan
-    if not step_up:
-        ceiling = prev_fan if prev_fan in FAN_ORDER else "auto"
-        if FAN_ORDER.index(want) > FAN_ORDER.index(ceiling):
-            want = ceiling
+    if quiet and want == "auto":
+        if prev_fan is None:
+            want = "medium" if deficit > -QUIET_AUTO_ABOVE else "auto"
+        elif prev_fan in ("medium", "high") and (held < QUIET_HOLD_MINUTES or deficit > -QUIET_AUTO_ABOVE):
+            want = "medium"
     if want not in available:
         # e.g. a device without "medium": nearest available step downwards, else upwards
         lower = [f for f in available if FAN_ORDER.index(f) <= FAN_ORDER.index(want)]
@@ -403,25 +411,18 @@ def hold_trim(
     target: float | None,
     prev_trim: float,
     above_minutes: float | None,
-    quiet: bool = False,
 ) -> float:
-    """Setpoint offset for a holding device (0, -TRIM_STEP, or +TRIM_STEP with ``quiet``).
+    """Setpoint offset for a holding device (0 or -TRIM_STEP).
 
     ``above_minutes`` is how long the room has been more than ``TRIM_ABOVE``
-    over the target (None = it is not).  ``quiet`` (quiet hold): a room between
-    ``BOOST_AUTO`` and ``LEAD_ON`` under the target raises the setpoint until it is
-    back at the target (further under it the warm-up lead does the work).
+    over the target (None = it is not).
     """
     if room_temp is None or target is None:
         return prev_trim
-    if prev_trim > 0:
-        return prev_trim if quiet and 0 < target - room_temp <= LEAD_ON else 0.0
     if prev_trim < 0:
         return 0.0 if room_temp < target else prev_trim
     if above_minutes is not None and above_minutes >= TRIM_MINUTES:
         return -TRIM_STEP
-    if quiet and BOOST_AUTO < target - room_temp <= LEAD_ON:
-        return TRIM_STEP
     return 0.0
 
 

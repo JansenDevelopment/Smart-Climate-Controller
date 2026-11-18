@@ -1,4 +1,4 @@
-"""Quiet hold (1.7): while holding, a sagging room gets the setpoint +1 instead of a fan step (every command beeps)."""
+"""Quiet hold (1.7.2): the fan stays on medium around the target instead of flapping medium <-> auto."""
 
 from datetime import timedelta
 
@@ -15,79 +15,68 @@ from tests.test_observe_log import (  # noqa: F401
 FANS = ["auto", "low", "medium", "high"]
 
 
-def test_trim_goes_up_only_in_quiet_hold_and_back_at_the_target():
-    assert control.hold_trim(21.1, 21.5, 0.0, None) == 0.0                # not quiet: nothing
-    assert control.hold_trim(21.3, 21.5, 0.0, None, quiet=True) == 0.0    # within 0.3: nothing
-    assert control.hold_trim(21.1, 21.5, 0.0, None, quiet=True) == 1.0
-    assert control.hold_trim(20.9, 21.5, 0.0, None, quiet=True) == 0.0    # > 0.5 under: the lead's job
-    assert control.hold_trim(21.4, 21.5, 1.0, None, quiet=True) == 1.0    # stays until the target
-    assert control.hold_trim(21.5, 21.5, 1.0, None, quiet=True) == 0.0
-    assert control.hold_trim(20.9, 21.5, 1.0, None, quiet=True) == 0.0    # sagged on: hand over to the lead
-    assert control.hold_trim(21.1, 21.5, 1.0, None) == 0.0                # switched off: back at once
-    # the downward trim is unchanged
-    assert control.hold_trim(22.1, 21.5, 0.0, 25, quiet=True) == -1.0
-    assert control.hold_trim(21.6, 21.5, -1.0, None, quiet=True) == -1.0
-    assert control.hold_trim(21.4, 21.5, -1.0, None, quiet=True) == 0.0
+def test_quiet_fan_holds_medium_until_over_the_target():
+    # plain mode unchanged: medium back to auto close to the target
+    assert control.fan_for(21.45, 21.5, "medium", 30, FANS) == "auto"
+    # quiet: medium stays at and just over the target
+    assert control.fan_for(21.45, 21.5, "medium", 60, FANS, quiet=True) == "medium"
+    assert control.fan_for(21.6, 21.5, "medium", 60, FANS, quiet=True) == "medium"
+    # back to auto only 0.2 over the target and after 30 minutes
+    assert control.fan_for(21.7, 21.5, "medium", 20, FANS, quiet=True) == "medium"
+    assert control.fan_for(21.7, 21.5, "medium", 30, FANS, quiet=True) == "auto"
+    # from auto: up to medium only 0.3 under the target
+    assert control.fan_for(21.3, 21.5, "auto", 60, FANS, quiet=True) == "auto"
+    assert control.fan_for(21.1, 21.5, "auto", 60, FANS, quiet=True) == "medium"
+    # first decision: medium unless already over the target
+    assert control.fan_for(21.4, 21.5, None, None, FANS, quiet=True) == "medium"
+    assert control.fan_for(21.8, 21.5, None, None, FANS, quiet=True) == "auto"
+    # far under: high as before, and high steps down to medium (not auto)
+    assert control.fan_for(20.3, 21.5, "medium", 60, FANS, quiet=True) == "high"
+    assert control.fan_for(21.6, 21.5, "high", 60, FANS, quiet=True) == "medium"
 
 
-def test_fan_never_steps_up_without_step_up_but_still_steps_down():
-    assert control.fan_for(20.5, 21.0, "auto", 30, FANS, step_up=False) == "auto"
-    assert control.fan_for(20.5, 21.0, None, None, FANS, step_up=False) == "auto"
-    assert control.fan_for(20.5, 21.0, "high", 30, FANS, step_up=False) == "medium"
-    assert control.fan_for(20.95, 21.0, "medium", 30, FANS, step_up=False) == "auto"
-    assert control.fan_for(20.5, 21.0, "auto", 30, FANS) == "medium"       # default unchanged
+def test_quiet_lead_starts_later():
+    assert control.setpoint_lead(20.9, 21.5, 0, 6.0) == 6
+    assert control.setpoint_lead(20.9, 21.5, 0, 6.0, lead_on=control.QUIET_LEAD_ON) == 0
+    assert control.setpoint_lead(20.4, 21.5, 0, 6.0, lead_on=control.QUIET_LEAD_ON) == 6
+
+
+def test_no_upward_trim_any_more():
+    assert control.hold_trim(21.1, 21.5, 0.0, None) == 0.0
+    assert control.hold_trim(22.1, 21.5, 0.0, 25) == -1.0
+    assert control.hold_trim(21.6, 21.5, -1.0, None) == -1.0
+    assert control.hold_trim(21.4, 21.5, -1.0, None) == 0.0
 
 
 async def _holding(**data):
-    """An entity at its target of 21 with the fan on auto (warmed up first)."""
+    """An entity at its target of 21 with the fan on medium (warmed up first)."""
     states = {"climate.qlima": QLIMA, "climate.cv": CV}
     _room(states, 18.5)
     entity, hass, clock = _make(states, fan_boost=True, hold_primary=True, **data)
     await entity._apply_control()
     states["climate.qlima"] = {"state": "heat", "attributes": {**QLIMA["attributes"], "temperature": 21, "fan_mode": "high"}}
-    _room(states, 21.6)
+    _room(states, 20.9)
     clock["now"] += timedelta(minutes=30)
     await entity._apply_control()
-    assert entity._intent == "idle"
-    states["climate.qlima"] = {"state": "heat", "attributes": {**QLIMA["attributes"], "temperature": 21, "fan_mode": "auto"}}
+    states["climate.qlima"] = {"state": "heat", "attributes": {**QLIMA["attributes"], "temperature": 21, "fan_mode": "medium"}}
     hass.services.async_call.reset_mock()
     return entity, hass, clock, states
 
 
-async def test_quiet_hold_raises_the_setpoint_and_leaves_the_fan():
+async def test_quiet_hold_keeps_medium_at_the_target():
     entity, hass, clock, states = await _holding(quiet_hold=True)
-    _room(states, 20.6)
-    clock["now"] += timedelta(minutes=20)
+    _room(states, 21.05)
+    clock["now"] += timedelta(minutes=40)
     await entity._apply_control()
     assert _calls(hass, "set_fan_mode") == []
-    assert _calls(hass, "set_temperature") == [{"entity_id": "climate.qlima", "temperature": 22}]
-
-    # back at the target: the plain setpoint again, still no fan command
-    states["climate.qlima"] = {"state": "heat", "attributes": {**QLIMA["attributes"], "temperature": 22, "fan_mode": "auto"}}
-    _room(states, 21.0)
-    clock["now"] += timedelta(minutes=20)
-    hass.services.async_call.reset_mock()
-    await entity._apply_control()
-    assert _calls(hass, "set_fan_mode") == []
-    assert _calls(hass, "set_temperature") == [{"entity_id": "climate.qlima", "temperature": 21}]
 
 
-async def test_without_quiet_hold_the_fan_steps_up_as_before():
+async def test_without_quiet_hold_the_fan_steps_down_as_before():
     entity, hass, clock, states = await _holding()
-    _room(states, 20.6)
-    clock["now"] += timedelta(minutes=20)
+    _room(states, 21.05)
+    clock["now"] += timedelta(minutes=40)
     await entity._apply_control()
-    assert _calls(hass, "set_fan_mode") == [{"entity_id": "climate.qlima", "fan_mode": "medium"}]
-    assert _calls(hass, "set_temperature") == []
-
-
-async def test_far_under_the_target_the_warm_up_takes_over():
-    entity, hass, clock, states = await _holding(quiet_hold=True)
-    _room(states, 20.2)
-    clock["now"] += timedelta(minutes=20)
-    await entity._apply_control()
-    assert entity._trim == 0.0
-    assert _calls(hass, "set_fan_mode") == [{"entity_id": "climate.qlima", "fan_mode": "medium"}]
+    assert _calls(hass, "set_fan_mode") == [{"entity_id": "climate.qlima", "fan_mode": "auto"}]
 
 
 async def test_set_behaviour_stores_quiet_hold():

@@ -127,12 +127,14 @@ mode would hand that decision back to whoever set it.
   `control.HOLD_FLOOR` 16 (night setback) = off: the Qlima reports `min_temp` 7 but ignores setpoints under ~16.
   A heat target below `min_temp` is off as well. `min_temp` = the higher of the reported one and the device
   subentry's `min_setpoint` (1.5).
-- **Quiet hold** (`quiet_hold`, switch + `set_behaviour`, default off, 1.7): fewer commands near the target, because
-  every command beeps (Qlima 16-11-2026: the fan boost stepping medium <-> auto gave 18 beeps in one evening). With a
-  deficit up to `LEAD_ON` 0.5 the fan never steps up (`fan_for(step_up=False)`, stepping down still works); a deficit
-  over `BOOST_AUTO` 0.3 raises the setpoint 1 deg instead (`hold_trim(quiet=True)`, sent as a lead in `_apply_control`)
-  until the room is at the target. Further under the target the warm-up (lead + fan) takes over as before. Meant to
-  run with the fan boost on. Untested on the real device when written: whether auto fan + 1 deg lifts the room is open.
+- **Quiet hold** (`quiet_hold`, switch + `set_behaviour`, default off, 1.7, reworked 1.7.2): fewer commands near
+  the target, because every command beeps (Qlima 16-11-2026: the fan boost stepping medium <-> auto gave 18 beeps in
+  one evening). 1.7.0 kept the fan on auto and raised the setpoint 1 deg instead: measured 17-11-2026 that was *colder*
+  (room 21.1-21.2, 97% of the evening under 21.5) and not quieter (17 commands), because on auto the Qlima regulates
+  on its own warm sensor. 1.7.2: the fan stays on **medium** around the target (`fan_for(quiet=True)`: up at
+  `BOOST_AUTO` 0.3 under, back to auto only at `QUIET_AUTO_ABOVE` 0.2 over the target and after `QUIET_HOLD_MINUTES`
+  30), the warm-up lead starts only `QUIET_LEAD_ON` 1.0 under the target, no setpoint trim upwards. Meant to run with
+  the fan boost on. The plain mode is unchanged.
 - **Warm-up lead** (1.5, part of the fan boost): a primary heater's own sensor reads the warm air near the unit (Qlima
   +3..4 over the room sensor), so at the plain target it throttles down long before the room is there.
   `control.update_offset` learns that offset while it heats (slow EMA; samples under the room = defrost, skipped) and
