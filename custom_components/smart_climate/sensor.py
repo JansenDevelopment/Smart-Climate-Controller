@@ -54,6 +54,7 @@ LEARNING_SENSORS = {
                         SensorStateClass.MEASUREMENT, "mdi:thermometer"),
     "offset": ("sensor offset", "°C", None, SensorStateClass.MEASUREMENT, "mdi:thermometer-chevron-up"),
     "lead": ("setpoint lead", "°C", None, SensorStateClass.MEASUREMENT, "mdi:thermometer-plus"),
+    "trim": ("setpoint trim", "°C", None, SensorStateClass.MEASUREMENT, "mdi:thermometer-lines"),
     "defrosts": ("defrosts", None, None, SensorStateClass.TOTAL_INCREASING, "mdi:snowflake-melt"),
 }
 

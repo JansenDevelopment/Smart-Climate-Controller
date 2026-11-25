@@ -41,7 +41,8 @@ def test_quiet_lead_starts_later():
     assert control.setpoint_lead(20.4, 21.5, 0, 6.0, lead_on=control.QUIET_LEAD_ON) == 6
 
 
-def test_no_upward_trim_any_more():
+def test_trim_without_time_under_the_target_stays():
+    # the 1.7.0 quiet nudge is gone; the upward trim (1.8.0) needs TRIM_UP_MINUTES under the target
     assert control.hold_trim(21.1, 21.5, 0.0, None) == 0.0
     assert control.hold_trim(22.1, 21.5, 0.0, 25) == -1.0
     assert control.hold_trim(21.6, 21.5, -1.0, None) == -1.0
