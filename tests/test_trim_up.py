@@ -47,6 +47,17 @@ def test_heating_at_the_plain_target_carries_the_trim():
     assert cmds[0].temperature == 22
 
 
+def test_a_setback_stays_off_with_an_upward_trim():
+    # knop 4 (25-11-2026): override 15 until the next block, trim +3 -> was heat 18, must be off
+    cmds = control.plan_routes(Decision(control.IDLE), [{**QLIMA_CAP, "trim": 3.0}], hold_target=15)
+    assert cmds == [control.DeviceCommand("climate.qlima", "off")]
+    cmds = control.plan_routes(Decision(control.IDLE), [{**QLIMA_CAP, "trim": 3.0}], hold_target=11.5)
+    assert cmds == [control.DeviceCommand("climate.qlima", "off")]
+    # a real hold still carries the trim
+    cmds = control.plan_routes(Decision(control.IDLE), [{**QLIMA_CAP, "trim": 2.0}], hold_target=21.5)
+    assert cmds[0].temperature == 24
+
+
 def test_support_heater_never_gets_the_trim():
     cmds = control.plan_routes(
         Decision(control.HEAT, 21.5), [{**QLIMA_CAP, "trim": 2.0}, {**CV_CAP, "trim": 2.0}], support_active=True,
