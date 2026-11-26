@@ -125,6 +125,12 @@ mode would hand that decision back to whoever set it.
   (`plan_routes(hold_target=...)`) instead of being parked; `control.hold_trim` lowers its setpoint 1 deg after the
   room has been > 0.5 deg over the target for 20 min. A hold below the device's `min_temp` or below
   `control.HOLD_FLOOR` 16 (night setback) = off: the Qlima reports `min_temp` 7 but ignores setpoints under ~16.
+  **Upward trim (1.8.0):** room > `TRIM_BELOW` 0.3 under the target for `TRIM_UP_MINUTES` 30 while a primary on auto
+  heats *without* a warm-up lead -> trim +1 (max `TRIM_MAX` 3), also on the heat path (`plan_routes`: lead, else a
+  positive trim; never for a support heater). A positive trim stays and only steps down by the 20-min rule above; every
+  step restarts both timers. No learning under `HOLD_FLOOR` (night) or with the primary on manual/off, so the trim
+  survives the night. Why: 19-25 nov 2026 the Qlima got the plain target after the lead, read +2.5 on its own sensor
+  and the room hung 0.7-1.0 under 21.5 all day (just above the `QUIET_LEAD_ON` threshold). Sensor `<device> setpoint trim`.
   A heat target below `min_temp` is off as well. `min_temp` = the higher of the reported one and the device
   subentry's `min_setpoint` (1.5).
 - **Quiet hold** (`quiet_hold`, switch + `set_behaviour`, default off, 1.7, reworked 1.7.2): fewer commands near
@@ -133,7 +139,8 @@ mode would hand that decision back to whoever set it.
   (room 21.1-21.2, 97% of the evening under 21.5) and not quieter (17 commands), because on auto the Qlima regulates
   on its own warm sensor. 1.7.2: the fan stays on **medium** around the target (`fan_for(quiet=True)`: up at
   `BOOST_AUTO` 0.3 under, back to auto only at `QUIET_AUTO_ABOVE` 0.2 over the target and after `QUIET_HOLD_MINUTES`
-  30), the warm-up lead starts only `QUIET_LEAD_ON` 1.0 under the target, no setpoint trim upwards. Meant to run with
+  30), the warm-up lead starts only `QUIET_LEAD_ON` 1.0 under the target, no quick setpoint nudge (the slow upward
+  hold trim of 1.8.0 applies in both modes). Meant to run with
   the fan boost on. The plain mode is unchanged.
 - **Warm-up lead** (1.5, part of the fan boost): a primary heater's own sensor reads the warm air near the unit (Qlima
   +3..4 over the room sensor), so at the plain target it throttles down long before the room is there.

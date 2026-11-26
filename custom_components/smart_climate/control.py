@@ -261,10 +261,21 @@ FAN_ORDER = ("auto", "low", "medium", "high")
 
 # Hold trim: a holding device runs on its own sensor, which can sit far from the
 # room sensor. Room more than TRIM_ABOVE over the target for TRIM_MINUTES ->
-# its setpoint goes TRIM_STEP lower; back once the room is under the target.
+# its setpoint goes TRIM_STEP lower; a negative trim goes back once the room is
+# under the target.
+# Upwards (1.8.0): after the warm-up lead the Qlima gets the plain target, reads
+# +2.5 on its own sensor and throttles, and the room hung 0.7-1.0 under 21.5 all
+# day (19-25 nov 2026: the lead only comes back QUIET_LEAD_ON under the target, so
+# the room settled just above that). Room more than TRIM_BELOW under the target for
+# TRIM_UP_MINUTES while the device heats at the plain target -> one TRIM_STEP up, at
+# most TRIM_MAX. A positive trim stays (it is what the device needs to get the room
+# there) and only comes down a step at a time by the TRIM_ABOVE rule.
 TRIM_ABOVE = 0.5
 TRIM_MINUTES = 20
 TRIM_STEP = 1.0
+TRIM_BELOW = 0.3
+TRIM_UP_MINUTES = 30
+TRIM_MAX = 3.0
 # Quiet hold (an extra mode, 1.7.2): every command beeps, and the fan boost stepping
 # medium <-> auto around the target gave 18 beeps in one evening (Qlima, 16-11-2026).
 # 1.7.0 raised the setpoint instead and kept the fan on auto: on auto the Qlima regulates
@@ -411,19 +422,24 @@ def hold_trim(
     target: float | None,
     prev_trim: float,
     above_minutes: float | None,
+    below_minutes: float | None = None,
 ) -> float:
-    """Setpoint offset for a holding device (0 or -TRIM_STEP).
+    """Setpoint offset for a primary heater at the target (-TRIM_STEP .. TRIM_MAX).
 
     ``above_minutes`` is how long the room has been more than ``TRIM_ABOVE``
-    over the target (None = it is not).
+    over the target, ``below_minutes`` how long it has been more than
+    ``TRIM_BELOW`` under it (None = it is not).  Both count from the last trim
+    change, so every step waits its full time (every setpoint change beeps).
     """
     if room_temp is None or target is None:
         return prev_trim
     if prev_trim < 0:
         return 0.0 if room_temp < target else prev_trim
     if above_minutes is not None and above_minutes >= TRIM_MINUTES:
-        return -TRIM_STEP
-    return 0.0
+        return prev_trim - TRIM_STEP
+    if below_minutes is not None and below_minutes >= TRIM_UP_MINUTES:
+        return min(prev_trim + TRIM_STEP, TRIM_MAX)
+    return prev_trim
 
 
 def eta_minutes(room_temp: float | None, target: float | None, rise_per_hour: float | None) -> float | None:
@@ -562,8 +578,12 @@ def plan_routes(
                 # does 16 at least) would be clamped up by the device: off instead.
                 commands.append(DeviceCommand(entity_id, OFF))
                 continue
-            if mode == HEAT and temp is not None and dev.get("lead"):
-                temp = temp + dev["lead"]
+            # Warm-up lead, else (a primary at the plain target) the upward trim.
+            extra = dev.get("lead") or (
+                max(dev.get("trim", 0.0), 0.0) if dev.get("tier", TIER_PRIMARY) == TIER_PRIMARY else 0.0
+            )
+            if mode == HEAT and temp is not None and extra:
+                temp = temp + extra
                 max_temp = dev.get("max_temp")
                 if isinstance(max_temp, (int, float)):
                     temp = min(temp, max_temp)

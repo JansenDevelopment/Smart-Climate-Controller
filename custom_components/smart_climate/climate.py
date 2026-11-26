@@ -343,6 +343,7 @@ class SmartClimateEntity(ClimateEntity):
         self._defrosting = {}      # entity_id -> True while its own sensor reads cold air while heating
         self._defrosts = {}        # entity_id -> defrost cycles counted since the start
         self._above_since = None   # room more than TRIM_ABOVE over the hold target since
+        self._below_since = None   # room more than TRIM_BELOW under the hold target since
         self._hold_target = None
         self._eta = None
         self._plan = []
@@ -854,14 +855,31 @@ class SmartClimateEntity(ClimateEntity):
         hold_target = None
         if decision.intent in (control.HEAT, control.IDLE):
             hold_target = override_target if override_target is not None else heat_target
-        if hold_target is not None and room_temp is not None and room_temp > hold_target + control.TRIM_ABOVE:
+        # The trim is learned only while a primary heater on auto runs at the plain target
+        # (no warm-up lead) and the target is a real hold, not a night setback: what it
+        # learned during the day then survives the night.
+        trim_learning = (
+            hold_target is not None and room_temp is not None
+            and hold_target >= control.HOLD_FLOOR
+            and self._primary_at_plain_target(now)
+        )
+        if trim_learning and room_temp > hold_target + control.TRIM_ABOVE:
             self._above_since = self._above_since or now
         else:
             self._above_since = None
-        self._trim = control.hold_trim(
+        if trim_learning and room_temp < hold_target - control.TRIM_BELOW:
+            self._below_since = self._below_since or now
+        else:
+            self._below_since = None
+        trim = control.hold_trim(
             room_temp, hold_target, self._trim,
             (now - self._above_since).total_seconds() / 60 if self._above_since else None,
+            (now - self._below_since).total_seconds() / 60 if self._below_since else None,
         )
+        if trim != self._trim:
+            # Every step waits its full time again.
+            self._above_since = self._below_since = None
+        self._trim = trim
         self._hold_target = hold_target
         fan_target = decision.target if decision.intent == control.HEAT else hold_target
         self._eta = control.eta_minutes(
@@ -926,6 +944,21 @@ class SmartClimateEntity(ClimateEntity):
             return
         for cmd in commands:
             await self._execute(cmd)
+
+    def _primary_at_plain_target(self, now):
+        """A primary heater on auto heats without a warm-up lead (the trim's learning moment)."""
+        for dev in self._devices:
+            eid = dev["entity_id"]
+            if dev.get("tier", TIER_PRIMARY) != TIER_PRIMARY:
+                continue
+            state = self.hass.states.get(eid)
+            if (
+                state is not None and state.state == "heat"
+                and not self._lead.get(eid)
+                and self._effective_device_mode(eid, now) == DEVICE_MODE_AUTO
+            ):
+                return True
+        return False
 
     def _update_lead(self, decision, room_temp, boost):
         """Learn each primary heater's sensor offset and set its warm-up setpoint lead.
@@ -1803,6 +1836,7 @@ class SmartClimateEntity(ClimateEntity):
                 "own_temperature": self._device_current_temp(eid),
                 "offset": None if offset is None else round(offset, 2),
                 "lead": self._lead.get(eid, 0),
+                "trim": self._trim,
                 "defrosting": bool(self._defrosting.get(eid)),
                 "defrosts": self._defrosts.get(eid, 0),
             }

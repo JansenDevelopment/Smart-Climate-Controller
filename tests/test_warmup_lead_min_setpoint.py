@@ -221,7 +221,7 @@ def test_learning_sensors_read_the_climate_attribute():
     )
 
     attrs = {"learning": {"climate.qlima_climate": {
-        "own_temperature": 24, "offset": 3.4, "lead": 3, "defrosting": True, "defrosts": 5}},
+        "own_temperature": 24, "offset": 3.4, "lead": 3, "trim": 1.0, "defrosting": True, "defrosts": 5}},
         "room_trend": 1.03}
     climate = MagicMock()
     climate.attributes = attrs
@@ -237,7 +237,7 @@ def test_learning_sensors_read_the_climate_attribute():
         if key == "defrosts":
             assert s.extra_state_attributes == {"defrosting": True}
             assert s._attr_unique_id == "smart_climate_defrosts_qlima_climate_e1"
-    assert got == {"own_temperature": 24, "offset": 3.4, "lead": 3, "defrosts": 5}
+    assert got == {"own_temperature": 24, "offset": 3.4, "lead": 3, "trim": 1.0, "defrosts": 5}
     rate = SmartClimateWarmupRateSensor(hass, entry)
     rate._climate_entity_id = "climate.smart_climate"
     assert rate.native_value == 1.03
