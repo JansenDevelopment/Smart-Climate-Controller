@@ -59,6 +59,10 @@ CONF_OVERRIDE = "override"
 CONF_FAN_BOOST = "fan_boost"
 CONF_HOLD_PRIMARY = "hold_primary"
 CONF_QUIET_HOLD = "quiet_hold"
+# Cap on the warm-up setpoint lead (whole degrees over the target). A higher lead warms
+# the room near the room sensor faster but overheats the far end of the house.
+CONF_LEAD_MAX = "lead_max"
+DEFAULT_LEAD_MAX = 6
 
 # Action log: the last LOG_SIZE entries as an attribute, every entry also as a
 # bus event (the recorder keeps those) for later analysis.

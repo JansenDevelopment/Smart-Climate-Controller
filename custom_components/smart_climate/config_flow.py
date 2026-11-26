@@ -25,6 +25,7 @@ from .const import (
     CONF_HYSTERESIS,
     CONF_INTEGRATION_DRIVEN_AUTO,
     CONF_INTERRUPTIBLE,
+    CONF_LEAD_MAX,
     CONF_MIN_SETPOINT,
     CONF_OUTDOOR_SENSOR,
     CONF_PARK,
@@ -42,6 +43,7 @@ from .const import (
     CONF_ZONE_HOME,
     DEFAULT_HARD_CEILING,
     DEFAULT_HYSTERESIS,
+    DEFAULT_LEAD_MAX,
     DEFAULT_SKIP_UNTIL,
     DEFAULT_SUPPORT_DELTA,
     DEFAULT_SUPPORT_GRACE_MIN,
@@ -343,6 +345,12 @@ class SmartClimateOptionsFlow(OptionsFlow):
                     default=current.get(CONF_SUPPORT_MIN_RISE, DEFAULT_SUPPORT_MIN_RISE),
                 ): selector.NumberSelector(
                     selector.NumberSelectorConfig(min=0, max=3, step=0.1, unit_of_measurement="°C/h", mode=selector.NumberSelectorMode.BOX)
+                ),
+                vol.Optional(
+                    CONF_LEAD_MAX,
+                    default=current.get(CONF_LEAD_MAX, DEFAULT_LEAD_MAX),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(min=0, max=10, step=1, unit_of_measurement="°C", mode=selector.NumberSelectorMode.BOX)
                 ),
                 vol.Optional(
                     CONF_SKIP_UNTIL,

@@ -106,6 +106,7 @@
           "support_delta": "Support heater joins below target by (°C)",
           "support_grace": "Support waits (minutes)",
           "support_min_rise": "Support joins only below this warming rate (°C/h)",
+          "lead_max": "Max setpoint lead while warming up (°C)",
           "skip_until": "Skip support until (time)",
           "external_takeover": "Hand operation wins"
         },
@@ -122,6 +123,7 @@
           "support_delta": "The support heater joins when the room is this far below the heat target, and leaves again below half of it",
           "support_grace": "How long the primary heater gets to close the gap before the support heater may join (0 = join immediately)",
           "support_min_rise": "The support heater only joins when the room warms slower than this. A steady warm-up (e.g. after arriving home) does not need support",
+          "lead_max": "How far above the target the main heater's own setpoint may go while the room warms up (its own sensor reads the warm air near the unit). Higher warms faster near the room sensor but can overheat the far end of the house. 0 = no lead",
           "skip_until": "'Skip support until morning' pauses the support heater until this time (default 10:00)",
           "external_takeover": "When a device is operated outside the coordinator (remote, its own app) it is left alone as 'manual' for the default override duration instead of being set back"
         }

@@ -201,6 +201,13 @@ class RoomTrend:
 # the room was within half the margin.
 SUPPORT_SLOW_MINUTES = 20
 
+# A defrosting primary heater blows cold for a few minutes and the room dips (Qlima
+# 26-11-2026, 0 deg outside: 20.5 -> 19.7 in 5 min, own sensor 30 -> 14). That is not a
+# heater that cannot keep up, so the support heater does not join while a primary
+# defrosts nor for this long after (the room needs ~15 min to recover); the 20-min
+# stall then starts counting afresh. A support heater already on stays on.
+DEFROST_SETTLE_MINUTES = 10
+
 
 def support_needed(
     room_temp: float | None,
@@ -254,6 +261,10 @@ def support_needed(
 # room. High while the room is more than BOOST_HIGH below the target, medium
 # within that, the device's own auto once it is within BOOST_AUTO.
 BOOST_HIGH = 1.0
+# In the cold the fan stays on high until the room is within BOOST_AUTO (Qlima
+# 26-11-2026, 0 deg outside: medium at 0.7 under took the room 20.8 -> 20.3 in 6 min,
+# the warm air no longer reached the room sensor 5 m away).
+BOOST_COLD_OUTDOOR = 5.0
 BOOST_AUTO = 0.3
 BOOST_BACKOFF = 0.2      # step down only once the deficit is this far past the threshold
 BOOST_HOLD_MINUTES = 10  # a fan step stays at least this long (every command beeps)
@@ -352,21 +363,25 @@ def setpoint_lead(
     prev_lead: int,
     offset: float | None,
     lead_on: float = LEAD_ON,
+    lead_max: float = LEAD_MAX,
 ) -> int:
     """Whole degrees to add to a heating primary's setpoint (0 = the plain target).
 
     Every setpoint change beeps on some devices, so the lead only changes when it has
     to: it starts at the measured offset, goes up while the room stays short and the
     offset has grown ``LEAD_STEP`` past it, and drops to 0 once the room is within
-    ``LEAD_OFF`` of the target.
+    ``LEAD_OFF`` of the target.  ``lead_max`` caps it (option, default ``LEAD_MAX``).
     """
     if room_temp is None or target is None:
         return prev_lead
     deficit = target - room_temp
-    wanted = int(min(max(offset, 0), LEAD_MAX) + 0.5) if offset is not None else 0
+    lead_max = max(lead_max, 0)
+    wanted = int(min(max(offset, 0), lead_max) + 0.5) if offset is not None else 0
     if prev_lead:
         if deficit <= LEAD_OFF:
             return 0
+        if prev_lead > lead_max:
+            return int(lead_max)  # the cap was lowered while warming up
         if offset is not None and offset >= prev_lead + LEAD_STEP:
             return max(prev_lead, wanted)
         return prev_lead
@@ -382,6 +397,7 @@ def fan_for(
     held_minutes: float | None,
     fan_modes: list[str] | None,
     quiet: bool = False,
+    high_above: float = BOOST_HIGH,
 ) -> str | None:
     """The fan mode a heating device should run at, or None to leave it alone.
 
@@ -392,6 +408,8 @@ def fan_for(
     flap around a threshold.  Only modes the device advertises are returned.
     ``quiet`` (quiet hold): medium stays until the room is ``QUIET_AUTO_ABOVE``
     over the target and the step has run ``QUIET_HOLD_MINUTES``.
+    ``high_above``: the deficit above which the fan runs high (``BOOST_HIGH``; in the
+    cold ``BOOST_AUTO``, so it goes from high straight to the near-target step).
     """
     if room_temp is None or target is None or not fan_modes:
         return None
@@ -399,10 +417,10 @@ def fan_for(
     if not available:
         return None
     deficit = round(target - room_temp, 2)  # sensors report tenths: 21.5 - 21.7 must be -0.2
-    want = "high" if deficit > BOOST_HIGH else "medium" if deficit > BOOST_AUTO else "auto"
+    want = "high" if deficit > high_above else "medium" if deficit > BOOST_AUTO else "auto"
     held = held_minutes if held_minutes is not None else 0
     if prev_fan in FAN_ORDER and FAN_ORDER.index(want) < FAN_ORDER.index(prev_fan):
-        threshold = BOOST_HIGH if prev_fan == "high" else BOOST_AUTO
+        threshold = high_above if prev_fan == "high" else BOOST_AUTO
         if held < BOOST_HOLD_MINUTES or deficit > threshold - BOOST_BACKOFF:
             want = prev_fan
     if quiet and want == "auto":

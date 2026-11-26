@@ -92,6 +92,7 @@ from .const import (
     CONF_HVAC_MODE,
     CONF_HYSTERESIS,
     CONF_INTERRUPTIBLE,
+    CONF_LEAD_MAX,
     CONF_LEARNED,
     CONF_MIN_SETPOINT,
     CONF_OBSERVE,
@@ -119,6 +120,7 @@ from .const import (
     COOLING_MODES,
     DEFAULT_HARD_CEILING,
     DEFAULT_HYSTERESIS,
+    DEFAULT_LEAD_MAX,
     DEFAULT_SKIP_UNTIL,
     DEFAULT_SUPPORT_BOOST_MIN,
     DEFAULT_SUPPORT_DELTA,
@@ -355,6 +357,7 @@ class SmartClimateEntity(ClimateEntity):
         self._lead = {}          # entity_id -> setpoint lead while warming up (whole degrees)
         self._defrosting = {}      # entity_id -> True while its own sensor reads cold air while heating
         self._defrosts = {}        # entity_id -> defrost cycles counted since the start
+        self._defrost_end = {}     # entity_id -> when its last defrost ended
         self._above_since = None   # room more than TRIM_ABOVE over the hold target since
         self._below_since = None   # room more than TRIM_BELOW under the hold target since
         self._hold_target = None
@@ -835,6 +838,12 @@ class SmartClimateEntity(ClimateEntity):
             self._slow_since = None
         # The support heater only ever joins while we are heating, and only
         # when the user has not switched it off.
+        elif (
+            self._support_enabled and decision.intent == control.HEAT
+            and not self._support_active and self._defrost_settling(now)
+        ):
+            # A primary defrosts (or just did): the dip is not a stall. Count afresh after.
+            self._slow_since = None
         elif self._support_enabled and decision.intent == control.HEAT:
             min_rise = self._conf(CONF_SUPPORT_MIN_RISE, DEFAULT_SUPPORT_MIN_RISE)
             rise = self._room_trend.rise_per_hour(since=self._heat_since, min_span_minutes=10)
@@ -920,6 +929,9 @@ class SmartClimateEntity(ClimateEntity):
 
         boost = bool(self._conf(CONF_FAN_BOOST, False))
         quiet = bool(self._conf(CONF_QUIET_HOLD, False))
+        outdoor = self._outdoor_temperature()
+        cold = outdoor is not None and outdoor <= control.BOOST_COLD_OUTDOOR
+        high_above = control.BOOST_AUTO if cold else control.BOOST_HIGH
         self._update_lead(decision, room_temp, boost)
         self._persist_learning()
         caps = self._device_caps()
@@ -934,6 +946,7 @@ class SmartClimateEntity(ClimateEntity):
                     (now - since).total_seconds() / 60 if since else None,
                     cap["fan_modes"],
                     quiet=quiet,  # quiet hold: medium stays around the target
+                    high_above=high_above,  # cold: high until within BOOST_AUTO
                 )
         commands = control.plan_routes(
             decision, caps, support_active=self._support_active,
@@ -1016,6 +1029,8 @@ class SmartClimateEntity(ClimateEntity):
             if defrosting and not self._defrosting.get(eid):
                 self._defrosts[eid] = self._defrosts.get(eid, 0) + 1
                 self._log_action(WHO_DEVICE, eid, f"ontdooit (eigen sensor {own:g}°)", room_temp)
+            elif self._defrosting.get(eid) and not defrosting:
+                self._defrost_end[eid] = dt_util.now()
             self._defrosting[eid] = defrosting
             if (
                 not boost
@@ -1028,7 +1043,15 @@ class SmartClimateEntity(ClimateEntity):
             self._lead[eid] = control.setpoint_lead(
                 room_temp, decision.target, self._lead.get(eid, 0), self._offset.get(eid),
                 lead_on=control.QUIET_LEAD_ON if self._conf(CONF_QUIET_HOLD, False) else control.LEAD_ON,
+                lead_max=float(self._conf(CONF_LEAD_MAX, DEFAULT_LEAD_MAX)),
             )
+
+    def _defrost_settling(self, now):
+        """A primary heater defrosts, or did so less than DEFROST_SETTLE_MINUTES ago."""
+        if any(self._defrosting.values()):
+            return True
+        settle = timedelta(minutes=control.DEFROST_SETTLE_MINUTES)
+        return any(now - end < settle for end in self._defrost_end.values())
 
     async def _execute(self, cmd):
         """Apply one DeviceCommand, only calling services when state differs.

@@ -120,6 +120,8 @@ mode would hand that decision back to whoever set it.
 
 - **Fan boost** (`fan_boost`, switch + `set_behaviour`, default off): `control.fan_for` picks high / medium /
   auto from the deficit (> 1 deg / > 0.3 deg / near), steps up at once, down only after 10 min and a 0.2 deg backoff.
+  At outdoor <= `BOOST_COLD_OUTDOOR` 5 deg (1.9.0) high runs down to 0.3 under (`fan_for(high_above=BOOST_AUTO)`):
+  26-11-2026 medium at 0.7 under took the room 20.8 -> 20.3 in 6 min. No outdoor value = the mild thresholds.
   Only primary devices with `fan_modes`. Measured on a Qlima: high warms 2-3x faster.
 - **Hold** (`hold_primary`, default off): while the intent is idle, a primary heater keeps heating at the target
   (`plan_routes(hold_target=...)`) instead of being parked; `control.hold_trim` lowers its setpoint 1 deg after the
@@ -148,7 +150,8 @@ mode would hand that decision back to whoever set it.
 - **Warm-up lead** (1.5, part of the fan boost): a primary heater's own sensor reads the warm air near the unit (Qlima
   +3..4 over the room sensor), so at the plain target it throttles down long before the room is there.
   `control.update_offset` learns that offset while it heats (slow EMA; samples under the room = defrost, skipped) and
-  `control.setpoint_lead` adds it (whole degrees, max 6, capped at `max_temp`) to the heat setpoint while the room is
+  `control.setpoint_lead` adds it (whole degrees, max option `lead_max`, default 6, capped at `max_temp`; a lower cap
+  takes effect at once) to the heat setpoint while the room is
   > 0.5 under the target, until within 0.2 (every setpoint change beeps). While short it only goes up, once the
   offset has grown a whole degree past it (1.5.4: fan up + swing off took the offset to 5-6 with the lead stuck at
   3, room hung 0.5-1 under the target for hours). Not used while holding.
@@ -164,6 +167,9 @@ mode would hand that decision back to whoever set it.
 - **Support joins on a sustained stall** (1.5.5): besides deficit >= `support_delta` and `support_grace` minutes of
   heating, the room must warm slower than `support_min_rise` for `SUPPORT_SLOW_MINUTES` (20) in a row
   (`_slow_since` in climate.py). One sensor tick down during a morning warm-up latched the CV on until deficit < 0.75.
+  **Not during a defrost** (1.9.0): while a primary defrosts and `DEFROST_SETTLE_MINUTES` (10) after, the support
+  heater does not join and `_slow_since` is reset (one already on stays on). 26-11-2026 a defrost at 0 deg took the
+  room 20.5 -> 19.7 and latched the CV on (replayed in `tests/test_defrost_cold_leadmax.py`).
 - **`fan_mode` is the boost setting, not the device** (1.5.7): "auto" while `fan_boost` is on; choosing a fixed mode
   switches the boost off and holds the device there, "auto" switches it back on. Before, it mirrored the device ("high").
 - **"CV erbij" = `set_support_boost`** (1.6.0): forces the support tier on while heating (ignores the support switch and
