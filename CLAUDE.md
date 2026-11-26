@@ -131,6 +131,7 @@ mode would hand that decision back to whoever set it.
   step restarts both timers. No learning under `HOLD_FLOOR` (night) or with the primary on manual/off, so the trim
   survives the night. Why: 19-25 nov 2026 the Qlima got the plain target after the lead, read +2.5 on its own sensor
   and the room hung 0.7-1.0 under 21.5 all day (just above the `QUIET_LEAD_ON` threshold). Sensor `<device> setpoint trim`.
+  Setback-or-hold is decided on the target plus only a *negative* trim (1.8.1: knop 4's 15 deg with trim +3 heated at 18).
   A heat target below `min_temp` is off as well. `min_temp` = the higher of the reported one and the device
   subentry's `min_setpoint` (1.5).
 - **Quiet hold** (`quiet_hold`, switch + `set_behaviour`, default off, 1.7, reworked 1.7.2): fewer commands near

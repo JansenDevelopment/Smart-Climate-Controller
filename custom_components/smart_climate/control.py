@@ -604,10 +604,13 @@ def plan_routes(
             # Keep a primary heater running at the target instead of cycling it
             # off and on: it modulates on its own sensor (the user runs it like
             # that by hand), the coordinator only trims the setpoint.
-            temp = _round_to_step(hold_target + dev.get("trim", 0.0), dev.get("step"))
+            trim = dev.get("trim", 0.0)
+            temp = _round_to_step(hold_target + trim, dev.get("step"))
             min_temp = dev.get("min_temp")
             floor = max(min_temp, HOLD_FLOOR) if isinstance(min_temp, (int, float)) else HOLD_FLOOR
-            if temp < floor:
+            # Setback or hold is decided without an upward trim: a 15 deg "off until the next
+            # block" (knop 4) with trim +3 must not become heating at 18 (1.8.1, 25-11-2026).
+            if _round_to_step(hold_target + min(trim, 0.0), dev.get("step")) < floor:
                 commands.append(DeviceCommand(entity_id, OFF))  # a setback, not a hold: off
             else:
                 commands.append(DeviceCommand(entity_id, HEAT, temp, dev.get("fan")))
