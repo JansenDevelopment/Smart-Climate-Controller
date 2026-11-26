@@ -92,6 +92,7 @@ from .const import (
     CONF_HVAC_MODE,
     CONF_HYSTERESIS,
     CONF_INTERRUPTIBLE,
+    CONF_LEARNED,
     CONF_MIN_SETPOINT,
     CONF_OBSERVE,
     CONF_OUTDOOR_CACHE,
@@ -131,6 +132,7 @@ from .const import (
     DOMAIN,
     EVENT_LOG,
     EXTERNAL_SETTLE_SECONDS,
+    LEARNED_OFFSET_STEP,
     LOG_SIZE,
     MODE_AUTO,
     MODE_OVERRIDE_INFINITY,
@@ -337,9 +339,20 @@ class SmartClimateEntity(ClimateEntity):
         # Observe ("proefdraaien"), fan boost, hold trim and the action log.
         self._observe = bool(entry.data.get(CONF_OBSERVE, False))
         self._fan_state = {}       # entity_id -> (fan mode the boost chose, since)
-        self._trim = 0.0
-        self._offset = {}          # entity_id -> how much warmer its own sensor reads than the room
-        self._lead = {}            # entity_id -> setpoint lead while warming up (whole degrees)
+        # Trim and sensor offsets come back from storage: relearning them took the morning
+        # after every restart (26-11-2026: trim 3 -> 0, offset 5.7 -> 0.8, setpoint 23 not 28).
+        learned = entry.data.get(CONF_LEARNED) or {}
+        trim = learned.get("trim")
+        self._trim = (
+            min(max(float(trim), -control.TRIM_STEP), control.TRIM_MAX)
+            if isinstance(trim, (int, float)) else 0.0
+        )
+        self._offset = {           # entity_id -> how much warmer its own sensor reads than the room
+            eid: float(v) for eid, v in (learned.get("offset") or {}).items()
+            if isinstance(v, (int, float)) and v >= 0
+        }
+        self._learned_saved = (self._trim, dict(self._offset))
+        self._lead = {}          # entity_id -> setpoint lead while warming up (whole degrees)
         self._defrosting = {}      # entity_id -> True while its own sensor reads cold air while heating
         self._defrosts = {}        # entity_id -> defrost cycles counted since the start
         self._above_since = None   # room more than TRIM_ABOVE over the hold target since
@@ -908,6 +921,7 @@ class SmartClimateEntity(ClimateEntity):
         boost = bool(self._conf(CONF_FAN_BOOST, False))
         quiet = bool(self._conf(CONF_QUIET_HOLD, False))
         self._update_lead(decision, room_temp, boost)
+        self._persist_learning()
         caps = self._device_caps()
         for cap in caps:
             cap["fan"] = None
@@ -944,6 +958,27 @@ class SmartClimateEntity(ClimateEntity):
             return
         for cmd in commands:
             await self._execute(cmd)
+
+    def _persist_learning(self):
+        """Store the trim and sensor offsets once they changed enough to matter.
+
+        Every store is a config-entry save, so an offset (a slow average, updated every
+        10 s) is only written again once it moved ``LEARNED_OFFSET_STEP``; a trim at once.
+        """
+        trim, offsets = self._learned_saved
+        current = {eid: v for eid, v in self._offset.items() if isinstance(v, (int, float))}
+        moved = (
+            trim != self._trim
+            or set(offsets) != set(current)
+            or any(abs(v - offsets[eid]) >= LEARNED_OFFSET_STEP for eid, v in current.items())
+        )
+        if not moved:
+            return
+        self._learned_saved = (self._trim, current)
+        self._persist(**{CONF_LEARNED: {
+            "trim": self._trim,
+            "offset": {eid: round(v, 2) for eid, v in current.items()},
+        }})
 
     def _primary_at_plain_target(self, now):
         """A primary heater on auto heats without a warm-up lead (the trim's learning moment)."""
