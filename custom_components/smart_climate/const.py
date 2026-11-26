@@ -43,6 +43,8 @@ CONF_DEVICE_MODES = "device_modes"
 CONF_DEVICE_SEEDED = "device_modes_seeded"
 CONF_EXTERNAL_TAKEOVER = "external_takeover"
 CONF_OUTDOOR_CACHE = "outdoor_max_cache"
+# What the coordinator learned (hold trim + per-device sensor offset), so a restart keeps it.
+CONF_LEARNED = "learned"
 CONF_CONTROL = "control"
 CONF_SKIP_UNTIL = "skip_until"
 CONF_PARK = "park"
@@ -105,6 +107,8 @@ COMMAND_CONFIRM_SECONDS = 6
 COMMAND_GAP_SECONDS = 1
 RETRY_SECONDS = 20
 RETRY_TIMES = 3
+# A learned sensor offset is stored again only once it moved this far (each store is a save).
+LEARNED_OFFSET_STEP = 0.5
 # After a restart: wait this long for the chosen room sensor before driving anything.
 STARTUP_SENSOR_WAIT_SECONDS = 120
 # A device must be unavailable this long before routing gives up on it (localtuya
