@@ -353,8 +353,14 @@ class SmartClimateEntity(ClimateEntity):
             eid: float(v) for eid, v in (learned.get("offset") or {}).items()
             if isinstance(v, (int, float)) and v >= 0
         }
-        self._learned_saved = (self._trim, dict(self._offset))
-        self._lead = {}          # entity_id -> setpoint lead while warming up (whole degrees)
+        # The warm-up lead too (1.9.1): after a restart it only came back once the room was
+        # LEAD_ON (quiet: 1.0) under the target, so the Qlima ran at the plain target and
+        # throttled meanwhile (26-11-2026: 28 -> 22 with its own sensor at 29).
+        self._lead = {           # entity_id -> setpoint lead while warming up (whole degrees)
+            eid: int(v) for eid, v in (learned.get("lead") or {}).items()
+            if isinstance(v, (int, float)) and 0 < v <= 10
+        }
+        self._learned_saved = (self._trim, dict(self._offset), dict(self._lead))
         self._defrosting = {}      # entity_id -> True while its own sensor reads cold air while heating
         self._defrosts = {}        # entity_id -> defrost cycles counted since the start
         self._defrost_end = {}     # entity_id -> when its last defrost ended
@@ -973,24 +979,28 @@ class SmartClimateEntity(ClimateEntity):
             await self._execute(cmd)
 
     def _persist_learning(self):
-        """Store the trim and sensor offsets once they changed enough to matter.
+        """Store the trim, sensor offsets and warm-up leads once they changed enough to matter.
 
         Every store is a config-entry save, so an offset (a slow average, updated every
-        10 s) is only written again once it moved ``LEARNED_OFFSET_STEP``; a trim at once.
+        10 s) is only written again once it moved ``LEARNED_OFFSET_STEP``; a trim or a
+        lead at once (both change rarely: every step beeps on the device).
         """
-        trim, offsets = self._learned_saved
+        trim, offsets, leads = self._learned_saved
         current = {eid: v for eid, v in self._offset.items() if isinstance(v, (int, float))}
+        lead = {eid: v for eid, v in self._lead.items() if v}
         moved = (
             trim != self._trim
+            or leads != lead
             or set(offsets) != set(current)
             or any(abs(v - offsets[eid]) >= LEARNED_OFFSET_STEP for eid, v in current.items())
         )
         if not moved:
             return
-        self._learned_saved = (self._trim, current)
+        self._learned_saved = (self._trim, current, lead)
         self._persist(**{CONF_LEARNED: {
             "trim": self._trim,
             "offset": {eid: round(v, 2) for eid, v in current.items()},
+            "lead": lead,
         }})
 
     def _primary_at_plain_target(self, now):

@@ -135,7 +135,8 @@ mode would hand that decision back to whoever set it.
   and the room hung 0.7-1.0 under 21.5 all day (just above the `QUIET_LEAD_ON` threshold). Sensor `<device> setpoint trim`.
   Setback-or-hold is decided on the target plus only a *negative* trim (1.8.1: knop 4's 15 deg with trim +3 heated at 18).
   Trim and the learned sensor offsets are stored in `entry.data['learned']` (1.8.2) and restored at start: the trim on
-  every change, an offset once it moved `LEARNED_OFFSET_STEP` 0.5 (each store is a config-entry save). Lead is not stored.
+  every change, an offset once it moved `LEARNED_OFFSET_STEP` 0.5 (each store is a config-entry save). The warm-up lead is
+  stored on every change too (1.9.1, key `lead`): without it a restart sent the plain target until the room was LEAD_ON under.
   A heat target below `min_temp` is off as well. `min_temp` = the higher of the reported one and the device
   subentry's `min_setpoint` (1.5).
 - **Quiet hold** (`quiet_hold`, switch + `set_behaviour`, default off, 1.7, reworked 1.7.2): fewer commands near
